@@ -1,0 +1,71 @@
+[0.000000] (-) TimerEvent: {}
+[0.000133] (-) JobUnselected: {'identifier': 'stm32_bridge'}
+[0.000174] (ros2_test1) JobQueued: {'identifier': 'ros2_test1', 'dependencies': OrderedDict()}
+[0.000202] (ros2_test1) JobStarted: {'identifier': 'ros2_test1'}
+[0.099019] (-) TimerEvent: {}
+[0.199287] (-) TimerEvent: {}
+[0.299579] (-) TimerEvent: {}
+[0.399872] (-) TimerEvent: {}
+[0.500152] (-) TimerEvent: {}
+[0.600430] (-) TimerEvent: {}
+[0.700729] (-) TimerEvent: {}
+[0.735646] (ros2_test1) Command: {'cmd': ['/usr/bin/python3', '-W', 'ignore:setup.py install is deprecated', '-W', 'ignore:easy_install command is deprecated', 'setup.py', 'egg_info', '--egg-base', '../build/ros2_test1', 'build', '--build-base', '/home/cat/ros2_ws/build/ros2_test1/build', 'install', '--record', '/home/cat/ros2_ws/build/ros2_test1/install.log', '--single-version-externally-managed', 'install_data'], 'cwd': '/home/cat/ros2_ws/ros2_test1', 'env': {'USER': 'cat', 'SSH_CLIENT': '192.168.137.1 59775 22', 'XDG_SESSION_TYPE': 'tty', 'SHLVL': '1', 'LD_LIBRARY_PATH': '/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/aarch64-linux-gnu:/opt/ros/humble/lib', 'MOTD_SHOWN': 'pam', 'HOME': '/home/cat', 'MUTTER_DEBUG_ENABLE_ATOMIC_KMS': '0', 'OLDPWD': '/home/cat', 'ROS_PYTHON_VERSION': '3', 'DBUS_SESSION_BUS_ADDRESS': 'unix:path=/run/user/1000/bus', 'ROS_DISTRO': 'humble', 'LOGNAME': 'cat', '_': '/usr/bin/colcon', 'ROS_VERSION': '2', 'XDG_SESSION_CLASS': 'user', 'XDG_SESSION_ID': '60', 'ROS_LOCALHOST_ONLY': '0', 'PATH': '/opt/ros/humble/bin:/home/cat/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin', 'XDG_RUNTIME_DIR': '/run/user/1000', 'LANG': 'zh_CN.UTF-8', 'AMENT_PREFIX_PATH': '/opt/ros/humble', 'SHELL': '/bin/bash', 'CLUTTER_PAINT': 'disable-dynamic-max-render-time', 'MUTTER_DEBUG_FORCE_KMS_MODE': 'simple', 'PWD': '/home/cat/ros2_ws/build/ros2_test1', 'SSH_CONNECTION': '192.168.137.1 59775 192.168.137.207 22', 'XDG_DATA_DIRS': '/usr/share/gnome:/usr/local/share:/usr/share:/var/lib/snapd/desktop', 'PYTHONPATH': '/home/cat/ros2_ws/build/ros2_test1/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages', 'COLCON': '1'}, 'shell': False}
+[0.800888] (-) TimerEvent: {}
+[0.901155] (-) TimerEvent: {}
+[1.001430] (-) TimerEvent: {}
+[1.008902] (ros2_test1) StdoutLine: {'line': b'running egg_info\n'}
+[1.009663] (ros2_test1) StdoutLine: {'line': b'creating ../build/ros2_test1/ros2_test1.egg-info\n'}
+[1.010021] (ros2_test1) StdoutLine: {'line': b'writing ../build/ros2_test1/ros2_test1.egg-info/PKG-INFO\n'}
+[1.010529] (ros2_test1) StdoutLine: {'line': b'writing dependency_links to ../build/ros2_test1/ros2_test1.egg-info/dependency_links.txt\n'}
+[1.010659] (ros2_test1) StdoutLine: {'line': b'writing entry points to ../build/ros2_test1/ros2_test1.egg-info/entry_points.txt\n'}
+[1.010897] (ros2_test1) StdoutLine: {'line': b'writing requirements to ../build/ros2_test1/ros2_test1.egg-info/requires.txt\n'}
+[1.010996] (ros2_test1) StdoutLine: {'line': b'writing top-level names to ../build/ros2_test1/ros2_test1.egg-info/top_level.txt\n'}
+[1.011077] (ros2_test1) StdoutLine: {'line': b"writing manifest file '../build/ros2_test1/ros2_test1.egg-info/SOURCES.txt'\n"}
+[1.013069] (ros2_test1) StdoutLine: {'line': b"reading manifest file '../build/ros2_test1/ros2_test1.egg-info/SOURCES.txt'\n"}
+[1.014132] (ros2_test1) StdoutLine: {'line': b"writing manifest file '../build/ros2_test1/ros2_test1.egg-info/SOURCES.txt'\n"}
+[1.014417] (ros2_test1) StdoutLine: {'line': b'running build\n'}
+[1.014699] (ros2_test1) StdoutLine: {'line': b'running build_py\n'}
+[1.014874] (ros2_test1) StdoutLine: {'line': b'creating /home/cat/ros2_ws/build/ros2_test1/build\n'}
+[1.015057] (ros2_test1) StdoutLine: {'line': b'creating /home/cat/ros2_ws/build/ros2_test1/build/lib\n'}
+[1.015136] (ros2_test1) StdoutLine: {'line': b'creating /home/cat/ros2_ws/build/ros2_test1/build/lib/ros2_test1\n'}
+[1.015234] (ros2_test1) StdoutLine: {'line': b'copying ros2_test1/__init__.py -> /home/cat/ros2_ws/build/ros2_test1/build/lib/ros2_test1\n'}
+[1.015326] (ros2_test1) StdoutLine: {'line': b'copying ros2_test1/face_detector.py -> /home/cat/ros2_ws/build/ros2_test1/build/lib/ros2_test1\n'}
+[1.015410] (ros2_test1) StdoutLine: {'line': b'copying ros2_test1/target_vision.py -> /home/cat/ros2_ws/build/ros2_test1/build/lib/ros2_test1\n'}
+[1.015873] (ros2_test1) StdoutLine: {'line': b'creating /home/cat/ros2_ws/build/ros2_test1/build/lib/ros2_test1/assets\n'}
+[1.015967] (ros2_test1) StdoutLine: {'line': b'copying ros2_test1/assets/blue.png -> /home/cat/ros2_ws/build/ros2_test1/build/lib/ros2_test1/assets\n'}
+[1.016142] (ros2_test1) StdoutLine: {'line': b'copying ros2_test1/assets/red.png -> /home/cat/ros2_ws/build/ros2_test1/build/lib/ros2_test1/assets\n'}
+[1.016463] (ros2_test1) StdoutLine: {'line': b'running install\n'}
+[1.017006] (ros2_test1) StdoutLine: {'line': b'running install_lib\n'}
+[1.018034] (ros2_test1) StdoutLine: {'line': b'creating /home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages/ros2_test1\n'}
+[1.018256] (ros2_test1) StdoutLine: {'line': b'copying /home/cat/ros2_ws/build/ros2_test1/build/lib/ros2_test1/__init__.py -> /home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages/ros2_test1\n'}
+[1.018347] (ros2_test1) StdoutLine: {'line': b'copying /home/cat/ros2_ws/build/ros2_test1/build/lib/ros2_test1/face_detector.py -> /home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages/ros2_test1\n'}
+[1.018525] (ros2_test1) StdoutLine: {'line': b'copying /home/cat/ros2_ws/build/ros2_test1/build/lib/ros2_test1/target_vision.py -> /home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages/ros2_test1\n'}
+[1.018611] (ros2_test1) StdoutLine: {'line': b'creating /home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages/ros2_test1/assets\n'}
+[1.018761] (ros2_test1) StdoutLine: {'line': b'copying /home/cat/ros2_ws/build/ros2_test1/build/lib/ros2_test1/assets/red.png -> /home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages/ros2_test1/assets\n'}
+[1.018840] (ros2_test1) StdoutLine: {'line': b'copying /home/cat/ros2_ws/build/ros2_test1/build/lib/ros2_test1/assets/blue.png -> /home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages/ros2_test1/assets\n'}
+[1.019459] (ros2_test1) StdoutLine: {'line': b'byte-compiling /home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages/ros2_test1/__init__.py to __init__.cpython-310.pyc\n'}
+[1.019735] (ros2_test1) StdoutLine: {'line': b'byte-compiling /home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages/ros2_test1/face_detector.py to face_detector.cpython-310.pyc\n'}
+[1.020008] (ros2_test1) StdoutLine: {'line': b'byte-compiling /home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages/ros2_test1/target_vision.py to target_vision.cpython-310.pyc\n'}
+[1.025496] (ros2_test1) StdoutLine: {'line': b'running install_data\n'}
+[1.025667] (ros2_test1) StdoutLine: {'line': b'creating /home/cat/ros2_ws/install/ros2_test1/share\n'}
+[1.025874] (ros2_test1) StdoutLine: {'line': b'creating /home/cat/ros2_ws/install/ros2_test1/share/ament_index\n'}
+[1.026083] (ros2_test1) StdoutLine: {'line': b'creating /home/cat/ros2_ws/install/ros2_test1/share/ament_index/resource_index\n'}
+[1.026173] (ros2_test1) StdoutLine: {'line': b'creating /home/cat/ros2_ws/install/ros2_test1/share/ament_index/resource_index/packages\n'}
+[1.026275] (ros2_test1) StdoutLine: {'line': b'copying resource/ros2_test1 -> /home/cat/ros2_ws/install/ros2_test1/share/ament_index/resource_index/packages\n'}
+[1.026512] (ros2_test1) StdoutLine: {'line': b'creating /home/cat/ros2_ws/install/ros2_test1/share/ros2_test1\n'}
+[1.026592] (ros2_test1) StdoutLine: {'line': b'copying package.xml -> /home/cat/ros2_ws/install/ros2_test1/share/ros2_test1\n'}
+[1.026669] (ros2_test1) StdoutLine: {'line': b'creating /home/cat/ros2_ws/install/ros2_test1/share/ros2_test1/launch\n'}
+[1.026743] (ros2_test1) StdoutLine: {'line': b'copying launch/target_vision.launch.py -> /home/cat/ros2_ws/install/ros2_test1/share/ros2_test1/launch\n'}
+[1.026830] (ros2_test1) StdoutLine: {'line': b'creating /home/cat/ros2_ws/install/ros2_test1/share/ros2_test1/hook\n'}
+[1.026912] (ros2_test1) StdoutLine: {'line': b'copying hooks/ament_prefix_path.dsv -> /home/cat/ros2_ws/install/ros2_test1/share/ros2_test1/hook\n'}
+[1.026990] (ros2_test1) StdoutLine: {'line': b'copying hooks/ament_prefix_path.sh -> /home/cat/ros2_ws/install/ros2_test1/share/ros2_test1/hook\n'}
+[1.027063] (ros2_test1) StdoutLine: {'line': b'running install_egg_info\n'}
+[1.029117] (ros2_test1) StdoutLine: {'line': b'Copying ../build/ros2_test1/ros2_test1.egg-info to /home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages/ros2_test1-0.1.0-py3.10.egg-info\n'}
+[1.030172] (ros2_test1) StdoutLine: {'line': b'running install_scripts\n'}
+[1.057105] (ros2_test1) StdoutLine: {'line': b'Installing face_detector script to /home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1\n'}
+[1.057367] (ros2_test1) StdoutLine: {'line': b'Installing target_vision script to /home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1\n'}
+[1.057692] (ros2_test1) StdoutLine: {'line': b"writing list of installed files to '/home/cat/ros2_ws/build/ros2_test1/install.log'\n"}
+[1.101617] (-) TimerEvent: {}
+[1.106721] (ros2_test1) CommandEnded: {'returncode': 0}
+[1.119844] (ros2_test1) JobEnded: {'identifier': 'ros2_test1', 'rc': 0}
+[1.120437] (-) EventReactorShutdown: {}

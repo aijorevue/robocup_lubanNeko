@@ -1,0 +1,1 @@
+/home/cat/ros2_ws/ros2_test1/hooks/ament_prefix_path.sh

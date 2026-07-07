@@ -1,0 +1,14 @@
+package.xml
+setup.cfg
+setup.py
+../../build/stm32_bridge/stm32_bridge.egg-info/PKG-INFO
+../../build/stm32_bridge/stm32_bridge.egg-info/SOURCES.txt
+../../build/stm32_bridge/stm32_bridge.egg-info/dependency_links.txt
+../../build/stm32_bridge/stm32_bridge.egg-info/entry_points.txt
+../../build/stm32_bridge/stm32_bridge.egg-info/requires.txt
+../../build/stm32_bridge/stm32_bridge.egg-info/top_level.txt
+../../build/stm32_bridge/stm32_bridge.egg-info/zip-safe
+launch/bridge.launch.py
+resource/stm32_bridge
+stm32_bridge/__init__.py
+stm32_bridge/bridge_node.py

@@ -1,0 +1,18 @@
+lubancat端：
+终端一：
+pkill -f python 2>/dev/null; pkill -f robot_state 2>/dev/null
+source /opt/ros/humble/setup.bash
+export ROS_DOMAIN_ID=42
+URDF=$(cat /home/cat/ros2_ws/ros2_test1/ros2_test1/my_arm.urdf)
+ros2 run robot_state_publisher robot_state_publisher --ros-args -p robot_description:="$URDF"
+
+终端 2 — 黄球检测 + 网页推流：
+pkill -f python 2>/dev/null
+source /opt/ros/humble/setup.bash
+export ROS_DOMAIN_ID=42
+python3 ~/ros2_ws/ros2_test1/ros2_test1/face_detector.py
+浏览器打开 http://198.18.0.207:8080 看摄像头画面。
+终端 3 — RViz：
+source /opt/ros/jazzy/setup.bash
+export ROS_DOMAIN_ID=42
+rviz2

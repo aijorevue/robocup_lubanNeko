@@ -1,0 +1,12 @@
+Metadata-Version: 2.1
+Name: stm32-bridge
+Version: 0.1.0
+Summary: Serial bridge between STM32 and ROS2
+Home-page: UNKNOWN
+Maintainer: cat
+Maintainer-email: cat@lubancat
+License: Apache-2.0
+Platform: UNKNOWN
+
+UNKNOWN
+

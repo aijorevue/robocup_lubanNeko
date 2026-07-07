@@ -1,0 +1,911 @@
+==== 2026-07-06 22:16:59 start red square tracker ====
+Package 'ros2_test1' not found
+==== 2026-07-06 22:17:16 start red square tracker ====
+Package 'ros2_test1' not found
+==== 2026-07-06 22:17:25 start red square tracker ====
+Package 'ros2_test1' not found
+==== 2026-07-06 22:17:30 start red square tracker ====
+Package 'ros2_test1' not found
+==== 2026-07-06 22:17:32 start red square tracker ====
+Package 'ros2_test1' not found
+==== 2026-07-06 22:23:29 start red square tracker ====
+servo bridge on /dev/ttyS0
+==== 2026-07-06 22:23:37 start red square tracker ====
+Traceback (most recent call last):
+  File "/home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1/red_square_tracker", line 33, in <module>
+    sys.exit(load_entry_point('ros2-test1', 'console_scripts', 'red_square_tracker')())
+  File "/home/cat/ros2_ws/build/ros2_test1/ros2_test1/red_square_tracker.py", line 336, in main
+    cap = open_camera(args.device, args.width, args.height, args.fps)
+  File "/home/cat/ros2_ws/build/ros2_test1/ros2_test1/target_vision.py", line 2684, in open_camera
+    ok, _ = cap.read()
+KeyboardInterrupt
+[ros2run]: Interrupt
+==== 2026-07-06 22:23:39 start red square tracker ====
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/numpy/__init__.py", line 228, in <module>
+    core.getlimits._register_known_types()
+  File "/usr/lib/python3/dist-packages/numpy/core/getlimits.py", line 108, in _register_known_types
+    eps=exp2(f16(-10)),
+KeyboardInterrupt
+Traceback (most recent call last):
+  File "/home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1/red_square_tracker", line 33, in <module>
+    sys.exit(load_entry_point('ros2-test1', 'console_scripts', 'red_square_tracker')())
+  File "/home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1/red_square_tracker", line 25, in importlib_load_entry_point
+    return next(matches).load()
+  File "/usr/lib/python3.10/importlib/metadata/__init__.py", line 171, in load
+    module = import_module(match.group('module'))
+  File "/usr/lib/python3.10/importlib/__init__.py", line 126, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+  File "<frozen importlib._bootstrap>", line 1050, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1027, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1006, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 688, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 883, in exec_module
+  File "<frozen importlib._bootstrap>", line 241, in _call_with_frames_removed
+  File "/home/cat/ros2_ws/build/ros2_test1/ros2_test1/red_square_tracker.py", line 13, in <module>
+    import cv2
+ImportError: numpy.core.multiarray failed to import
+[ros2run]: Process exited with failure 1
+servo bridge on /dev/ttyS0
+Camera: /dev/video20 800x600 reported_fps=30.0
+SERVO UART TX=id6=517 attempt=1 RX=OK ID6 TARGET 517
+SERVO UART TX=id2=319 attempt=1 RX=OK ID2 TARGET 319  ARM UART READY
+SERVO UART TX=id6=526 attempt=1 RX=OK ID6 TARGET 526
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+SERVO UART TX=id6=538 attempt=1 RX=OK ID6 TARGET 538
+SERVO UART TX=id6=542 attempt=1 RX=OK ID6 TARGET 542  ARM UART READY
+SERVO UART TX=id6=545 attempt=1 RX=OK ID6 TARGET 545
+SERVO UART TX=id2=355 attempt=1 RX=OK ID2 TARGET 355
+SERVO UART TX=id6=554 attempt=1 RX=OK ID6 TARGET 554  ARM UART READY
+SERVO UART TX=id2=372 attempt=1 RX=OK ID2 TARGET 372
+SERVO UART TX=id6=558 attempt=1 RX=OK ID6 TARGET 558  ARM UART READY
+SERVO UART TX=id6=562 attempt=1 RX=OK ID6 TARGET 562
+SERVO UART TX=id2=339 attempt=1 RX=OK ID2 TARGET 339
+SERVO UART TX=id2=323 attempt=1 RX=OK ID2 TARGET 323  ARM UART READY
+SERVO UART TX=id2=365 attempt=1 RX=ARM UART READY  ARM UART READY  ARM UART READY  ARM UART READY  OK ID2 TARGET 365
+SERVO UART TX=id6=553 attempt=1 RX=OK ID6 TARGET 553
+SERVO UART TX=id2=384 attempt=1 RX=OK ID2 TARGET 384
+SERVO UART TX=id6=549 attempt=1 RX=OK ID6 TARGET 549
+SERVO UART TX=id6=546 attempt=1 RX=OK ID6 TARGET 546
+SERVO UART TX=id2=354 attempt=1 RX=OK ID2 TARGET 354
+SERVO UART TX=id6=554 attempt=1 RX=OK ID6 TARGET 554
+SERVO UART TX=id2=340 attempt=1 RX=OK ID2 TARGET 340
+SERVO UART TX=id6=556 attempt=1 RX=OK ID6 TARGET 556
+SERVO UART TX=id6=559 attempt=1 RX=OK ID6 TARGET 559  ARM UART READY
+SERVO UART TX=id6=561 attempt=1 RX=OK ID6 TARGET 561
+SERVO UART TX=id6=564 attempt=1 RX=OK ID6 TARGET 564
+SERVO UART TX=id2=320 attempt=1 RX=OK ID2 TARGET 320
+SERVO UART TX=id2=306 attempt=1 RX=OK ID2 TARGET 306  ARM UART READY
+SERVO UART TX=id2=348 attempt=1 RX=OK ID2 TARGET 348
+SERVO UART TX=id2=368 attempt=1 RX=OK ID2 TARGET 368
+SERVO UART TX=id6=572 attempt=1 RX=OK ID6 TARGET 572
+SERVO UART TX=id6=578 attempt=1 RX=OK ID6 TARGET 578
+SERVO UART TX=id6=582 attempt=1 RX=OK ID6 TARGET 582
+SERVO UART TX=id2=337 attempt=1 RX=OK ID2 TARGET 337
+SERVO UART TX=id2=325 attempt=1 RX=OK ID2 TARGET 325  ARM UART READY
+Traceback (most recent call last):
+  File "/home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1/red_square_tracker", line 33, in <module>
+    sys.exit(load_entry_point('ros2-test1', 'console_scripts', 'red_square_tracker')())
+  File "/home/cat/ros2_ws/build/ros2_test1/ros2_test1/red_square_tracker.py", line 355, in main
+    cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
+KeyboardInterrupt
+[ros2run]: Interrupt
+==== 2026-07-06 22:32:41 start red square tracker ====
+servo bridge on /dev/ttyS0
+Camera: /dev/video20 800x600 reported_fps=30.0
+SERVO UART TX=id2=313 attempt=1 RX=OK ID2 TARGET 313  ARM UART READY
+SERVO UART TX=id6=570 attempt=1 RX=OK ID6 TARGET 570
+TRACK STEP dx=31 dy=32 distance=24.8cm scale=1.65 dID2=-15 dID6=-10 target2=313 target6=570
+SERVO UART TX=id2=310 attempt=1 RX=OK ID2 TARGET 310
+SERVO UART TX=id6=568 attempt=1 RX=OK ID6 TARGET 568
+TRACK STEP dx=16 dy=12 distance=25.2cm scale=1.68 dID2=-6 dID6=-5 target2=310 target6=568
+SERVO UART TX=id2=310 attempt=1 RX=OK ID2 TARGET 310
+SERVO UART TX=id6=566 attempt=1 RX=OK ID6 TARGET 566
+TRACK STEP dx=11 dy=7 distance=25.5cm scale=1.70 dID2=-3 dID6=-4 target2=310 target6=566
+SERVO UART TX=id2=311 attempt=1 RX=OK ID2 TARGET 311
+SERVO UART TX=id6=565 attempt=1 RX=OK ID6 TARGET 565  ARM UART READY
+TRACK STEP dx=9 dy=5 distance=25.4cm scale=1.70 dID2=-2 dID6=-3 target2=311 target6=565
+SERVO UART TX=id2=360 attempt=1 RX=OK ID2 TARGET 360
+SERVO UART TX=id6=572 attempt=1 RX=OK ID6 TARGET 572
+TRACK STEP dx=-13 dy=-97 distance=26.1cm scale=1.74 dID2=+47 dID6=+5 target2=360 target6=572
+SERVO UART TX=id2=370 attempt=1 RX=OK ID2 TARGET 370  ARM UART READY
+SERVO UART TX=id6=570 attempt=1 RX=OK ID6 TARGET 570
+TRACK STEP dx=-4 dy=-27 distance=24.4cm scale=1.63 dID2=+12 dID6=+1 target2=370 target6=570
+SERVO UART TX=id2=374 attempt=1 RX=OK ID2 TARGET 374
+SERVO UART TX=id6=570 attempt=1 RX=OK ID6 TARGET 570  ARM UART READY
+TRACK STEP dx=-3 dy=-13 distance=23.9cm scale=1.59 dID2=+6 dID6=+1 target2=374 target6=570
+SERVO UART TX=id2=375 attempt=1 RX=OK ID2 TARGET 375
+SERVO UART TX=id6=570 attempt=1 RX=OK ID6 TARGET 570
+TRACK STEP dx=-1 dy=-7 distance=23.7cm scale=1.58 dID2=+3 dID6=+1 target2=375 target6=570
+SERVO UART TX=id2=352 attempt=1 RX=OK ID2 TARGET 352  ARM UART READY
+SERVO UART TX=id6=591 attempt=1 RX=OK ID6 TARGET 591
+TRACK STEP dx=-72 dy=47 distance=22.5cm scale=1.50 dID2=-20 dID6=+22 target2=352 target6=591
+SERVO UART TX=id2=347 attempt=1 RX=OK ID2 TARGET 347
+SERVO UART TX=id6=598 attempt=1 RX=OK ID6 TARGET 598
+TRACK STEP dx=-35 dy=19 distance=23.6cm scale=1.57 dID2=-8 dID6=+11 target2=347 target6=598
+SERVO UART TX=id2=347 attempt=1 RX=OK ID2 TARGET 347
+SERVO UART TX=id6=600 attempt=1 RX=OK ID6 TARGET 600
+TRACK STEP dx=-17 dy=9 distance=23.7cm scale=1.58 dID2=-4 dID6=+5 target2=347 target6=600
+SERVO UART TX=id2=347 attempt=1 RX=OK ID2 TARGET 347  ARM UART READY
+SERVO UART TX=id6=602 attempt=1 RX=OK ID6 TARGET 602
+TRACK STEP dx=-13 dy=9 distance=23.7cm scale=1.58 dID2=-4 dID6=+4 target2=347 target6=602
+SERVO UART TX=id2=347 attempt=1 RX=OK ID2 TARGET 347
+SERVO UART TX=id6=602 attempt=1 RX=OK ID6 TARGET 602
+TRACK STEP dx=-13 dy=9 distance=23.5cm scale=1.57 dID2=-4 dID6=+4 target2=347 target6=602
+SERVO UART TX=id2=339 attempt=1 RX=OK ID2 TARGET 339
+SERVO UART TX=id6=561 attempt=1 RX=OK ID6 TARGET 561
+TRACK STEP dx=107 dy=24 distance=25.8cm scale=1.72 dID2=-12 dID6=-37 target2=339 target6=561
+SERVO UART TX=id6=554 attempt=1 RX=OK ID6 TARGET 554  ARM UART READY
+TRACK STEP dx=28 dy=0 distance=25.4cm scale=1.69 dID2=+0 dID6=-9 target2=342 target6=554
+SERVO UART TX=id6=553 attempt=1 RX=OK ID6 TARGET 553
+TRACK STEP dx=12 dy=0 distance=25.8cm scale=1.72 dID2=+0 dID6=-4 target2=342 target6=553
+SERVO UART TX=id2=311 attempt=1 RX=OK ID2 TARGET 311
+SERVO UART TX=id6=547 attempt=1 RX=OK ID6 TARGET 547  ARM UART READY
+TRACK STEP dx=25 dy=69 distance=24.3cm scale=1.62 dID2=-31 dID6=-8 target2=311 target6=547
+SERVO UART TX=id2=302 attempt=1 RX=OK ID2 TARGET 302
+SERVO UART TX=id6=545 attempt=1 RX=OK ID6 TARGET 545
+TRACK STEP dx=11 dy=24 distance=26.5cm scale=1.76 dID2=-12 dID6=-4 target2=302 target6=545
+SERVO UART TX=id2=300 attempt=1 RX=OK ID2 TARGET 300  ARM UART READY
+SERVO UART TX=id6=545 attempt=1 RX=OK ID6 TARGET 545
+TRACK STEP dx=7 dy=9 distance=26.6cm scale=1.78 dID2=-4 dID6=-2 target2=300 target6=545
+SERVO UART TX=id2=299 attempt=1 RX=OK ID2 TARGET 299
+SERVO UART TX=id6=545 attempt=1 RX=OK ID6 TARGET 545  ARM UART READY
+TRACK STEP dx=7 dy=8 distance=26.8cm scale=1.78 dID2=-4 dID6=-2 target2=299 target6=545
+SERVO UART TX=id2=300 attempt=1 RX=OK ID2 TARGET 300
+SERVO UART TX=id6=545 attempt=1 RX=OK ID6 TARGET 545
+TRACK STEP dx=5 dy=5 distance=26.6cm scale=1.77 dID2=-2 dID6=-2 target2=300 target6=545
+SERVO UART TX=id2=300 attempt=1 RX=OK ID2 TARGET 300  ARM UART READY
+SERVO UART TX=id6=545 attempt=1 RX=OK ID6 TARGET 545
+TRACK STEP dx=7 dy=5 distance=26.7cm scale=1.78 dID2=-2 dID6=-2 target2=300 target6=545
+SERVO UART TX=id2=300 attempt=1 RX=OK ID2 TARGET 300
+SERVO UART TX=id6=545 attempt=1 RX=OK ID6 TARGET 545
+TRACK STEP dx=7 dy=5 distance=26.7cm scale=1.78 dID2=-2 dID6=-2 target2=300 target6=545
+SERVO UART TX=id2=299 attempt=1 RX=OK ID2 TARGET 299
+SERVO UART TX=id6=545 attempt=1 RX=OK ID6 TARGET 545
+TRACK STEP dx=7 dy=7 distance=26.7cm scale=1.78 dID2=-3 dID6=-2 target2=299 target6=545
+SERVO UART TX=id2=300 attempt=1 RX=OK ID2 TARGET 300  ARM UART READY
+SERVO UART TX=id6=545 attempt=1 RX=OK ID6 TARGET 545
+TRACK STEP dx=7 dy=5 distance=26.2cm scale=1.75 dID2=-2 dID6=-2 target2=300 target6=545
+SERVO UART TX=id2=299 attempt=1 RX=OK ID2 TARGET 299
+SERVO UART TX=id6=545 attempt=1 RX=OK ID6 TARGET 545
+TRACK STEP dx=7 dy=7 distance=26.7cm scale=1.78 dID2=-3 dID6=-2 target2=299 target6=545
+SERVO UART TX=id2=300 attempt=1 RX=OK ID2 TARGET 300
+SERVO UART TX=id6=545 attempt=1 RX=OK ID6 TARGET 545
+TRACK STEP dx=5 dy=5 distance=26.6cm scale=1.77 dID2=-2 dID6=-2 target2=300 target6=545
+SERVO UART TX=id2=299 attempt=1 RX=OK ID2 TARGET 299
+SERVO UART TX=id6=544 attempt=1 RX=OK ID6 TARGET 544  ARM UART READY
+TRACK STEP dx=8 dy=7 distance=26.4cm scale=1.76 dID2=-3 dID6=-3 target2=299 target6=544
+SERVO UART TX=id2=299 attempt=1 RX=OK ID2 TARGET 299
+SERVO UART TX=id6=544 attempt=1 RX=OK ID6 TARGET 544
+TRACK STEP dx=8 dy=7 distance=26.4cm scale=1.76 dID2=-3 dID6=-3 target2=299 target6=544
+SERVO UART TX=id2=299 attempt=1 RX=OK ID2 TARGET 299  ARM UART READY
+SERVO UART TX=id6=544 attempt=1 RX=OK ID6 TARGET 544
+TRACK STEP dx=8 dy=7 distance=26.2cm scale=1.74 dID2=-3 dID6=-3 target2=299 target6=544
+SERVO UART TX=id2=297 attempt=1 RX=OK ID2 TARGET 297
+SERVO UART TX=id6=544 attempt=1 RX=OK ID6 TARGET 544  ARM UART READY
+TRACK STEP dx=8 dy=8 distance=26.4cm scale=1.76 dID2=-4 dID6=-3 target2=297 target6=544
+SERVO UART TX=id2=300 attempt=1 RX=OK ID2 TARGET 300
+SERVO UART TX=id6=545 attempt=1 RX=OK ID6 TARGET 545
+TRACK STEP dx=5 dy=5 distance=26.1cm scale=1.74 dID2=-2 dID6=-2 target2=300 target6=545
+SERVO UART TX=id2=362 attempt=1 RX=OK ID2 TARGET 362  ARM UART READY
+SERVO UART TX=id6=548 attempt=1 RX=OK ID6 TARGET 548
+TRACK STEP dx=-4 dy=-124 distance=26.4cm scale=1.76 dID2=+60 dID6=+1 target2=362 target6=548
+SERVO UART TX=id2=378 attempt=1 RX=OK ID2 TARGET 378
+SERVO UART TX=id6=545 attempt=1 RX=OK ID6 TARGET 545  ARM UART READY
+TRACK STEP dx=7 dy=-36 distance=25.0cm scale=1.67 dID2=+17 dID6=-2 target2=378 target6=545
+SERVO UART TX=id2=382 attempt=1 RX=OK ID2 TARGET 382
+SERVO UART TX=id6=545 attempt=1 RX=OK ID6 TARGET 545
+TRACK STEP dx=7 dy=-13 distance=23.9cm scale=1.60 dID2=+6 dID6=-2 target2=382 target6=545
+SERVO UART TX=id2=347 attempt=1 RX=OK ID2 TARGET 347
+SERVO UART TX=id6=577 attempt=1 RX=OK ID6 TARGET 577
+TRACK STEP dx=-101 dy=76 distance=22.2cm scale=1.48 dID2=-31 dID6=+30 target2=347 target6=577
+SERVO UART TX=id2=339 attempt=1 RX=OK ID2 TARGET 339  ARM UART READY
+SERVO UART TX=id6=588 attempt=1 RX=OK ID6 TARGET 588
+TRACK STEP dx=-41 dy=24 distance=24.2cm scale=1.62 dID2=-11 dID6=+13 target2=339 target6=588
+SERVO UART TX=id2=337 attempt=1 RX=OK ID2 TARGET 337
+SERVO UART TX=id6=591 attempt=1 RX=OK ID6 TARGET 591
+TRACK STEP dx=-21 dy=12 distance=24.5cm scale=1.63 dID2=-5 dID6=+7 target2=337 target6=591
+SERVO UART TX=id2=301 attempt=1 RX=OK ID2 TARGET 301
+SERVO UART TX=id6=555 attempt=1 RX=OK ID6 TARGET 555
+TRACK STEP dx=104 dy=89 distance=23.9cm scale=1.59 dID2=-40 dID6=-33 target2=301 target6=555
+SERVO UART TX=id2=294 attempt=1 RX=OK ID2 TARGET 294
+SERVO UART TX=id6=542 attempt=1 RX=OK ID6 TARGET 542  ARM UART READY
+TRACK STEP dx=45 dy=21 distance=25.2cm scale=1.68 dID2=-10 dID6=-15 target2=294 target6=542
+SERVO UART TX=id2=293 attempt=1 RX=OK ID2 TARGET 293
+SERVO UART TX=id6=537 attempt=1 RX=OK ID6 TARGET 537
+TRACK STEP dx=24 dy=8 distance=26.1cm scale=1.74 dID2=-4 dID6=-8 target2=293 target6=537
+SERVO UART TX=id2=292 attempt=1 RX=OK ID2 TARGET 292  ARM UART READY
+SERVO UART TX=id6=534 attempt=1 RX=OK ID6 TARGET 534
+TRACK STEP dx=16 dy=8 distance=26.4cm scale=1.76 dID2=-4 dID6=-6 target2=292 target6=534
+SERVO UART TX=id2=293 attempt=1 RX=OK ID2 TARGET 293
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533  ARM UART READY
+TRACK STEP dx=9 dy=5 distance=26.0cm scale=1.73 dID2=-2 dID6=-3 target2=293 target6=533
+SERVO UART TX=id2=293 attempt=1 RX=OK ID2 TARGET 293
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=9 dy=5 distance=26.4cm scale=1.76 dID2=-2 dID6=-3 target2=293 target6=533
+SERVO UART TX=id2=293 attempt=1 RX=OK ID2 TARGET 293  ARM UART READY
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=9 dy=5 distance=26.6cm scale=1.77 dID2=-2 dID6=-3 target2=293 target6=533
+SERVO UART TX=id2=293 attempt=1 RX=OK ID2 TARGET 293
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=5 distance=26.5cm scale=1.77 dID2=-2 dID6=-3 target2=293 target6=533
+SERVO UART TX=id2=293 attempt=1 RX=OK ID2 TARGET 293
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=5 distance=26.2cm scale=1.75 dID2=-2 dID6=-3 target2=293 target6=533
+SERVO UART TX=id2=293 attempt=1 RX=OK ID2 TARGET 293  ARM UART READY
+SERVO UART TX=id6=534 attempt=1 RX=OK ID6 TARGET 534
+TRACK STEP dx=7 dy=5 distance=26.5cm scale=1.77 dID2=-2 dID6=-2 target2=293 target6=534
+SERVO UART TX=id2=293 attempt=1 RX=OK ID2 TARGET 293
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=5 distance=26.4cm scale=1.76 dID2=-2 dID6=-3 target2=293 target6=533
+SERVO UART TX=id2=293 attempt=1 RX=OK ID2 TARGET 293
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=5 distance=26.6cm scale=1.77 dID2=-2 dID6=-3 target2=293 target6=533
+SERVO UART TX=id2=293 attempt=1 RX=OK ID2 TARGET 293
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533  ARM UART READY
+TRACK STEP dx=8 dy=5 distance=26.5cm scale=1.77 dID2=-2 dID6=-3 target2=293 target6=533
+SERVO UART TX=id2=293 attempt=1 RX=OK ID2 TARGET 293
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=5 distance=26.2cm scale=1.74 dID2=-2 dID6=-3 target2=293 target6=533
+SERVO UART TX=id2=292 attempt=1 RX=OK ID2 TARGET 292  ARM UART READY
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=5 distance=26.9cm scale=1.79 dID2=-3 dID6=-3 target2=292 target6=533
+SERVO UART TX=id2=292 attempt=1 RX=OK ID2 TARGET 292
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533  ARM UART READY
+TRACK STEP dx=8 dy=5 distance=26.9cm scale=1.79 dID2=-3 dID6=-3 target2=292 target6=533
+SERVO UART TX=id2=293 attempt=1 RX=OK ID2 TARGET 293
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=5 distance=26.5cm scale=1.77 dID2=-2 dID6=-3 target2=293 target6=533
+SERVO UART TX=id2=293 attempt=1 RX=OK ID2 TARGET 293  ARM UART READY
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=5 distance=26.7cm scale=1.78 dID2=-2 dID6=-3 target2=293 target6=533
+SERVO UART TX=id2=292 attempt=1 RX=OK ID2 TARGET 292
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533  ARM UART READY
+TRACK STEP dx=9 dy=5 distance=26.8cm scale=1.79 dID2=-3 dID6=-3 target2=292 target6=533
+SERVO UART TX=id2=293 attempt=1 RX=OK ID2 TARGET 293
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=5 distance=26.4cm scale=1.76 dID2=-2 dID6=-3 target2=293 target6=533
+SERVO UART TX=id2=291 attempt=1 RX=OK ID2 TARGET 291  ARM UART READY
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=9 dy=7 distance=27.1cm scale=1.80 dID2=-4 dID6=-3 target2=291 target6=533
+SERVO UART TX=id2=293 attempt=1 RX=OK ID2 TARGET 293
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=3 distance=26.7cm scale=1.78 dID2=-1 dID6=-3 target2=293 target6=533
+SERVO UART TX=id2=293 attempt=1 RX=OK ID2 TARGET 293
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=3 distance=26.5cm scale=1.76 dID2=-1 dID6=-3 target2=293 target6=533
+SERVO UART TX=id2=293 attempt=1 RX=OK ID2 TARGET 293
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533  ARM UART READY
+TRACK STEP dx=8 dy=3 distance=26.6cm scale=1.77 dID2=-1 dID6=-3 target2=293 target6=533
+SERVO UART TX=id2=293 attempt=1 RX=OK ID2 TARGET 293
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=3 distance=26.4cm scale=1.76 dID2=-1 dID6=-3 target2=293 target6=533
+SERVO UART TX=id2=293 attempt=1 RX=OK ID2 TARGET 293  ARM UART READY
+SERVO UART TX=id6=534 attempt=1 RX=OK ID6 TARGET 534
+TRACK STEP dx=7 dy=3 distance=26.5cm scale=1.77 dID2=-1 dID6=-2 target2=293 target6=534
+SERVO UART TX=id2=293 attempt=1 RX=OK ID2 TARGET 293
+SERVO UART TX=id6=534 attempt=1 RX=OK ID6 TARGET 534  ARM UART READY
+TRACK STEP dx=7 dy=3 distance=26.5cm scale=1.77 dID2=-1 dID6=-2 target2=293 target6=534
+SERVO UART TX=id2=293 attempt=1 RX=OK ID2 TARGET 293
+SERVO UART TX=id6=534 attempt=1 RX=OK ID6 TARGET 534
+TRACK STEP dx=7 dy=3 distance=26.5cm scale=1.76 dID2=-1 dID6=-2 target2=293 target6=534
+SERVO UART TX=id2=293 attempt=1 RX=OK ID2 TARGET 293  ARM UART READY
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=3 distance=26.5cm scale=1.77 dID2=-1 dID6=-3 target2=293 target6=533
+SERVO UART TX=id2=292 attempt=1 RX=OK ID2 TARGET 292
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=4 distance=26.9cm scale=1.79 dID2=-2 dID6=-3 target2=292 target6=533
+SERVO UART TX=id2=292 attempt=1 RX=OK ID2 TARGET 292
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=9 dy=4 distance=27.0cm scale=1.80 dID2=-2 dID6=-3 target2=292 target6=533
+SERVO UART TX=id2=292 attempt=1 RX=OK ID2 TARGET 292  ARM UART READY
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=9 dy=4 distance=27.0cm scale=1.80 dID2=-2 dID6=-3 target2=292 target6=533
+SERVO UART TX=id2=292 attempt=1 RX=OK ID2 TARGET 292
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=4 distance=26.2cm scale=1.75 dID2=-2 dID6=-3 target2=292 target6=533
+SERVO UART TX=id2=292 attempt=1 RX=OK ID2 TARGET 292
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=4 distance=26.6cm scale=1.77 dID2=-2 dID6=-3 target2=292 target6=533
+SERVO UART TX=id2=292 attempt=1 RX=OK ID2 TARGET 292
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533  ARM UART READY
+TRACK STEP dx=9 dy=4 distance=26.4cm scale=1.76 dID2=-2 dID6=-3 target2=292 target6=533
+SERVO UART TX=id2=292 attempt=1 RX=OK ID2 TARGET 292
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=4 distance=26.8cm scale=1.79 dID2=-2 dID6=-3 target2=292 target6=533
+SERVO UART TX=id2=293 attempt=1 RX=OK ID2 TARGET 293  ARM UART READY
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=3 distance=26.5cm scale=1.77 dID2=-1 dID6=-3 target2=293 target6=533
+SERVO UART TX=id2=293 attempt=1 RX=OK ID2 TARGET 293
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533  ARM UART READY
+TRACK STEP dx=9 dy=3 distance=26.5cm scale=1.77 dID2=-1 dID6=-3 target2=293 target6=533
+SERVO UART TX=id2=292 attempt=1 RX=OK ID2 TARGET 292
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=4 distance=26.6cm scale=1.77 dID2=-2 dID6=-3 target2=292 target6=533
+SERVO UART TX=id2=294 attempt=1 RX=OK ID2 TARGET 294  ARM UART READY
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=3 distance=26.5cm scale=1.77 dID2=-1 dID6=-3 target2=294 target6=533
+SERVO UART TX=id2=292 attempt=1 RX=OK ID2 TARGET 292
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533  ARM UART READY
+TRACK STEP dx=8 dy=4 distance=26.6cm scale=1.78 dID2=-2 dID6=-3 target2=292 target6=533
+SERVO UART TX=id2=292 attempt=1 RX=OK ID2 TARGET 292
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=4 distance=26.5cm scale=1.77 dID2=-2 dID6=-3 target2=292 target6=533
+SERVO UART TX=id2=293 attempt=1 RX=OK ID2 TARGET 293  ARM UART READY
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=3 distance=26.4cm scale=1.76 dID2=-1 dID6=-3 target2=293 target6=533
+SERVO UART TX=id2=292 attempt=1 RX=OK ID2 TARGET 292
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=4 distance=26.6cm scale=1.78 dID2=-2 dID6=-3 target2=292 target6=533
+SERVO UART TX=id2=293 attempt=1 RX=OK ID2 TARGET 293
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=3 distance=26.5cm scale=1.77 dID2=-1 dID6=-3 target2=293 target6=533
+SERVO UART TX=id2=292 attempt=1 RX=OK ID2 TARGET 292
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533  ARM UART READY
+TRACK STEP dx=9 dy=3 distance=26.8cm scale=1.79 dID2=-2 dID6=-3 target2=292 target6=533
+SERVO UART TX=id2=293 attempt=1 RX=OK ID2 TARGET 293
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=7 dy=1 distance=26.9cm scale=1.79 dID2=-1 dID6=-3 target2=293 target6=533
+SERVO UART TX=id2=292 attempt=1 RX=OK ID2 TARGET 292  ARM UART READY
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=3 distance=26.8cm scale=1.79 dID2=-2 dID6=-3 target2=292 target6=533
+SERVO UART TX=id2=292 attempt=1 RX=OK ID2 TARGET 292
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533  ARM UART READY
+TRACK STEP dx=8 dy=4 distance=26.7cm scale=1.78 dID2=-2 dID6=-3 target2=292 target6=533
+SERVO UART TX=id2=292 attempt=1 RX=OK ID2 TARGET 292
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=4 distance=26.8cm scale=1.78 dID2=-2 dID6=-3 target2=292 target6=533
+SERVO UART TX=id2=292 attempt=1 RX=OK ID2 TARGET 292  ARM UART READY
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=4 distance=26.9cm scale=1.79 dID2=-2 dID6=-3 target2=292 target6=533
+SERVO UART TX=id2=293 attempt=1 RX=OK ID2 TARGET 293
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=3 distance=26.5cm scale=1.77 dID2=-1 dID6=-3 target2=293 target6=533
+SERVO UART TX=id2=292 attempt=1 RX=OK ID2 TARGET 292
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=4 distance=26.7cm scale=1.78 dID2=-2 dID6=-3 target2=292 target6=533
+SERVO UART TX=id2=292 attempt=1 RX=OK ID2 TARGET 292  ARM UART READY
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=4 distance=26.6cm scale=1.78 dID2=-2 dID6=-3 target2=292 target6=533
+SERVO UART TX=id2=292 attempt=1 RX=OK ID2 TARGET 292
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=4 distance=26.8cm scale=1.79 dID2=-2 dID6=-3 target2=292 target6=533
+SERVO UART TX=id2=292 attempt=1 RX=OK ID2 TARGET 292
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=4 distance=26.7cm scale=1.78 dID2=-2 dID6=-3 target2=292 target6=533
+SERVO UART TX=id2=292 attempt=1 RX=OK ID2 TARGET 292
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533  ARM UART READY
+TRACK STEP dx=8 dy=4 distance=26.5cm scale=1.77 dID2=-2 dID6=-3 target2=292 target6=533
+SERVO UART TX=id2=292 attempt=1 RX=OK ID2 TARGET 292
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=4 distance=26.6cm scale=1.77 dID2=-2 dID6=-3 target2=292 target6=533
+SERVO UART TX=id2=292 attempt=1 RX=OK ID2 TARGET 292  ARM UART READY
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=4 distance=26.8cm scale=1.78 dID2=-2 dID6=-3 target2=292 target6=533
+SERVO UART TX=id2=292 attempt=1 RX=OK ID2 TARGET 292
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533  ARM UART READY
+TRACK STEP dx=8 dy=4 distance=26.5cm scale=1.77 dID2=-2 dID6=-3 target2=292 target6=533
+SERVO UART TX=id2=292 attempt=1 RX=OK ID2 TARGET 292
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=9 dy=4 distance=27.0cm scale=1.80 dID2=-2 dID6=-3 target2=292 target6=533
+SERVO UART TX=id2=292 attempt=1 RX=OK ID2 TARGET 292  ARM UART READY
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=4 distance=26.5cm scale=1.77 dID2=-2 dID6=-3 target2=292 target6=533
+SERVO UART TX=id2=292 attempt=1 RX=OK ID2 TARGET 292
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533  ARM UART READY
+TRACK STEP dx=9 dy=4 distance=27.0cm scale=1.80 dID2=-2 dID6=-3 target2=292 target6=533
+SERVO UART TX=id2=292 attempt=1 RX=OK ID2 TARGET 292
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=4 distance=26.7cm scale=1.78 dID2=-2 dID6=-3 target2=292 target6=533
+SERVO UART TX=id2=292 attempt=1 RX=OK ID2 TARGET 292  ARM UART READY
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=4 distance=26.6cm scale=1.77 dID2=-2 dID6=-3 target2=292 target6=533
+SERVO UART TX=id2=292 attempt=1 RX=OK ID2 TARGET 292
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=4 distance=26.9cm scale=1.79 dID2=-2 dID6=-3 target2=292 target6=533
+SERVO UART TX=id2=293 attempt=1 RX=OK ID2 TARGET 293
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533
+TRACK STEP dx=8 dy=3 distance=26.4cm scale=1.76 dID2=-1 dID6=-3 target2=293 target6=533
+Traceback (most recent call last):
+  File "/home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1/red_square_tracker", line 33, in <module>
+    sys.exit(load_entry_point('ros2-test1', 'console_scripts', 'red_square_tracker')())
+  File "/home/cat/ros2_ws/build/ros2_test1/ros2_test1/red_square_tracker.py", line 400, in main
+    if not ok:
+KeyboardInterrupt
+[ros2run]: Interrupt
+==== 2026-07-06 22:39:30 start red square tracker ====
+servo bridge on /dev/ttyS0
+Camera: /dev/video20 800x600 reported_fps=30.0
+SERVO UART TX=id2=291 attempt=1 RX=OK ID2 TARGET 291
+SERVO UART TX=id6=530 attempt=1 RX=OK ID6 TARGET 530
+TRACK STEP dx=9 dy=5 distance=27.1cm scale=1.80 dID2=-3 dID6=-6 target2=291 target6=530
+SERVO UART TX=id2=365 attempt=1 RX=OK ID2 TARGET 365
+SERVO UART TX=id6=612 attempt=1 RX=OK ID6 TARGET 612  ARM UART READY
+TRACK STEP dx=-133 dy=-108 distance=25.8cm scale=1.72 dID2=+71 dID6=+80 target2=365 target6=612
+SERVO UART TX=id2=367 attempt=1 RX=OK ID2 TARGET 367
+SERVO UART TX=id6=580 attempt=1 RX=OK ID6 TARGET 580  ARM UART READY
+TRACK STEP dx=53 dy=-5 distance=23.5cm scale=1.57 dID2=+3 dID6=-29 target2=367 target6=580
+SERVO UART TX=id2=369 attempt=1 RX=OK ID2 TARGET 369
+SERVO UART TX=id6=588 attempt=1 RX=OK ID6 TARGET 588
+TRACK STEP dx=-11 dy=-8 distance=23.9cm scale=1.59 dID2=+5 dID6=+6 target2=369 target6=588
+SERVO UART TX=id2=319 attempt=1 RX=OK ID2 TARGET 319
+SERVO UART TX=id6=544 attempt=1 RX=OK ID6 TARGET 544  ARM UART READY
+TRACK STEP dx=73 dy=80 distance=23.3cm scale=1.56 dID2=-47 dID6=-40 target2=319 target6=544
+SERVO UART TX=id2=365 attempt=1 RX=OK ID2 TARGET 365
+SERVO UART TX=id6=597 attempt=1 RX=OK ID6 TARGET 597
+TRACK STEP dx=-85 dy=-65 distance=25.9cm scale=1.72 dID2=+43 dID6=+51 target2=365 target6=597
+SERVO UART TX=id2=364 attempt=1 RX=OK ID2 TARGET 364
+SERVO UART TX=id6=574 attempt=1 RX=OK ID6 TARGET 574
+TRACK STEP dx=36 dy=-5 distance=24.6cm scale=1.64 dID2=+3 dID6=-21 target2=364 target6=574
+SERVO UART TX=id2=315 attempt=1 RX=OK ID2 TARGET 315
+SERVO UART TX=id6=560 attempt=1 RX=OK ID6 TARGET 560  ARM UART READY
+TRACK STEP dx=29 dy=79 distance=23.1cm scale=1.54 dID2=-46 dID6=-16 target2=315 target6=560
+SERVO UART TX=id2=385 attempt=1 RX=OK ID2 TARGET 385  ARM UART READY
+SERVO UART TX=id6=536 attempt=1 RX=OK ID6 TARGET 536
+TRACK STEP dx=45 dy=-105 distance=25.7cm scale=1.71 dID2=+68 dID6=-27 target2=385 target6=536
+SERVO UART TX=id2=330 attempt=1 RX=OK ID2 TARGET 330  ARM UART READY
+SERVO UART TX=id6=589 attempt=1 RX=OK ID6 TARGET 589
+TRACK STEP dx=-101 dy=96 distance=21.6cm scale=1.44 dID2=-53 dID6=+51 target2=330 target6=589
+SERVO UART TX=id2=295 attempt=1 RX=OK ID2 TARGET 295
+SERVO UART TX=id6=535 attempt=1 RX=OK ID6 TARGET 535
+TRACK STEP dx=93 dy=64 distance=23.7cm scale=1.58 dID2=-38 dID6=-51 target2=295 target6=535
+SERVO UART TX=id2=390 attempt=1 RX=OK ID2 TARGET 390
+SERVO UART TX=id6=586 attempt=1 RX=OK ID6 TARGET 586  ARM UART READY
+TRACK STEP dx=-80 dy=-140 distance=26.2cm scale=1.75 dID2=+93 dID6=+49 target2=390 target6=586
+SERVO UART TX=id2=387 attempt=1 RX=OK ID2 TARGET 387
+SERVO UART TX=id6=555 attempt=1 RX=OK ID6 TARGET 555  ARM UART READY
+TRACK STEP dx=53 dy=4 distance=23.3cm scale=1.55 dID2=-2 dID6=-29 target2=387 target6=555
+SERVO UART TX=id2=318 attempt=1 RX=OK ID2 TARGET 318
+SERVO UART TX=id6=553 attempt=1 RX=OK ID6 TARGET 553
+TRACK STEP dx=11 dy=136 distance=20.6cm scale=1.37 dID2=-71 dID6=-5 target2=318 target6=553
+SERVO UART TX=id2=303 attempt=1 RX=OK ID2 TARGET 303
+SERVO UART TX=id6=558 attempt=1 RX=OK ID6 TARGET 558
+TRACK STEP dx=-5 dy=27 distance=24.9cm scale=1.66 dID2=-17 dID6=+3 target2=303 target6=558
+SERVO UART TX=id2=382 attempt=1 RX=OK ID2 TARGET 382  ARM UART READY
+SERVO UART TX=id6=553 attempt=1 RX=OK ID6 TARGET 553
+TRACK STEP dx=7 dy=-115 distance=26.0cm scale=1.73 dID2=+76 dID6=-4 target2=382 target6=553
+SERVO UART TX=id6=546 attempt=1 RX=OK ID6 TARGET 546  ARM UART READY
+TRACK STEP dx=17 dy=0 distance=23.1cm scale=1.54 dID2=+0 dID6=-9 target2=382 target6=546
+SERVO UART TX=id2=330 attempt=1 RX=OK ID2 TARGET 330  ARM UART READY
+SERVO UART TX=id6=584 attempt=1 RX=OK ID6 TARGET 584
+TRACK STEP dx=-71 dy=96 distance=21.4cm scale=1.43 dID2=-52 dID6=+35 target2=330 target6=584
+SERVO UART TX=id2=433 attempt=1 RX=OK ID2 TARGET 433
+SERVO UART TX=id6=491 attempt=1 RX=OK ID6 TARGET 491
+TRACK STEP dx=168 dy=-179 distance=23.1cm scale=1.54 dID2=+100 dID6=-91 target2=433 target6=491
+SERVO UART TX=id2=478 attempt=1 RX=OK ID2 TARGET 478
+SERVO UART TX=id6=533 attempt=1 RX=OK ID6 TARGET 533  ARM UART READY
+TRACK STEP dx=-83 dy=-89 distance=20.2cm scale=1.35 dID2=+46 dID6=+39 target2=478 target6=533
+SERVO UART TX=id2=409 attempt=1 RX=OK ID2 TARGET 409
+SERVO UART TX=id6=556 attempt=1 RX=OK ID6 TARGET 556  ARM UART READY
+TRACK STEP dx=-73 dy=183 distance=15.2cm scale=1.01 dID2=-70 dID6=+26 target2=409 target6=556
+SERVO UART TX=id2=371 attempt=1 RX=OK ID2 TARGET 371
+SERVO UART TX=id6=556 attempt=1 RX=OK ID6 TARGET 556  ARM UART READY
+TRACK STEP dx=-5 dy=77 distance=20.8cm scale=1.38 dID2=-40 dID6=+2 target2=371 target6=556
+SERVO UART TX=id2=362 attempt=1 RX=OK ID2 TARGET 362
+SERVO UART TX=id6=561 attempt=1 RX=OK ID6 TARGET 561
+TRACK STEP dx=-11 dy=20 distance=23.5cm scale=1.57 dID2=-12 dID6=+6 target2=362 target6=561
+SERVO UART TX=id2=319 attempt=1 RX=OK ID2 TARGET 319
+SERVO UART TX=id6=552 attempt=1 RX=OK ID6 TARGET 552  ARM UART READY
+TRACK STEP dx=12 dy=79 distance=23.3cm scale=1.55 dID2=-47 dID6=-7 target2=319 target6=552
+SERVO UART TX=id2=370 attempt=1 RX=OK ID2 TARGET 370
+SERVO UART TX=id6=602 attempt=1 RX=OK ID6 TARGET 602
+TRACK STEP dx=-80 dy=-73 distance=25.8cm scale=1.72 dID2=+48 dID6=+48 target2=370 target6=602
+SERVO UART TX=id2=369 attempt=1 RX=OK ID2 TARGET 369
+SERVO UART TX=id6=579 attempt=1 RX=OK ID6 TARGET 579
+TRACK STEP dx=33 dy=-3 distance=24.5cm scale=1.63 dID2=+2 dID6=-19 target2=369 target6=579
+SERVO UART TX=id2=325 attempt=1 RX=OK ID2 TARGET 325
+SERVO UART TX=id6=557 attempt=1 RX=OK ID6 TARGET 557  ARM UART READY
+TRACK STEP dx=49 dy=75 distance=22.2cm scale=1.48 dID2=-42 dID6=-25 target2=325 target6=557
+Traceback (most recent call last):
+  File "/home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1/red_square_tracker", line 33, in <module>
+    sys.exit(load_entry_point('ros2-test1', 'console_scripts', 'red_square_tracker')())
+  File "/home/cat/ros2_ws/build/ros2_test1/ros2_test1/red_square_tracker.py", line 399, in main
+    ok, frame = cap.read()
+KeyboardInterrupt
+[ros2run]: Interrupt
+==== 2026-07-07 01:10:20 start red square tracker ====
+servo bridge on /dev/ttyS0
+Camera: /dev/video20 800x600 reported_fps=30.0
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+SERVO UART TX=id2=302 attempt=1 RX=OK ID2 TARGET 302
+SERVO UART TX=id6=508 attempt=1 RX=OK ID6 TARGET 508
+TRACK STEP dx=-11 dy=-9 distance=20.0cm scale=1.33 dID2=+5 dID6=+5 target2=302 target6=508
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Library QUIRC is not linked. No decoding is performed. Take it to the OpenCV repository.
+Traceback (most recent call last):
+  File "/home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1/red_square_tracker", line 33, in <module>
+    sys.exit(load_entry_point('ros2-test1', 'console_scripts', 'red_square_tracker')())
+  File "/home/cat/ros2_ws/build/ros2_test1/ros2_test1/red_square_tracker.py", line 399, in main
+    ok, frame = cap.read()
+KeyboardInterrupt
+[ros2run]: Interrupt

@@ -1,0 +1,25 @@
+running egg_info
+writing ../build/ros2_test1/ros2_test1.egg-info/PKG-INFO
+writing dependency_links to ../build/ros2_test1/ros2_test1.egg-info/dependency_links.txt
+writing entry points to ../build/ros2_test1/ros2_test1.egg-info/entry_points.txt
+writing requirements to ../build/ros2_test1/ros2_test1.egg-info/requires.txt
+writing top-level names to ../build/ros2_test1/ros2_test1.egg-info/top_level.txt
+reading manifest file '../build/ros2_test1/ros2_test1.egg-info/SOURCES.txt'
+writing manifest file '../build/ros2_test1/ros2_test1.egg-info/SOURCES.txt'
+running build
+running build_py
+running install
+running install_lib
+running install_data
+copying package.xml -> /home/cat/ros2_ws/install/ros2_test1/share/ros2_test1
+copying launch/red_square_grasp_all.launch.py -> /home/cat/ros2_ws/install/ros2_test1/share/ros2_test1/launch
+copying rviz/arm_5.rviz -> /home/cat/ros2_ws/install/ros2_test1/share/ros2_test1/rviz
+running install_egg_info
+removing '/home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages/ros2_test1-0.1.0-py3.10.egg-info' (and everything under it)
+Copying ../build/ros2_test1/ros2_test1.egg-info to /home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages/ros2_test1-0.1.0-py3.10.egg-info
+running install_scripts
+Installing arm_joint_state_seed script to /home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1
+Installing face_detector script to /home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1
+Installing red_square_arm script to /home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1
+Installing target_vision script to /home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1
+writing list of installed files to '/home/cat/ros2_ws/build/ros2_test1/install.log'

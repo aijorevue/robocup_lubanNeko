@@ -1,0 +1,21 @@
+[0.906s] Invoking command in '/home/cat/ros2_ws/src/stm32_bridge': PYTHONPATH=/home/cat/ros2_ws/build/stm32_bridge/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/cat/ros2_ws/install/stm32_bridge/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/stm32_bridge build --build-base /home/cat/ros2_ws/build/stm32_bridge/build install --record /home/cat/ros2_ws/build/stm32_bridge/install.log --single-version-externally-managed install_data
+[1.209s] running egg_info
+[1.211s] writing ../../build/stm32_bridge/stm32_bridge.egg-info/PKG-INFO
+[1.211s] writing dependency_links to ../../build/stm32_bridge/stm32_bridge.egg-info/dependency_links.txt
+[1.212s] writing entry points to ../../build/stm32_bridge/stm32_bridge.egg-info/entry_points.txt
+[1.212s] writing requirements to ../../build/stm32_bridge/stm32_bridge.egg-info/requires.txt
+[1.212s] writing top-level names to ../../build/stm32_bridge/stm32_bridge.egg-info/top_level.txt
+[1.213s] reading manifest file '../../build/stm32_bridge/stm32_bridge.egg-info/SOURCES.txt'
+[1.215s] writing manifest file '../../build/stm32_bridge/stm32_bridge.egg-info/SOURCES.txt'
+[1.215s] running build
+[1.215s] running build_py
+[1.216s] running install
+[1.216s] running install_lib
+[1.218s] running install_data
+[1.218s] running install_egg_info
+[1.221s] removing '/home/cat/ros2_ws/install/stm32_bridge/lib/python3.10/site-packages/stm32_bridge-0.1.0-py3.10.egg-info' (and everything under it)
+[1.221s] Copying ../../build/stm32_bridge/stm32_bridge.egg-info to /home/cat/ros2_ws/install/stm32_bridge/lib/python3.10/site-packages/stm32_bridge-0.1.0-py3.10.egg-info
+[1.222s] running install_scripts
+[1.259s] Installing stm32_bridge_node script to /home/cat/ros2_ws/install/stm32_bridge/lib/stm32_bridge
+[1.259s] writing list of installed files to '/home/cat/ros2_ws/build/stm32_bridge/install.log'
+[1.344s] Invoked command in '/home/cat/ros2_ws/src/stm32_bridge' returned '0': PYTHONPATH=/home/cat/ros2_ws/build/stm32_bridge/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/cat/ros2_ws/install/stm32_bridge/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/stm32_bridge build --build-base /home/cat/ros2_ws/build/stm32_bridge/build install --record /home/cat/ros2_ws/build/stm32_bridge/install.log --single-version-externally-managed install_data

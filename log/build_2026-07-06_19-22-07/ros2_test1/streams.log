@@ -1,0 +1,20 @@
+[0.942s] Invoking command in '/home/cat/ros2_ws/build/ros2_test1': PYTHONPATH=/home/cat/ros2_ws/build/ros2_test1/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/cat/ros2_ws/build/ros2_test1/build --no-deps symlink_data
+[1.274s] running develop
+[1.437s] running egg_info
+[1.437s] writing ros2_test1.egg-info/PKG-INFO
+[1.438s] writing dependency_links to ros2_test1.egg-info/dependency_links.txt
+[1.438s] writing entry points to ros2_test1.egg-info/entry_points.txt
+[1.438s] writing requirements to ros2_test1.egg-info/requires.txt
+[1.438s] writing top-level names to ros2_test1.egg-info/top_level.txt
+[1.442s] reading manifest file 'ros2_test1.egg-info/SOURCES.txt'
+[1.444s] writing manifest file 'ros2_test1.egg-info/SOURCES.txt'
+[1.446s] running build_ext
+[1.446s] Creating /home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages/ros2-test1.egg-link (link to .)
+[1.447s] Installing arm_joint_state_seed script to /home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1
+[1.448s] Installing face_detector script to /home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1
+[1.448s] Installing red_square_arm script to /home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1
+[1.448s] Installing target_vision script to /home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1
+[1.448s] 
+[1.448s] Installed /home/cat/ros2_ws/build/ros2_test1
+[1.448s] running symlink_data
+[1.549s] Invoked command in '/home/cat/ros2_ws/build/ros2_test1' returned '0': PYTHONPATH=/home/cat/ros2_ws/build/ros2_test1/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/cat/ros2_ws/build/ros2_test1/build --no-deps symlink_data

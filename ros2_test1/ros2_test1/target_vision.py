@@ -1,0 +1,4392 @@
+#!/usr/bin/env python3
+"""Detect the selected colored targets and draw them on the camera view."""
+
+from __future__ import annotations
+
+import argparse
+import concurrent.futures
+import fcntl
+import getpass
+import http.server
+import json
+import math
+import multiprocessing
+import os
+import re
+import select
+import signal
+import socket
+import subprocess
+import threading
+import time
+from pathlib import Path
+
+import cv2
+import numpy as np
+from .arm_kinematics import (
+    BASE_YAW_CENTER_TICK,
+    BASE_YAW_HOME_TICK,
+    BASE_YAW_READY_TICK,
+    BASE_YAW_TICKS_PER_REVOLUTION,
+    GRIPPER_CLOSED_TICK,
+    GRIPPER_OPEN_TICK,
+    HOME_ID1_TICK,
+    HOME_ID2_TICK,
+    ID1_SAFE_LIMITS,
+    ID2_SAFE_LIMITS,
+    JOINT_NAMES,
+    MIN_ANGLE_GAP_DEG,
+    READY_ID1_TICK,
+    READY_ID2_TICK,
+    angle_gap_degrees,
+    enforce_angle_gap,
+    gripper_position_mm,
+    id1_degrees,
+    id2_degrees,
+    id2_tick_from_degrees,
+    joint_positions,
+    solve_gripper_position,
+)
+from .detectors import (
+    BALL_COLORS,
+    BALL_DETECTORS,
+    DRAW_COLORS,
+    MASK_BUILDERS,
+    SHAPE_COLORS,
+    WHITE_DETECTOR,
+    blue,
+    red,
+    yellow,
+)
+from .detectors.common import circularity as contour_circularity
+from .detectors.common import external_contours
+
+try:
+    from pyzbar.pyzbar import ZBarSymbol, decode as zbar_decode
+except ImportError:  # Keep color detection usable if the QR decoder is missing.
+    ZBarSymbol = None
+    zbar_decode = None
+
+
+WINDOW_NAME = "Ros2_test1 Target Vision"
+SERVO_UART_LOCK_PATH = "/tmp/arm_servo_uart.lock"
+
+BALL_DISTANCE_OFFSET_CM = -1.6072186919749336
+BALL_DISTANCE_SCALE_CM = 31.628878020276648
+GOLF_BALL_DIAMETER_MM = 42.67
+RED_CUBE_SIDE_MM = 30.0
+GRASP_ID1_CALIBRATION_TICKS = -5
+GRASP_OVERHEAD_ID2_BIAS_TICKS = -10
+GRASP_DESCEND_ID2_BIAS_TICKS = 0
+GRASP_EXTRA_DESCEND_MM = 10.0
+SINGLE_ID2_DEADBAND_PX = 0.0
+SINGLE_ID2_MIN_STEP_TICKS = 0
+SINGLE_ID2_MAX_STEP_TICKS = 120
+SINGLE_ID6_DEADBAND_PX = 0.0
+SINGLE_ID6_MIN_STEP_TICKS = 0
+ID6_SAFE_LIMITS = (350, 620)
+ID6_IMAGE_ERROR_SIGN = -1.0
+CENTERING_REFERENCE_DISTANCE_CM = 15.0
+CENTERING_DISTANCE_SCALE_LIMITS = (0.67, 1.80)
+CENTER_COMMAND_SETTLE_S = 0.20
+FAST_CENTER_LOCK_X_PX = 30.0
+FAST_CENTER_LOCK_Y_PX = 30.0
+ACCURATE_LOCK_FRAMES = 2
+MAX_LOCK_DISTANCE_SPREAD_CM = 1.5
+DIRECT_2_OVERHEAD_CLEARANCE_MM = 50.0
+ARM_FEEDBACK_WAIT_S = 0.75
+CLAW_SETTLE_S = 0.10
+VISION1_OPEN_TO_DESCEND_S = 0.10
+ID4_POSITION_TOLERANCE_TICKS = 35
+ID4_OPEN_USABLE_TOLERANCE_TICKS = 80
+ID4_GRASP_CONTACT_MAX_TICKS = 1250
+ID4_QUERY_ATTEMPTS = 3
+ID4_QUERY_TIMEOUT_S = 0.45
+VISION1_NO_TARGET_RETRACT_S = 5.0
+ARM_STAGGER_S = 0.10
+ARM_POSITION_TOLERANCE_TICKS = 10
+VISION1_MAX_ATTEMPTS = 3
+DIRECT_2_MAX_ATTEMPTS = 2
+AUX_ID5_HOME_TICK = 700
+AUX_ID5_DETECTED_TICK = 950
+AUX_ID7_HOME_TICK = 1000
+GRASP_DESCEND_CALIBRATION = (
+    (15.0, (345, 260)),
+    (19.9, (338, 259)),
+    (22.8, (300, 268)),
+    (25.0, (261, 327)),
+    (28.5, (185, 351)),
+)
+GRASP_MIN_DISTANCE_CM = 10.0
+GRASP_MAX_DISTANCE_CM = 30.0
+SQUARE_DISTANCE_OFFSET_CM = BALL_DISTANCE_OFFSET_CM
+SQUARE_DISTANCE_SCALE_CM = (
+    BALL_DISTANCE_SCALE_CM
+    * 2.0
+    * RED_CUBE_SIDE_MM
+    / (GOLF_BALL_DIAMETER_MM * np.sqrt(np.pi))
+)
+
+POSITION_REPORT_RE = re.compile(
+    r"ID1=(-?\d+)\s+ID2=(-?\d+)(?:\s+ID6=(-?\d+|ERR))?"
+)
+ARM_READY_REPORT_RE = re.compile(
+    r"OK\s+ARMREADY\s+ID1=(-?\d+)\s+ID2=(-?\d+)(?:\s+ID6=(-?\d+))?"
+)
+ARM_HOME_REPORT_RE = re.compile(
+    r"OK\s+ARMHOME\s+ID1=(-?\d+)\s+ID2=(-?\d+)\s+ID6=(-?\d+)"
+)
+ZP_POSITION_REPORT_RE = re.compile(
+    r"ZP\s+POS\s+ID(\d+)\s+RX=#(\d{3})P(\d{4})!"
+)
+ZP_MOVE_ACK_RE = re.compile(r"OK\s+ZP(\d+)\s+(\d+)\s+ACTUAL\s+(\d+)")
+ZP_MOVE_ASSUMED_ACK_RE = re.compile(
+    r"OK\s+ZP(\d+)\s+(\d+)\s+ASSUMED_NO_FEEDBACK"
+)
+ZP_MOVE_ERROR_RE = re.compile(
+    r"ERR\s+ZP(\d+)\s+TARGET\s+(\d+)\s+ACTUAL\s+(\d+)\s+STATUS\s+(\d+)"
+)
+
+
+def load_last_id4_target(default):
+    try:
+        state = json.loads((Path.home() / ".servo_zp_state.json").read_text())
+        return max(500, min(2500, int(state.get("zp4_target", default))))
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return int(default)
+
+
+def calibrated_grasp_ticks(distance_cm, phase):
+    if phase == "overhead":
+        return None
+
+    distance_cm = float(distance_cm)
+    if distance_cm <= GRASP_DESCEND_CALIBRATION[0][0]:
+        ticks = GRASP_DESCEND_CALIBRATION[0][1]
+    elif distance_cm >= GRASP_DESCEND_CALIBRATION[-1][0]:
+        ticks = GRASP_DESCEND_CALIBRATION[-1][1]
+    else:
+        ticks = GRASP_DESCEND_CALIBRATION[-1][1]
+        for lower, upper in zip(
+            GRASP_DESCEND_CALIBRATION,
+            GRASP_DESCEND_CALIBRATION[1:],
+        ):
+            if lower[0] <= distance_cm <= upper[0]:
+                ratio = (distance_cm - lower[0]) / (upper[0] - lower[0])
+                lower_ticks = lower[1]
+                upper_ticks = upper[1]
+                ticks = tuple(
+                    int(math.floor(start + (end - start) * ratio + 0.5))
+                    for start, end in zip(lower_ticks, upper_ticks)
+                )
+                break
+
+    return ticks
+
+
+def scale_detections(detections, scale_x, scale_y):
+    radius_scale = (scale_x + scale_y) * 0.5
+    for detection in detections:
+        if "center" in detection:
+            center_x, center_y = detection["center"]
+            detection["center"] = (
+                int(round(center_x * scale_x)),
+                int(round(center_y * scale_y)),
+            )
+        if "bbox" in detection:
+            x, y, width, height = detection["bbox"]
+            detection["bbox"] = (
+                int(round(x * scale_x)),
+                int(round(y * scale_y)),
+                int(round(width * scale_x)),
+                int(round(height * scale_y)),
+            )
+        for key in ("radius", "outer_radius", "inner_radius"):
+            if key in detection:
+                detection[key] = int(round(detection[key] * radius_scale))
+        for key in ("box", "points"):
+            if key in detection:
+                points = np.asarray(detection[key], dtype=np.float32).copy()
+                points[:, 0] *= scale_x
+                points[:, 1] *= scale_y
+                detection[key] = points.astype(np.int32)
+        if "projected_area" in detection:
+            detection["projected_area"] *= scale_x * scale_y
+    return detections
+
+
+_PROCESS_DETECTOR = None
+
+
+def detection_process_worker(source_frame, detection_scale):
+    global _PROCESS_DETECTOR
+    if _PROCESS_DETECTOR is None:
+        _PROCESS_DETECTOR = TargetDetector()
+    detect_started = time.perf_counter()
+    if detection_scale < 0.999:
+        source_height, source_width = source_frame.shape[:2]
+        detect_width = max(1, int(round(source_width * detection_scale)))
+        detect_height = max(1, int(round(source_height * detection_scale)))
+        detect_frame = cv2.resize(
+            source_frame,
+            (detect_width, detect_height),
+            interpolation=cv2.INTER_AREA,
+        )
+        result = _PROCESS_DETECTOR.detect(detect_frame)
+        result = scale_detections(
+            result,
+            source_width / float(detect_width),
+            source_height / float(detect_height),
+        )
+    else:
+        result = _PROCESS_DETECTOR.detect(source_frame)
+    return result, time.perf_counter() - detect_started
+
+QR_COLOR_ALIASES = {
+    "r": "red",
+    "red": "red",
+    "red square": "red",
+    "red_square": "red",
+    "hong": "red",
+    "hongse": "red",
+    "b": "blue",
+    "blue": "blue",
+    "blue square": "blue",
+    "blue_square": "blue",
+    "lan": "blue",
+    "lanse": "blue",
+}
+
+class FrameState:
+    def __init__(self):
+        self.frame = None
+        self.info = "starting"
+        self.running = True
+        self.lock = threading.Lock()
+
+    def update(self, frame, info):
+        with self.lock:
+            self.frame = frame.copy()
+            self.info = info
+
+    def snapshot(self):
+        with self.lock:
+            frame = None if self.frame is None else self.frame.copy()
+            return frame, self.info
+
+
+class WindowCloseWatcher:
+    def __init__(self, title):
+        self.title = title
+        self.closed = threading.Event()
+        self.stopped = threading.Event()
+        self.thread = threading.Thread(target=self._run, daemon=True)
+
+    def start(self):
+        self.thread.start()
+
+    def stop(self):
+        self.stopped.set()
+        self.thread.join(timeout=0.5)
+
+    def _run(self):
+        window_id = None
+        while not self.stopped.wait(0.2):
+            result = subprocess.run(
+                ["xwininfo", "-name", self.title],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            match = re.search(r"Window id:\s+(0x[0-9a-fA-F]+)", result.stdout)
+            if match is not None:
+                window_id = match.group(1)
+                break
+        if window_id is None:
+            return
+        while not self.stopped.wait(0.2):
+            result = subprocess.run(
+                ["xprop", "-id", window_id],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+            if result.returncode != 0:
+                self.closed.set()
+                return
+
+
+class StreamHandler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        state = self.server.state
+        if self.path == "/":
+            self.send_response(200)
+            self.send_header("Content-type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(
+                b"<html><head><meta charset='utf-8'><title>Target Vision</title></head>"
+                b"<body style='margin:0;background:#111;color:#eee;text-align:center'>"
+                b"<img src='/video' style='max-width:100%;height:auto'>"
+                b"<pre id='info' style='font-size:18px'></pre>"
+                b"<script>setInterval(()=>fetch('/status').then(r=>r.text()).then(t=>info.textContent=t),300)</script>"
+                b"</body></html>"
+            )
+            return
+
+        if self.path == "/status":
+            _, info = state.snapshot()
+            self.send_response(200)
+            self.send_header("Content-type", "text/plain; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(info.encode("utf-8", "replace"))
+            return
+
+        if self.path == "/video":
+            self.send_response(200)
+            self.send_header("Content-type", "multipart/x-mixed-replace; boundary=frame")
+            self.end_headers()
+            try:
+                while state.running:
+                    frame, _ = state.snapshot()
+                    if frame is not None:
+                        ok, jpg = cv2.imencode(
+                            ".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85]
+                        )
+                        if ok:
+                            self.wfile.write(
+                                b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
+                                + jpg.tobytes()
+                                + b"\r\n"
+                            )
+                    time.sleep(0.04)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            return
+
+        self.send_error(404)
+
+    def log_message(self, *args):
+        pass
+
+
+class ThreadedHTTPServer(http.server.ThreadingHTTPServer):
+    allow_reuse_address = True
+
+    def __init__(self, addr, handler, state):
+        self.state = state
+        super().__init__(addr, handler)
+
+
+class SerialTrigger:
+    def __init__(
+        self,
+        device,
+        baudrate,
+        command,
+        color,
+        kind,
+        stable_frames,
+        reset_frames,
+        cooldown_s,
+        enabled=True,
+    ):
+        self.device = device
+        self.baudrate = baudrate
+        self.command = (command.strip() + "\n").encode("ascii", "ignore")
+        self.color = color
+        self.kind = kind
+        self.stable_frames = max(1, stable_frames)
+        self.reset_frames = max(1, reset_frames)
+        self.cooldown_s = max(0.0, cooldown_s)
+        self.enabled = enabled
+        self.fd = None
+        self.seen_frames = 0
+        self.missing_frames = 0
+        self.armed = True
+        self.last_trigger = 0.0
+        self.status = "servo trigger disabled" if not enabled else "servo trigger ready"
+
+        if self.enabled:
+            self._open()
+
+    def _open(self):
+        try:
+            subprocess.run(
+                [
+                    "stty",
+                    "-F",
+                    self.device,
+                    str(self.baudrate),
+                    "cs8",
+                    "-cstopb",
+                    "-parenb",
+                    "-ixon",
+                    "-ixoff",
+                    "-crtscts",
+                    "raw",
+                    "-echo",
+                ],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            self.fd = os.open(self.device, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+            self.status = f"servo trigger on {self.device}"
+            print(self.status)
+        except OSError as exc:
+            self.enabled = False
+            self.status = f"servo uart open failed: {exc}"
+            print(self.status)
+        except subprocess.CalledProcessError as exc:
+            self.enabled = False
+            self.status = f"servo uart setup failed: {exc}"
+            print(self.status)
+
+    def update(self, detections):
+        if not self.enabled:
+            return self.status
+
+        matched = any(
+            det.get("color") == self.color and det.get("kind") == self.kind
+            for det in detections
+        )
+        if matched:
+            self.seen_frames += 1
+            self.missing_frames = 0
+        else:
+            self.seen_frames = 0
+            self.missing_frames += 1
+            if self.missing_frames >= self.reset_frames:
+                self.armed = True
+            return self.status
+
+        now = time.monotonic()
+        if not self.armed:
+            return f"{self.status}, waiting target leave"
+        if self.seen_frames < self.stable_frames:
+            return f"{self.status}, confirming {self.color} {self.kind}"
+        if (now - self.last_trigger) < self.cooldown_s:
+            return f"{self.status}, cooldown"
+
+        try:
+            os.write(self.fd, self.command)
+            self.last_trigger = now
+            self.armed = False
+            command_text = self.command.decode("ascii", "replace").strip()
+            self.status = f"sent {command_text} for {self.color} {self.kind}"
+            print(self.status)
+        except OSError as exc:
+            self.status = f"servo uart write failed: {exc}"
+            print(self.status)
+        return self.status
+
+    def close(self):
+        if self.fd is not None:
+            os.close(self.fd)
+            self.fd = None
+
+
+class AbsoluteServoBridge:
+    def __init__(self, device, baudrate, enabled=True, write_enabled=True):
+        self.device = device
+        self.baudrate = baudrate
+        self.enabled = enabled
+        self.write_enabled = enabled and write_enabled
+        self.fd = None
+        self.lock_fd = None
+        self.last_feedback = None
+        self.last_command_ok = False
+        self.last_ack = {}
+        self.last_claw_assumed = False
+        self.status = "servo bridge disabled"
+        if self.enabled:
+            self._open()
+
+    def _open(self):
+        try:
+            self.lock_fd = os.open(
+                SERVO_UART_LOCK_PATH,
+                os.O_CREAT | os.O_RDWR,
+                0o666,
+            )
+            fcntl.flock(self.lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            subprocess.run(
+                [
+                    "stty",
+                    "-F",
+                    self.device,
+                    str(self.baudrate),
+                    "cs8",
+                    "-cstopb",
+                    "-parenb",
+                    "-ixon",
+                    "-ixoff",
+                    "-crtscts",
+                    "raw",
+                    "-echo",
+                ],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            self.fd = os.open(self.device, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+            self.status = f"servo bridge on {self.device}"
+            print(self.status)
+        except (OSError, subprocess.CalledProcessError) as exc:
+            if self.lock_fd is not None:
+                os.close(self.lock_fd)
+                self.lock_fd = None
+            self.enabled = False
+            self.status = f"servo bridge open failed: {exc}"
+            print(self.status)
+
+    def _read_text(self, timeout_s):
+        if self.fd is None:
+            return ""
+        deadline = time.monotonic() + timeout_s
+        chunks = []
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            readable, _, _ = select.select([self.fd], [], [], remaining)
+            if not readable:
+                break
+            try:
+                data = os.read(self.fd, 512)
+            except BlockingIOError:
+                continue
+            if not data:
+                break
+            chunks.append(data)
+            if b"\n" in data:
+                time.sleep(0.01)
+                break
+        return b"".join(chunks).decode("ascii", "replace")
+
+    @staticmethod
+    def _ack_timeout_s(command):
+        if command.startswith("zp4:"):
+            return 4.60
+        if command.startswith(("id1=", "id2=", "id6=")):
+            return 2.00
+        return 1.25
+
+    def send_targets(
+        self,
+        id1=None,
+        id2=None,
+        id4=None,
+        id5=None,
+        id6=None,
+        id7=None,
+        synchronize_pair=False,
+    ):
+        if not self.enabled or self.fd is None:
+            return self.status
+        if not self.write_enabled:
+            return "servo bridge read-only; targets not sent"
+
+        commands = []
+        if id1 is not None and id2 is not None:
+            value1 = int(id1)
+            value2 = int(id2)
+            if synchronize_pair:
+                commands.append(
+                    (
+                        f"armpair={value1},{value2}",
+                        f"OK ARMPAIR {value1} {value2}",
+                    )
+                )
+            else:
+                commands.extend(
+                    (
+                        (f"id1={value1}", f"OK ID1 TARGET {value1}"),
+                        (f"id2={value2}", f"OK ID2 TARGET {value2}"),
+                    )
+                )
+        elif id1 is not None:
+            value = int(id1)
+            commands.append((f"id1={value}", f"OK ID1 TARGET {value}"))
+        elif id2 is not None:
+            value = int(id2)
+            commands.append((f"id2={value}", f"OK ID2 TARGET {value}"))
+        if id6 is not None:
+            value = int(id6)
+            commands.append((f"id6={value}", f"OK ID6 TARGET {value}"))
+        if id4 is not None:
+            value = int(id4)
+            commands.append((f"zp4:{value}", f"OK ZP4 {value}"))
+        if id5 is not None:
+            value = int(id5)
+            commands.append((f"zp5:{value}", f"OK ZP5 {value}"))
+        if id7 is not None:
+            value = int(id7)
+            commands.append((f"zp7:{value}", f"OK ZP7 {value}"))
+        if not commands:
+            return self.status
+
+        self.last_command_ok = False
+        self.last_ack = {}
+        try:
+            self._read_text(0.02)
+            for command, expected_ack in commands:
+                os.write(self.fd, (command + "\n").encode("ascii", "ignore"))
+                response = self._read_text(self._ack_timeout_s(command)).strip()
+                normalized = response.replace("\r", " ").replace("\n", " ")
+                acknowledged = expected_ack in normalized and "ERR" not in normalized
+                self.last_ack[command] = normalized
+                print(
+                    f"SERVO UART TX={command} RX={normalized or 'timeout'}",
+                    flush=True,
+                )
+                if not acknowledged:
+                    detail = response.replace("\r", " ").replace("\n", " ").strip()
+                    self.status = f"ACK failed {command}: {detail or 'timeout'}"
+                    return self.status
+            self.last_command_ok = True
+            self.status = "ACK " + ",".join(command for command, _ in commands)
+        except OSError as exc:
+            self.status = f"servo bridge write failed: {exc}"
+            print(self.status)
+        return self.status
+
+    def command_claw(self, target):
+        target = int(target)
+        self.last_claw_assumed = False
+        self.send_targets(id4=target)
+        response = self.last_ack.get(f"zp4:{target}", "")
+        error_match = ZP_MOVE_ERROR_RE.search(response)
+        if error_match is not None:
+            servo_id = int(error_match.group(1))
+            response_target = int(error_match.group(2))
+            actual = int(error_match.group(3))
+            usable_open = (
+                servo_id == 4
+                and response_target == target == GRIPPER_OPEN_TICK
+                and abs(actual - target) <= ID4_OPEN_USABLE_TOLERANCE_TICKS
+            )
+            usable_closed = (
+                servo_id == 4
+                and response_target == target == GRIPPER_CLOSED_TICK
+                and target - ID4_POSITION_TOLERANCE_TICKS
+                <= actual
+                <= ID4_GRASP_CONTACT_MAX_TICKS
+            )
+            if usable_open or usable_closed:
+                self.last_command_ok = True
+                self.status = (
+                    f"ID4 usable target={target} actual={actual}; "
+                    "accepted from measured position despite status response"
+                )
+                return actual
+        if not self.last_command_ok:
+            return None
+        match = ZP_MOVE_ACK_RE.search(response)
+        if match is None:
+            assumed_match = ZP_MOVE_ASSUMED_ACK_RE.search(response)
+            assumed = (
+                assumed_match is not None
+                and int(assumed_match.group(1)) == 4
+                and int(assumed_match.group(2)) == target
+            )
+            if assumed:
+                self.last_claw_assumed = True
+                self.status = (
+                    f"ID4 target={target} completed by timed fallback; "
+                    "position feedback unavailable"
+                )
+                return target
+        if match is None or int(match.group(1)) != 4 or int(match.group(2)) != target:
+            self.last_command_ok = False
+            self.status = f"ID4 confirmed ACK missing for target {target}: {response}"
+            return None
+        actual = int(match.group(3))
+        confirmed = abs(actual - target) <= ID4_POSITION_TOLERANCE_TICKS
+        if target == GRIPPER_CLOSED_TICK:
+            confirmed = (
+                target - ID4_POSITION_TOLERANCE_TICKS
+                <= actual
+                <= ID4_GRASP_CONTACT_MAX_TICKS
+            )
+        if not confirmed:
+            self.last_command_ok = False
+            self.status = f"ID4 target {target} feedback {actual} outside tolerance"
+            return None
+        self.status = f"ID4 confirmed target={target} actual={actual}"
+        return actual
+
+    def handshake(self, timeout_s=0.8):
+        if not self.enabled or self.fd is None:
+            return False
+        self.last_command_ok = False
+        try:
+            self._read_text(0.02)
+            os.write(self.fd, b"version\n")
+            response = self._read_text(timeout_s)
+        except OSError as exc:
+            self.status = f"RCT6 handshake failed: {exc}"
+            return False
+        normalized = response.replace("\r", " ").replace("\n", " ").strip()
+        print(f"SERVO UART TX=version RX={normalized or 'timeout'}", flush=True)
+        if "ARM_FW_" not in normalized:
+            self.status = f"RCT6 handshake invalid: {normalized or 'timeout'}"
+            return False
+        self.last_command_ok = True
+        self.status = normalized
+        return True
+
+    def wait_ready(self, timeout_s=0.2):
+        if not self.enabled or self.fd is None:
+            return False
+        text = self._read_text(timeout_s)
+        if "ARM UART READY" in text:
+            self.status = "RCT6 ARM UART READY"
+            return True
+        return False
+
+    def command_arm_ready(self, timeout_s=4.0):
+        if not self.enabled or self.fd is None or not self.write_enabled:
+            return None
+        self.last_command_ok = False
+        try:
+            self._read_text(0.05)
+            os.write(self.fd, b"armready\n")
+            response = self._read_text(timeout_s)
+        except OSError as exc:
+            self.status = f"ARMREADY write failed: {exc}"
+            return None
+        normalized = response.replace("\r", " ").replace("\n", " ").strip()
+        print(f"SERVO UART TX=armready RX={normalized or 'timeout'}", flush=True)
+        match = ARM_READY_REPORT_RE.search(response)
+        if match is None or "ERR ARMREADY" in response:
+            self.status = f"ARMREADY failed: {normalized or 'timeout'}"
+            return None
+        id6 = BASE_YAW_READY_TICK if match.group(3) is None else int(match.group(3))
+        self.last_feedback = (int(match.group(1)), int(match.group(2)), id6)
+        self.last_command_ok = True
+        self.status = (
+            f"ARMREADY complete ID1={self.last_feedback[0]} "
+            f"ID2={self.last_feedback[1]} ID6={self.last_feedback[2]}"
+        )
+        return self.last_feedback
+
+    def command_arm_home(self, timeout_s=8.0):
+        if not self.enabled or self.fd is None or not self.write_enabled:
+            return None
+        self.last_command_ok = False
+        try:
+            self._read_text(0.05)
+            os.write(self.fd, b"armhome\n")
+            response = self._read_text(timeout_s)
+        except OSError as exc:
+            self.status = f"ARMHOME write failed: {exc}"
+            return None
+        normalized = response.replace("\r", " ").replace("\n", " ").strip()
+        print(f"SERVO UART TX=armhome RX={normalized or 'timeout'}", flush=True)
+        match = ARM_HOME_REPORT_RE.search(response)
+        if match is None or "ERR ARMHOME" in response:
+            self.status = f"ARMHOME failed: {normalized or 'timeout'}"
+            return None
+        self.last_feedback = tuple(int(match.group(index)) for index in (1, 2, 3))
+        self.last_command_ok = True
+        self.status = (
+            f"ARMHOME complete ID1={self.last_feedback[0]} "
+            f"ID2={self.last_feedback[1]} ID6={self.last_feedback[2]}"
+        )
+        return self.last_feedback
+
+    def query_positions(self, timeout_s=0.90):
+        if not self.enabled or self.fd is None:
+            return None
+        try:
+            self._read_text(0.02)
+            os.write(self.fd, b"pos\n")
+            response = self._read_text(timeout_s)
+        except OSError as exc:
+            self.status = f"servo feedback failed: {exc}"
+            return None
+        match = POSITION_REPORT_RE.search(response)
+        if match is None:
+            self.status = f"servo feedback invalid: {response.strip() or 'timeout'}"
+            return None
+        id6_text = match.group(3)
+        id6 = None if id6_text in (None, "ERR") else int(id6_text)
+        self.last_feedback = (int(match.group(1)), int(match.group(2)), id6)
+        id6_status = "" if id6 is None else f" ID6={id6}"
+        self.status = (
+            f"feedback ID1={self.last_feedback[0]} ID2={self.last_feedback[1]}"
+            f"{id6_status}"
+        )
+        return self.last_feedback
+
+    def query_zp_position(
+        self,
+        servo_id=4,
+        attempts=ID4_QUERY_ATTEMPTS,
+        timeout_s=ID4_QUERY_TIMEOUT_S,
+    ):
+        if not self.enabled or self.fd is None:
+            return None
+
+        command = f"zppos{int(servo_id)}\n".encode("ascii")
+        for attempt in range(max(1, int(attempts))):
+            try:
+                self._read_text(0.02)
+                os.write(self.fd, command)
+                response = self._read_text(timeout_s)
+            except OSError as exc:
+                self.status = f"ZP ID{servo_id} feedback failed: {exc}"
+                return None
+
+            normalized = response.replace("\r", " ").replace("\n", " ").strip()
+            print(
+                f"ZP POSITION QUERY ID{servo_id} attempt={attempt + 1} "
+                f"RX={normalized or 'timeout'}",
+                flush=True,
+            )
+            for match in ZP_POSITION_REPORT_RE.finditer(response):
+                reported_id = int(match.group(1))
+                packet_id = int(match.group(2))
+                if reported_id == int(servo_id) and packet_id == int(servo_id):
+                    position = int(match.group(3))
+                    self.status = f"ZP ID{servo_id} feedback={position}"
+                    return position
+            time.sleep(0.05)
+
+        self.status = f"ZP ID{servo_id} position feedback unavailable"
+        return None
+
+    def close(self):
+        if self.fd is not None:
+            os.close(self.fd)
+            self.fd = None
+        if self.lock_fd is not None:
+            fcntl.flock(self.lock_fd, fcntl.LOCK_UN)
+            os.close(self.lock_fd)
+            self.lock_fd = None
+
+
+class RedSquareGraspController:
+    def __init__(
+        self,
+        enabled,
+        servo_bridge,
+        arm_preview,
+        id1_ready,
+        id2_ready,
+        id4_closed,
+        id4_open,
+        center_deadband_px,
+        stable_frames,
+        command_interval_s,
+        id2_pixel_gain,
+        id6_pixel_gain,
+        id6_max_step_ticks,
+        id1_pixel_gain_y,
+        id2_distance_gain,
+        camera_gripper_offset_mm,
+        target_gripper_distance_mm,
+        distance_deadband_mm,
+        max_step_ticks,
+        id1_limits,
+        id2_limits,
+        angle_gap_degrees,
+        startup_sequence,
+        one_shot,
+        direct_grasp,
+        camera_gripper_vertical_offset_mm,
+        max_lateral_offset_mm,
+        max_one_shot_ik_error_mm,
+        post_center_retreat_mm,
+        post_center_down_mm,
+        post_center_ik_error_mm,
+        center_only=False,
+        initial_id4=None,
+    ):
+        self.enabled = enabled
+        self.servo_bridge = servo_bridge
+        self.arm_preview = arm_preview
+        self.id1 = int(id1_ready)
+        self.id2 = int(id2_ready)
+        self.id4 = int(id4_closed if initial_id4 is None else initial_id4)
+        self.id6 = int(arm_preview.id6)
+        self.id4_closed = int(id4_closed)
+        self.id4_open = int(id4_open)
+        self.center_deadband_px = center_deadband_px
+        self.stable_frames_required = max(1, stable_frames)
+        self.command_interval_s = command_interval_s
+        self.id2_pixel_gain = id2_pixel_gain
+        self.id6_pixel_gain = max(0.0, float(id6_pixel_gain))
+        self.id6_max_step_ticks = max(1, int(id6_max_step_ticks))
+        self.id1_pixel_gain_y = id1_pixel_gain_y
+        self.id2_distance_gain = id2_distance_gain
+        self.camera_gripper_offset_mm = camera_gripper_offset_mm
+        self.camera_gripper_vertical_offset_mm = camera_gripper_vertical_offset_mm
+        self.target_gripper_distance_mm = target_gripper_distance_mm
+        self.max_lateral_offset_mm = max_lateral_offset_mm
+        self.max_one_shot_ik_error_mm = max_one_shot_ik_error_mm
+        self.post_center_retreat_mm = float(post_center_retreat_mm)
+        self.post_center_down_mm = float(post_center_down_mm)
+        self.post_center_ik_error_mm = float(post_center_ik_error_mm)
+        self.center_only = bool(center_only)
+        self.distance_deadband_mm = distance_deadband_mm
+        self.max_step_ticks = max(1, int(max_step_ticks))
+        self.id1_limits = id1_limits
+        self.id2_limits = id2_limits
+        self.preview_id1_limits = (
+            max(id1_limits[0], self.id1 - 90),
+            min(id1_limits[1], self.id1 + 90),
+        )
+        self.preview_id2_limits = (
+            max(id2_limits[0], self.id2 - 90),
+            min(id2_limits[1], self.id2 + 90),
+        )
+        self.angle_gap_degrees = max(0.0, float(angle_gap_degrees))
+        self.centered_frames = 0
+        self.center_samples = []
+        self.center_correction_done = False
+        self.center_correction_count = 0
+        self.max_center_corrections = 5
+        self.last_center_error = None
+        self.last_center_command_time = 0.0
+        self.last_command_time = 0.0
+        self.last_preview_step_time = 0.0
+        self.preview_step_interval_s = 0.08
+        self.claw_settle_deadline = 0.0
+        self.id4_actual = None
+        self.close_attempts = 0
+        self.drop_open_attempts = 0
+        self.last_feedback_attempt = 0.0
+        self.feedback_due = 0.0
+        self.feedback_pending = False
+        self.feedback_failures = 0
+        self.startup_sequence = bool(startup_sequence)
+        self.startup_stage = "complete"
+        self.startup_ready_timeout = time.monotonic() + 120.0
+        self.one_shot = one_shot
+        self.direct_grasp = bool(direct_grasp)
+        self.one_shot_target = None
+        self.one_shot_approach_sent = False
+        self.one_shot_complete = False
+        self.direct_target = None
+        self.direct_plan = None
+        self.direct_stage = "detect"
+        self.direct_attempts = 0
+        self.post_center_move_complete = False
+        self.locked_target = None
+        self.locked_plan = None
+        self.approach_attempts = 0
+        self.return_attempts = 0
+        self.cycle_search_enabled = False
+        self.no_target_since = None
+        self.id5_deployed = False
+        self.approach_feedback_tolerance = ARM_POSITION_TOLERANCE_TICKS
+        self.algorithm_stage = "centering"
+        self.read_only_sync = enabled and servo_bridge.enabled and not servo_bridge.write_enabled
+        self.read_only_feedback_lock = threading.Lock()
+        self.read_only_feedback_thread = None
+        self.read_only_feedback_ready = False
+        self.read_only_feedback = None
+        self.synchronized = not (enabled and servo_bridge.enabled)
+        self.state = "disabled" if not enabled else "searching"
+        self.status = "red-square grasp disabled" if not enabled else "red-square grasp ready"
+
+        self._enforce_angle_gap()
+        self.arm_preview.set_targets(self.id1, self.id2, self.id4)
+        if self.enabled and self.servo_bridge.write_enabled:
+            if self.startup_sequence:
+                self.startup_stage = "wait_ready"
+                self.state = "startup_wait_ready"
+                self.status = "waiting for RCT6 ARM UART READY"
+            else:
+                self.state = "waiting servo feedback"
+                self.status = "waiting for RCT6 position synchronization"
+        elif self.read_only_sync:
+            self.state = "read_only_sync"
+            self.status = "waiting for read-only RCT6 position synchronization"
+        print(
+            f"GRASP STARTUP enabled={self.enabled} "
+            f"write={self.servo_bridge.write_enabled} "
+            f"sequence={self.startup_sequence} stage={self.startup_stage}",
+            flush=True,
+        )
+
+    @staticmethod
+    def _clamp(value, limits):
+        lower, upper = limits
+        return max(lower, min(upper, int(round(value))))
+
+    def _limited_delta(self, delta):
+        return max(-self.max_step_ticks, min(self.max_step_ticks, int(round(delta))))
+
+    def _centering_delta(self, error_px, gain):
+        if abs(error_px) <= self.center_deadband_px:
+            return 0
+        delta = self._limited_delta(error_px * gain)
+        minimum_step = min(4, self.max_step_ticks)
+        if abs(delta) < minimum_step:
+            return minimum_step if error_px > 0 else -minimum_step
+        return delta
+
+    def _single_id2_correction(self, error_px, distance_scale=1.0):
+        if abs(error_px) <= SINGLE_ID2_DEADBAND_PX:
+            return 0
+        delta = int(round(error_px * self.id2_pixel_gain * distance_scale))
+        delta = max(-SINGLE_ID2_MAX_STEP_TICKS, min(SINGLE_ID2_MAX_STEP_TICKS, delta))
+        if abs(delta) < SINGLE_ID2_MIN_STEP_TICKS:
+            return SINGLE_ID2_MIN_STEP_TICKS if error_px > 0 else -SINGLE_ID2_MIN_STEP_TICKS
+        return delta
+
+    def _single_id6_correction(self, error_px, distance_scale=1.0):
+        if abs(error_px) <= SINGLE_ID6_DEADBAND_PX:
+            return 0
+        delta = int(round(
+            ID6_IMAGE_ERROR_SIGN * error_px * self.id6_pixel_gain * distance_scale
+        ))
+        delta = max(-self.id6_max_step_ticks, min(self.id6_max_step_ticks, delta))
+        if abs(delta) < SINGLE_ID6_MIN_STEP_TICKS:
+            return SINGLE_ID6_MIN_STEP_TICKS if error_px < 0 else -SINGLE_ID6_MIN_STEP_TICKS
+        return delta
+
+    @staticmethod
+    def _id1_degrees(id1_tick):
+        return id1_degrees(id1_tick)
+
+    @staticmethod
+    def _id2_degrees(id2_tick):
+        return id2_degrees(id2_tick)
+
+    @staticmethod
+    def _id2_tick_from_degrees(degrees):
+        return id2_tick_from_degrees(degrees)
+
+    def _enforce_angle_gap(self):
+        self.id1, self.id2 = enforce_angle_gap(
+            self.id1,
+            self.id2,
+            self.id2_limits,
+            self.angle_gap_degrees,
+        )
+        return angle_gap_degrees(self.id1, self.id2)
+
+    def _set_arm_targets(self, id1, id2):
+        self.id1 = self._clamp(int(id1), self.id1_limits)
+        self.id2 = self._clamp(int(id2), self.id2_limits)
+        self._enforce_angle_gap()
+        return self.id1, self.id2
+
+    def _arm_target_errors(self, target_id1, target_id2):
+        return (
+            abs(self.id1 - int(target_id1)),
+            abs(self.id2 - int(target_id2)),
+        )
+
+    def _arm_target_reached(self, target_id1, target_id2):
+        error_id1, error_id2 = self._arm_target_errors(target_id1, target_id2)
+        return (
+            error_id1 <= self.approach_feedback_tolerance
+            and error_id2 <= self.approach_feedback_tolerance
+        )
+
+    def _apply_feedback(self, feedback):
+        print(
+            f"SERVO FEEDBACK stage={self.algorithm_stage} "
+            f"ID1={feedback[0]}/{self.id1} ID2={feedback[1]}/{self.id2}",
+            flush=True,
+        )
+        if not (self.id1_limits[0] <= feedback[0] <= self.id1_limits[1]):
+            self.state = "fault"
+            self.status = f"ID1 feedback outside safe range: {feedback[0]}"
+            return False
+        if not (self.id2_limits[0] <= feedback[1] <= self.id2_limits[1]):
+            self.state = "fault"
+            self.status = f"ID2 feedback outside safe range: {feedback[1]}"
+            return False
+        self.id1 = int(feedback[0])
+        self.id2 = int(feedback[1])
+        gap = angle_gap_degrees(self.id1, self.id2)
+        if self.angle_gap_degrees > 0.0 and gap <= self.angle_gap_degrees:
+            self.state = "fault"
+            self.status = f"unsafe measured angle gap {gap:.1f}deg"
+            return False
+        self.synchronized = True
+        self.feedback_pending = False
+        self.feedback_failures = 0
+        self.arm_preview.set_feedback(
+            feedback[0],
+            feedback[1],
+            feedback[2] if len(feedback) > 2 else None,
+        )
+        self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+        self.arm_preview.publish("measured servo feedback")
+        return True
+
+    def _read_only_feedback_worker(self):
+        feedback = self.servo_bridge.query_positions(timeout_s=0.45)
+        with self.read_only_feedback_lock:
+            self.read_only_feedback = feedback
+            self.read_only_feedback_ready = True
+
+    def _start_read_only_feedback(self):
+        with self.read_only_feedback_lock:
+            if (
+                self.read_only_feedback_thread is not None
+                and self.read_only_feedback_thread.is_alive()
+            ):
+                return
+            self.read_only_feedback_ready = False
+            self.read_only_feedback_thread = threading.Thread(
+                target=self._read_only_feedback_worker,
+                daemon=True,
+            )
+            self.read_only_feedback_thread.start()
+
+    def _send(
+        self,
+        reason,
+        require_feedback=True,
+        send_id4=False,
+        send_id6=False,
+        send_id1=True,
+        send_id2=True,
+        synchronize_pair=False,
+    ):
+        gap = self._enforce_angle_gap()
+        self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+        self.arm_preview.publish(reason)
+        print(
+            f"GRASP COMMAND reason={reason} ID1={self.id1} "
+            f"ID2={self.id2} ID4={self.id4} ID6={self.id6} gap={gap:.1f}deg",
+            flush=True,
+        )
+        self.status = self.servo_bridge.send_targets(
+            id1=self.id1 if send_id1 else None,
+            id2=self.id2 if send_id2 else None,
+            id4=None,
+            id6=self.id6 if send_id6 else None,
+            synchronize_pair=synchronize_pair,
+        )
+        if (
+            send_id4
+            and (not self.servo_bridge.write_enabled or self.servo_bridge.last_command_ok)
+        ):
+            self.id4_actual = self.servo_bridge.command_claw(self.id4)
+            self.status = self.servo_bridge.status
+        self.last_command_time = time.monotonic()
+        if self.servo_bridge.write_enabled and not self.servo_bridge.last_command_ok:
+            self.state = "fault"
+            self.algorithm_stage = "fault"
+            self.feedback_pending = False
+            self.status = f"automatic motion stopped: {self.servo_bridge.status}"
+            self.arm_preview.publish(self.status)
+            return self.status
+        if self.servo_bridge.write_enabled and require_feedback:
+            self.feedback_pending = True
+            self.feedback_due = self.last_command_time + max(
+                ARM_FEEDBACK_WAIT_S,
+                self.command_interval_s,
+            )
+        gap_text = "" if gap is None else f" gap={gap:.1f}deg"
+        return f"{reason}: id1={self.id1} id2={self.id2} id4={self.id4}{gap_text} | {self.status}"
+
+    def _send_center_correction(self, reason, send_id2, send_id6):
+        self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+        self.arm_preview.publish(reason)
+        print(
+            f"CENTER COMMAND reason={reason} ID2={self.id2} ID6={self.id6}",
+            flush=True,
+        )
+        self.status = self.servo_bridge.send_targets(
+            id2=self.id2 if send_id2 else None,
+            id6=self.id6 if send_id6 else None,
+        )
+        self.last_command_time = time.monotonic()
+        if self.servo_bridge.write_enabled and not self.servo_bridge.last_command_ok:
+            self.state = "fault"
+            self.algorithm_stage = "fault"
+            self.feedback_pending = False
+            self.status = f"automatic motion stopped: {self.servo_bridge.status}"
+            self.arm_preview.publish(self.status)
+            return self.status
+        if self.servo_bridge.write_enabled and send_id2:
+            self.feedback_pending = True
+            self.feedback_due = self.last_command_time + max(
+                ARM_FEEDBACK_WAIT_S,
+                self.command_interval_s,
+            )
+        return f"{reason}: id2={self.id2} id6={self.id6} | {self.status}"
+
+    def _send_claw(self, reason, fault_on_failure=True):
+        self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+        self.arm_preview.publish(reason)
+        print(
+            f"CLAW COMMAND reason={reason} ID4={self.id4}",
+            flush=True,
+        )
+        self.id4_actual = self.servo_bridge.command_claw(self.id4)
+        self.status = self.servo_bridge.status
+        self.last_command_time = time.monotonic()
+        if (
+            fault_on_failure
+            and self.servo_bridge.write_enabled
+            and not self.servo_bridge.last_command_ok
+        ):
+            self.state = "fault"
+            self.algorithm_stage = "fault"
+            self.feedback_pending = False
+            self.status = f"automatic motion stopped: {self.servo_bridge.status}"
+            self.arm_preview.publish(self.status)
+        return f"{reason}: id4={self.id4} | {self.status}"
+
+    def _id4_target_confirmed(self):
+        if self.id4_actual is None:
+            print(
+                f"ID4 VERIFY target={self.id4} actual=NO_RESPONSE "
+                "confirmed command missing",
+                flush=True,
+            )
+            return False
+
+        error = abs(self.id4_actual - self.id4)
+        confirmed = error <= ID4_POSITION_TOLERANCE_TICKS
+        if self.id4 == self.id4_open:
+            confirmed = error <= ID4_OPEN_USABLE_TOLERANCE_TICKS
+        if self.id4 == self.id4_closed:
+            confirmed = (
+                self.id4 - ID4_POSITION_TOLERANCE_TICKS
+                <= self.id4_actual
+                <= ID4_GRASP_CONTACT_MAX_TICKS
+            )
+        print(
+            f"ID4 VERIFY target={self.id4} actual={self.id4_actual} "
+            f"error={error} tolerance="
+            f"{ID4_OPEN_USABLE_TOLERANCE_TICKS if self.id4 == self.id4_open else ID4_POSITION_TOLERANCE_TICKS} "
+            f"confirmed={confirmed}",
+            flush=True,
+        )
+        return confirmed
+
+    def _fault_id4(self, reason, settle_s):
+        del settle_s
+        self.algorithm_stage = "fault"
+        self.state = "fault"
+        actual = "NO_RESPONSE" if self.id4_actual is None else self.id4_actual
+        self.status = (
+            f"{reason}: ID4 target={self.id4} actual={actual}; "
+            "automatic arm motion stopped without resending"
+        )
+        print(f"ID4 FAULT {self.status}", flush=True)
+        self.arm_preview.publish(self.status)
+        return self.status
+
+    def _startup_fault(self, detail):
+        self.startup_stage = "fault"
+        self.state = "fault"
+        self.feedback_pending = False
+        self.status = f"startup fault: {detail}"
+        print(f"GRASP STARTUP FAULT {detail}", flush=True)
+        self.arm_preview.set_targets(self.id1, self.id2, self.id4)
+        return self.status
+
+    def _update_startup(self, now):
+        if self.startup_stage == "fault":
+            return self.status
+
+        if self.startup_stage == "wait_ready":
+            self.state = "startup_wait_ready"
+            if now - self.last_command_time < 0.50:
+                return self.status
+            self.last_command_time = now
+            if not self.servo_bridge.handshake():
+                if now >= self.startup_ready_timeout:
+                    return self._startup_fault(self.servo_bridge.status)
+                self.status = f"waiting for RCT6 handshake | {self.servo_bridge.status}"
+                return self.status
+            self.startup_stage = "send_ready"
+            self.state = "startup_extend"
+            self.status = "RCT6 connected; expanding ID1/ID2/ID6 together"
+
+        if self.startup_stage == "send_ready":
+            self.state = "startup_extend"
+            self.id1 = READY_ID1_TICK
+            self.id2 = READY_ID2_TICK
+            self.id6 = BASE_YAW_READY_TICK
+            feedback = self.servo_bridge.command_arm_ready(timeout_s=7.0)
+            self.last_command_time = time.monotonic()
+            if feedback is None:
+                return self._startup_fault(
+                    f"startup armready did not reach ID1={READY_ID1_TICK} "
+                    f"ID2={READY_ID2_TICK}: {self.servo_bridge.status}"
+                )
+            self.id1 = int(feedback[0])
+            self.id2 = int(feedback[1])
+            self.id6 = int(feedback[2])
+            self.id4 = self.id4_closed
+            self.synchronized = True
+            self.feedback_pending = False
+            self.startup_stage = "complete"
+            self.state = "startup_ready"
+            self.status = (
+                f"startup_ready measured ID1={self.id1} "
+                f"ID2={self.id2} ID6={self.id6}"
+            )
+            self.arm_preview.set_feedback(self.id1, self.id2, self.id6)
+            self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+            return self.status
+
+        return self.status
+
+    @staticmethod
+    def _copy_target(target):
+        if target is None:
+            return None
+        copied = dict(target)
+        if "center" in copied:
+            copied["center"] = tuple(copied["center"])
+        if "bbox" in copied:
+            copied["bbox"] = tuple(copied["bbox"])
+        return copied
+
+    def _target_ready(self, target):
+        label = "target" if target is None else f"{target.get('color', '')} {target.get('kind', 'target')}".strip()
+        if target is None:
+            return False, "grasp searching target"
+        if not target.get("fully_visible", True):
+            return False, f"{label} touches frame edge; move it fully into view"
+        if target.get("area_percent", 0.0) < 0.4:
+            return False, f"{label} area below 0.4%; grasp disabled"
+        return True, f"{label} locked"
+
+    @staticmethod
+    def _target_size_mm(target):
+        if target.get("kind") in {"ball", "ring"}:
+            return GOLF_BALL_DIAMETER_MM
+        return RED_CUBE_SIDE_MM
+
+    def _apply_ik_calibration(self, id1, id2, target_x_mm, target_z_mm):
+        id1 = self._clamp(
+            id1 + GRASP_ID1_CALIBRATION_TICKS,
+            self.id1_limits,
+        )
+        id1, id2 = enforce_angle_gap(
+            id1,
+            id2,
+            self.id2_limits,
+            self.angle_gap_degrees,
+        )
+        actual_x_mm, actual_z_mm = gripper_position_mm(id1, id2)
+        error_mm = math.hypot(
+            actual_x_mm - target_x_mm,
+            actual_z_mm - target_z_mm,
+        )
+        return id1, id2, error_mm
+
+    @staticmethod
+    def _estimate_target_offsets_mm(target, frame_shape):
+        distance_cm = target.get("distance_cm")
+        if distance_cm is None:
+            return None
+        distance_mm = distance_cm * 10.0
+        height, width = frame_shape[:2]
+        cx, cy = target.get("center", (width / 2.0, height / 2.0))
+        _, _, bbox_w, bbox_h = target.get("bbox", (0, 0, 0, 0))
+        apparent_side_px = max(1.0, float(max(bbox_w, bbox_h)))
+        target_size_mm = RedSquareGraspController._target_size_mm(target)
+        focal_px = apparent_side_px * distance_mm / target_size_mm
+        lateral_mm = (float(cx) - (width / 2.0)) * distance_mm / focal_px
+        vertical_mm = (float(cy) - (height / 2.0)) * distance_mm / focal_px
+        return {
+            "distance_mm": distance_mm,
+            "focal_px": focal_px,
+            "lateral_mm": lateral_mm,
+            "vertical_mm": vertical_mm,
+            "target_kind": target.get("kind", "square"),
+            "target_size_mm": target_size_mm,
+        }
+
+    def _one_shot_plan(self, target, frame_shape):
+        offsets = self._estimate_target_offsets_mm(target, frame_shape)
+        if offsets is None:
+            return None, "one-shot locked; waiting distance estimate"
+
+        lateral_mm = offsets["lateral_mm"]
+        if abs(lateral_mm) > self.max_lateral_offset_mm:
+            return None, (
+                f"target lateral offset {lateral_mm:.0f}mm exceeds "
+                f"{self.max_lateral_offset_mm:.0f}mm; center with base first"
+            )
+
+        gripper_forward_mm = (
+            offsets["distance_mm"]
+            - self.camera_gripper_offset_mm
+            - self.target_gripper_distance_mm
+        )
+        gripper_vertical_mm = (
+            self.camera_gripper_vertical_offset_mm
+            - offsets["vertical_mm"]
+        )
+        current_x_mm, current_z_mm = gripper_position_mm(self.id1, self.id2)
+        solved_id1, solved_id2, ik_error_mm = solve_gripper_position(
+            current_x_mm + gripper_forward_mm,
+            current_z_mm + gripper_vertical_mm,
+            self.id1,
+            self.id2,
+            self.id1_limits,
+            self.id2_limits,
+            self.angle_gap_degrees,
+        )
+        solved_id1, solved_id2, ik_error_mm = self._apply_ik_calibration(
+            solved_id1,
+            solved_id2,
+            current_x_mm + gripper_forward_mm,
+            current_z_mm + gripper_vertical_mm,
+        )
+        plan = {
+            **offsets,
+            "forward_mm": gripper_forward_mm,
+            "vertical_target_mm": gripper_vertical_mm,
+            "target_distance_mm": self.target_gripper_distance_mm,
+            "current_x_mm": current_x_mm,
+            "current_z_mm": current_z_mm,
+            "id1": solved_id1,
+            "id2": solved_id2,
+            "ik_error_mm": ik_error_mm,
+        }
+        return plan, (
+            f"plan d={offsets['distance_mm']:.0f}mm "
+            f"lat={lateral_mm:.0f}mm dz={gripper_vertical_mm:.0f}mm "
+            f"fwd={gripper_forward_mm:.0f}mm -> "
+            f"ID1={solved_id1} ID2={solved_id2} err={ik_error_mm:.1f}mm"
+        )
+
+    def _direct_2_plan(self, target, frame_shape):
+        offsets = self._estimate_target_offsets_mm(target, frame_shape)
+        if offsets is None:
+            return None, "direct-2 waiting for distance estimate"
+
+        distance_cm = offsets["distance_mm"] / 10.0
+        if not GRASP_MIN_DISTANCE_CM <= distance_cm <= GRASP_MAX_DISTANCE_CM:
+            return None, (
+                f"direct-2 distance {distance_cm:.1f}cm outside "
+                f"{GRASP_MIN_DISTANCE_CM:.0f}-{GRASP_MAX_DISTANCE_CM:.0f}cm"
+            )
+
+        calibrated_id1, calibrated_id2 = calibrated_grasp_ticks(
+            distance_cm,
+            "descend",
+        )
+        base_final_x_mm, base_final_z_mm = gripper_position_mm(
+            calibrated_id1,
+            calibrated_id2,
+        )
+        final_z_mm = (
+            base_final_z_mm
+            + self.camera_gripper_vertical_offset_mm
+            - offsets["vertical_mm"]
+        )
+        final_id1, final_id2, final_error_mm = solve_gripper_position(
+            base_final_x_mm,
+            final_z_mm,
+            calibrated_id1,
+            calibrated_id2,
+            self.id1_limits,
+            self.id2_limits,
+            self.angle_gap_degrees,
+        )
+        overhead_z_mm = final_z_mm + DIRECT_2_OVERHEAD_CLEARANCE_MM
+        overhead_id1, overhead_id2, overhead_error_mm = solve_gripper_position(
+            base_final_x_mm,
+            overhead_z_mm,
+            self.id1,
+            self.id2,
+            self.id1_limits,
+            self.id2_limits,
+            self.angle_gap_degrees,
+        )
+
+        yaw_radians = math.atan2(
+            offsets["lateral_mm"],
+            max(1.0, offsets["distance_mm"]),
+        )
+        id6_delta = int(round(
+            ID6_IMAGE_ERROR_SIGN
+            * yaw_radians
+            * BASE_YAW_TICKS_PER_REVOLUTION
+            / (2.0 * math.pi)
+        ))
+        raw_id6 = BASE_YAW_READY_TICK + id6_delta
+        if not ID6_SAFE_LIMITS[0] <= raw_id6 <= ID6_SAFE_LIMITS[1]:
+            return None, f"direct-2 ID6 target {raw_id6} outside safe range"
+
+        current_x_mm, current_z_mm = gripper_position_mm(self.id1, self.id2)
+        plan = {
+            **offsets,
+            "current_x_mm": current_x_mm,
+            "current_z_mm": current_z_mm,
+            "forward_mm": base_final_x_mm - current_x_mm,
+            "vertical_target_mm": final_z_mm - current_z_mm,
+            "target_distance_mm": 0.0,
+            "id1": final_id1,
+            "id2": final_id2,
+            "id6": raw_id6,
+            "overhead_id1": overhead_id1,
+            "overhead_id2": overhead_id2,
+            "overhead_error_mm": overhead_error_mm,
+            "ik_error_mm": final_error_mm,
+        }
+        return plan, (
+            f"direct-2 dx={offsets['lateral_mm']:.0f}mm "
+            f"dy={offsets['vertical_mm']:.0f}mm d={distance_cm:.1f}cm "
+            f"overhead={overhead_id1}/{overhead_id2} "
+            f"final={final_id1}/{final_id2} ID6={raw_id6} "
+            f"err={max(overhead_error_mm, final_error_mm):.1f}mm"
+        )
+
+    def _post_center_plan(self, target=None, frame_shape=None, phase="descend"):
+        offsets = None
+        if target is not None and frame_shape is not None:
+            offsets = self._estimate_target_offsets_mm(target, frame_shape)
+        current_x_mm, current_z_mm = gripper_position_mm(self.id1, self.id2)
+
+        if phase == "overhead":
+            solved_id1 = self.id1
+            solved_id2 = self._clamp(self.id2, self.id2_limits)
+            plan = {
+                "current_x_mm": current_x_mm,
+                "current_z_mm": current_z_mm,
+                "forward_mm": 0.0,
+                "vertical_target_mm": 0.0,
+                "requested_forward_mm": 0.0,
+                "requested_vertical_mm": 0.0,
+                "progress_ratio": 1.0,
+                "target_distance_mm": 0.0,
+                "distance_mm": offsets["distance_mm"] if offsets else 0.0,
+                "lateral_mm": 0.0,
+                "target_kind": offsets.get("target_kind", "square") if offsets else "square",
+                "target_size_mm": offsets.get("target_size_mm", RED_CUBE_SIDE_MM) if offsets else RED_CUBE_SIDE_MM,
+                "id1": solved_id1,
+                "id2": solved_id2,
+                "ik_error_mm": 0.0,
+                "phase": phase,
+                "centered_overhead_hold": True,
+            }
+            if offsets is not None:
+                plan.update(offsets)
+            return plan, (
+                f"centered overhead hold ID1={solved_id1} ID2={solved_id2}; "
+                "open claw in place with no retreat"
+            )
+
+        if offsets is not None:
+            camera_to_target_mm = offsets["distance_mm"]
+            camera_to_gripper_mm = max(0.0, self.camera_gripper_offset_mm)
+            # The camera is 50 mm behind the gripper. Once the target is
+            # centered, camera-target and camera-gripper are perpendicular
+            # components: move back by the fixed offset and down by the
+            # measured camera distance, leaving a small gripping clearance.
+            gripper_to_target_mm = math.hypot(
+                camera_to_target_mm,
+                camera_to_gripper_mm,
+            )
+            if phase == "overhead":
+                move_x_mm = -camera_to_gripper_mm
+                move_z_mm = 0.0
+            else:
+                requested_down_mm = max(
+                    0.0,
+                    camera_to_target_mm - self.target_gripper_distance_mm,
+                ) + GRASP_EXTRA_DESCEND_MM
+                move_x_mm = 0.0
+                move_z_mm = -min(requested_down_mm, self.post_center_down_mm)
+            target_kind = offsets.get("target_kind", "square")
+            target_size_mm = offsets.get("target_size_mm", RED_CUBE_SIDE_MM)
+        else:
+            camera_to_target_mm = None
+            camera_to_gripper_mm = self.camera_gripper_offset_mm
+            gripper_to_target_mm = None
+            move_x_mm = 0.0
+            move_z_mm = -self.post_center_down_mm
+            target_kind = "square"
+            target_size_mm = RED_CUBE_SIDE_MM
+
+        target_x_mm = current_x_mm + move_x_mm
+        target_z_mm = current_z_mm - self.post_center_down_mm
+        if offsets is not None:
+            target_z_mm = current_z_mm + move_z_mm
+        solved_id1, solved_id2, ik_error_mm = solve_gripper_position(
+            target_x_mm,
+            target_z_mm,
+            self.id1,
+            self.id2,
+            self.id1_limits,
+            self.id2_limits,
+            self.angle_gap_degrees,
+        )
+        progress_ratio = 1.0
+        if ik_error_mm > self.post_center_ik_error_mm:
+            for candidate_ratio in (0.85, 0.70, 0.55, 0.40, 0.25, 0.10):
+                candidate_x_mm = current_x_mm + move_x_mm * candidate_ratio
+                candidate_z_mm = current_z_mm + move_z_mm * candidate_ratio
+                candidate_id1, candidate_id2, candidate_error_mm = solve_gripper_position(
+                    candidate_x_mm,
+                    candidate_z_mm,
+                    self.id1,
+                    self.id2,
+                    self.id1_limits,
+                    self.id2_limits,
+                    self.angle_gap_degrees,
+                )
+                if candidate_error_mm <= self.post_center_ik_error_mm:
+                    progress_ratio = candidate_ratio
+                    target_x_mm = candidate_x_mm
+                    target_z_mm = candidate_z_mm
+                    solved_id1 = candidate_id1
+                    solved_id2 = candidate_id2
+                    ik_error_mm = candidate_error_mm
+                    break
+        solved_id1, solved_id2, ik_error_mm = self._apply_ik_calibration(
+            solved_id1,
+            solved_id2,
+            target_x_mm,
+            target_z_mm,
+        )
+        if phase == "overhead":
+            solved_id2 = self._clamp(
+                solved_id2 + GRASP_OVERHEAD_ID2_BIAS_TICKS,
+                self.id2_limits,
+            )
+            solved_id1, solved_id2 = enforce_angle_gap(
+                solved_id1,
+                solved_id2,
+                self.id2_limits,
+                self.angle_gap_degrees,
+            )
+            actual_x_mm, actual_z_mm = gripper_position_mm(solved_id1, solved_id2)
+            ik_error_mm = math.hypot(
+                actual_x_mm - target_x_mm,
+                actual_z_mm - target_z_mm,
+            )
+        if phase == "descend":
+            solved_id2 = self._clamp(
+                solved_id2 + GRASP_DESCEND_ID2_BIAS_TICKS,
+                self.id2_limits,
+            )
+            solved_id1, solved_id2 = enforce_angle_gap(
+                solved_id1,
+                solved_id2,
+                self.id2_limits,
+                self.angle_gap_degrees,
+            )
+            actual_x_mm, actual_z_mm = gripper_position_mm(solved_id1, solved_id2)
+            ik_error_mm = math.hypot(
+                actual_x_mm - target_x_mm,
+                actual_z_mm - target_z_mm,
+            )
+        calibration_text = ""
+        if (
+            offsets is not None
+            and target_kind in {"square", "ring"}
+            and phase == "descend"
+        ):
+            distance_cm = camera_to_target_mm / 10.0
+            if GRASP_MIN_DISTANCE_CM <= distance_cm <= GRASP_MAX_DISTANCE_CM:
+                calibrated_id1, calibrated_id2 = calibrated_grasp_ticks(distance_cm, phase)
+                calibrated_id1 = self._clamp(calibrated_id1, self.id1_limits)
+                calibrated_id2 = self._clamp(calibrated_id2, self.id2_limits)
+                calibrated_x_mm, calibrated_z_mm = gripper_position_mm(
+                    calibrated_id1,
+                    calibrated_id2,
+                )
+                solved_id1, solved_id2, _ = solve_gripper_position(
+                    calibrated_x_mm,
+                    calibrated_z_mm - GRASP_EXTRA_DESCEND_MM,
+                    calibrated_id1,
+                    calibrated_id2,
+                    self.id1_limits,
+                    self.id2_limits,
+                    self.angle_gap_degrees,
+                )
+                solved_id1, solved_id2 = enforce_angle_gap(
+                    solved_id1,
+                    solved_id2,
+                    self.id2_limits,
+                    self.angle_gap_degrees,
+                )
+                actual_x_mm, actual_z_mm = gripper_position_mm(
+                    solved_id1,
+                    solved_id2,
+                )
+                actual_extra_down_mm = calibrated_z_mm - actual_z_mm
+                target_x_mm = actual_x_mm
+                target_z_mm = actual_z_mm
+                move_x_mm = target_x_mm - current_x_mm
+                move_z_mm = target_z_mm - current_z_mm
+                progress_ratio = 1.0
+                ik_error_mm = 0.0
+                calibration_text = (
+                    f"measured pair calibration distance={distance_cm:.2f}cm "
+                    f"extra_down={actual_extra_down_mm:.1f}/{GRASP_EXTRA_DESCEND_MM:.0f}mm "
+                )
+        planned_move_x_mm = move_x_mm * progress_ratio
+        planned_move_z_mm = move_z_mm * progress_ratio
+        plan = {
+            "current_x_mm": current_x_mm,
+            "current_z_mm": current_z_mm,
+            "forward_mm": planned_move_x_mm,
+            "vertical_target_mm": planned_move_z_mm,
+            "requested_forward_mm": move_x_mm,
+            "requested_vertical_mm": move_z_mm,
+            "progress_ratio": progress_ratio,
+            "target_distance_mm": 0.0,
+            "distance_mm": camera_to_target_mm if camera_to_target_mm is not None else abs(move_x_mm),
+            "lateral_mm": 0.0,
+            "target_kind": target_kind,
+            "target_size_mm": target_size_mm,
+            "id1": solved_id1,
+            "id2": solved_id2,
+            "ik_error_mm": ik_error_mm,
+            "phase": phase,
+        }
+        if offsets is not None:
+            plan.update(offsets)
+        return plan, calibration_text + (
+            f"triangle Dcam-target={camera_to_target_mm:.0f}mm "
+            f"Dcam-gripper={camera_to_gripper_mm:.0f}mm "
+            f"Dgripper-target={gripper_to_target_mm:.0f}mm "
+            if camera_to_target_mm is not None and gripper_to_target_mm is not None
+            else f"post-center fixed move x={move_x_mm:.0f}mm "
+        ) + (
+            f"phase={phase} move x={planned_move_x_mm:.0f}/{move_x_mm:.0f}mm "
+            f"z={planned_move_z_mm:.0f}/{move_z_mm:.0f}mm "
+            f"progress={progress_ratio * 100:.0f}%: "
+            f"ID1 {self.id1}->{solved_id1} "
+            f"ID2 {self.id2}->{solved_id2} err={ik_error_mm:.1f}mm"
+        )
+
+    def _start_next_cycle(self, now):
+        if self.id5_deployed and self.servo_bridge.write_enabled:
+            result = self.servo_bridge.send_targets(id5=AUX_ID5_HOME_TICK)
+            self.last_command_time = now
+            if not self.servo_bridge.last_command_ok:
+                self.algorithm_stage = "fault"
+                self.state = "fault"
+                self.status = f"ID5 home after drop failed: {result}"
+                return self.status
+        self.id5_deployed = False
+        self.centered_frames = 0
+        self.center_samples = []
+        self.center_correction_done = False
+        self.center_correction_count = 0
+        self.last_center_error = None
+        self.last_center_command_time = 0.0
+        self.locked_target = None
+        self.locked_plan = None
+        self.approach_attempts = 0
+        self.return_attempts = 0
+        self.post_center_move_complete = False
+        self.algorithm_stage = "centering"
+        self.cycle_search_enabled = True
+        self.no_target_since = now
+        self.state = "searching next red target"
+        self.status = "drop complete; searching red square/ring/QR"
+        self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+        self.arm_preview.publish(self.status)
+        return self.status
+
+    def _update_locked_grasp(self, frame_shape, now, can_preview_step):
+        can_command = now - self.last_command_time >= self.command_interval_s
+
+        if self.algorithm_stage == "open":
+            self.state = "locked target open claw"
+            if not self.servo_bridge.write_enabled:
+                next_id4 = min(self.id4_open, self.id4 + 20)
+                if can_preview_step:
+                    self.id4 = next_id4
+                    self.last_preview_step_time = now
+                if self.id4 >= self.id4_open:
+                    self.id4 = self.id4_open
+                    self.algorithm_stage = "descend"
+                    self.locked_plan = None
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4)
+                return (
+                    f"preview locked target; opening claw "
+                    f"ID4={self.id4}->{self.id4_open}"
+                )
+            if can_command:
+                self.id4 = self.id4_open
+                self.state = "claw_open_ack"
+                result = self._send_claw("locked target; open claw")
+                if self.servo_bridge.last_command_ok:
+                    self.algorithm_stage = "open_settle"
+                    self.claw_settle_deadline = (
+                        time.monotonic() + VISION1_OPEN_TO_DESCEND_S
+                    )
+                return result
+            return "locked target; waiting to open claw"
+
+        if self.algorithm_stage == "open_settle":
+            self.state = "claw opening before descend"
+            self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+            if now < self.claw_settle_deadline:
+                return f"claw opening; hold arm {self.claw_settle_deadline - now:.1f}s"
+            id4_confirmed = self._id4_target_confirmed()
+            if id4_confirmed is False:
+                return self._fault_id4(
+                    "claw open not confirmed",
+                    VISION1_OPEN_TO_DESCEND_S,
+                )
+            self.algorithm_stage = "descend"
+            self.locked_plan = None
+            id4_status = (
+                f"confirmed at {self.id4_actual}"
+                if self.id4_actual is not None
+                else "confirmation unavailable"
+            )
+            return f"claw open {id4_status}; descend motion enabled"
+
+        if self.algorithm_stage == "carry_lift":
+            self.state = "lifting target to recognition height"
+            target_id1 = READY_ID1_TICK
+            target_id2 = READY_ID2_TICK
+            if not self.servo_bridge.write_enabled:
+                self._set_arm_targets(target_id1, target_id2)
+                self.algorithm_stage = "carry_retract"
+                self.return_attempts = 0
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+                return "preview target lifted; retracting ID2 for release"
+            if self.return_attempts > 0:
+                if self._arm_target_reached(target_id1, target_id2):
+                    self.algorithm_stage = "carry_retract"
+                    self.return_attempts = 0
+                    return "target lifted to 550/300; retracting ID2"
+                if self.return_attempts >= VISION1_MAX_ATTEMPTS:
+                    self.algorithm_stage = "fault"
+                    self.state = "fault"
+                    self.status = (
+                        "carry lift feedback outside tolerance: "
+                        f"ID1={self.id1}/{target_id1} ID2={self.id2}/{target_id2}"
+                    )
+                    return self.status
+            if can_command:
+                self._set_arm_targets(target_id1, target_id2)
+                self.return_attempts += 1
+                return self._send(
+                    f"carry lift attempt={self.return_attempts}/{VISION1_MAX_ATTEMPTS}",
+                    require_feedback=True,
+                    synchronize_pair=True,
+                )
+            return "grasp complete; waiting to lift target to 550/300"
+
+        if self.algorithm_stage == "carry_retract":
+            self.state = "carrying target to drop pose"
+            target_id1 = READY_ID1_TICK
+            target_id2 = HOME_ID2_TICK
+            if not self.servo_bridge.write_enabled:
+                self._set_arm_targets(target_id1, target_id2)
+                self.algorithm_stage = "drop_deploy_id5"
+                self.return_attempts = 0
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+                return "preview carry pose reached; deploying ID5 before release"
+            if self.return_attempts > 0:
+                if self._arm_target_reached(target_id1, target_id2):
+                    self.algorithm_stage = "drop_deploy_id5"
+                    self.return_attempts = 0
+                    return "carry pose reached; deploying ID5 before release"
+                if self.return_attempts >= VISION1_MAX_ATTEMPTS:
+                    self.algorithm_stage = "fault"
+                    self.state = "fault"
+                    self.status = (
+                        "carry pose feedback outside tolerance: "
+                        f"ID1={self.id1}/{target_id1} ID2={self.id2}/{target_id2}"
+                    )
+                    return self.status
+            if can_command:
+                self._set_arm_targets(target_id1, target_id2)
+                self.return_attempts += 1
+                return self._send(
+                    f"carry target attempt={self.return_attempts}/{VISION1_MAX_ATTEMPTS}",
+                    require_feedback=True,
+                    send_id1=False,
+                )
+            return "grasp complete; waiting to move target to drop pose"
+
+        if self.algorithm_stage == "drop_deploy_id5":
+            self.state = "deploying ID5 before target release"
+            if not self.servo_bridge.write_enabled:
+                self.id5_deployed = True
+                self.algorithm_stage = "drop_open"
+                return f"preview ID5={AUX_ID5_DETECTED_TICK}; ready to release target"
+            if can_command:
+                result = self.servo_bridge.send_targets(id5=AUX_ID5_DETECTED_TICK)
+                self.last_command_time = now
+                if not self.servo_bridge.last_command_ok:
+                    self.algorithm_stage = "fault"
+                    self.state = "fault"
+                    self.status = f"ID5 deployment before drop failed: {result}"
+                    return self.status
+                self.id5_deployed = True
+                self.algorithm_stage = "drop_open"
+                return (
+                    f"ID5={AUX_ID5_DETECTED_TICK} deployed; "
+                    "ID4 may now open to release target"
+                )
+            return "carry pose reached; waiting to deploy ID5"
+
+        if self.algorithm_stage == "drop_open":
+            self.state = "dropping target"
+            if not self.servo_bridge.write_enabled:
+                self.id4 = self.id4_open
+                self.algorithm_stage = "drop_settle"
+                self.claw_settle_deadline = now + CLAW_SETTLE_S
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+                return "preview claw open; dropping target"
+            if can_command:
+                self.id4 = self.id4_open
+                result = self._send_claw("carry pose reached; open claw to drop target")
+                if self.servo_bridge.last_command_ok:
+                    self.drop_open_attempts = 1
+                    if self.servo_bridge.last_claw_assumed:
+                        self.algorithm_stage = "drop_open_retry"
+                        self.claw_settle_deadline = time.monotonic() + CLAW_SETTLE_S
+                        return (
+                            f"{result}; ID4 open has no feedback, "
+                            "waiting for one conditional retry"
+                        )
+                    self.algorithm_stage = "drop_settle"
+                    self.claw_settle_deadline = time.monotonic() + CLAW_SETTLE_S
+                return result
+            return "carry pose reached; waiting to open claw"
+
+        if self.algorithm_stage == "drop_open_retry":
+            self.state = "confirming claw open before target release"
+            if now < self.claw_settle_deadline:
+                return f"waiting to retry drop claw {self.claw_settle_deadline - now:.1f}s"
+            if can_command:
+                self.id4 = self.id4_open
+                self.drop_open_attempts += 1
+                result = self._send_claw(
+                    "drop claw open unconfirmed; conditional retry"
+                )
+                if not self.servo_bridge.last_command_ok:
+                    return result
+                if self.servo_bridge.last_claw_assumed:
+                    self.algorithm_stage = "drop_settle"
+                    self.claw_settle_deadline = time.monotonic() + CLAW_SETTLE_S
+                    self.status = (
+                        f"drop claw open sent {self.drop_open_attempts} times; "
+                        "continuing after timed movement because feedback is unavailable"
+                    )
+                    print(f"ID4 FALLBACK {self.status}", flush=True)
+                    return self.status
+                self.algorithm_stage = "drop_settle"
+                self.claw_settle_deadline = time.monotonic() + CLAW_SETTLE_S
+                return result
+            return "waiting to retry drop claw open"
+
+        if self.algorithm_stage == "drop_settle":
+            self.state = "waiting for target release"
+            if now < self.claw_settle_deadline:
+                return f"target dropping {self.claw_settle_deadline - now:.1f}s"
+            if not self.servo_bridge.write_enabled:
+                self.id4 = self.id4_closed
+                self.algorithm_stage = "drop_close_settle"
+                self.claw_settle_deadline = now + CLAW_SETTLE_S
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+                return "preview target released; claw closing immediately"
+            id4_confirmed = self._id4_target_confirmed()
+            if id4_confirmed is False:
+                return self._fault_id4(
+                    "drop claw open not confirmed",
+                    CLAW_SETTLE_S,
+                )
+            if can_command:
+                self.id4 = self.id4_closed
+                result = self._send_claw("target released; close claw immediately")
+                if self.servo_bridge.last_command_ok:
+                    self.algorithm_stage = "drop_close_settle"
+                    self.claw_settle_deadline = time.monotonic() + CLAW_SETTLE_S
+                return result
+            return "target released; waiting to close claw"
+
+        if self.algorithm_stage == "drop_close_settle":
+            self.state = "closing claw after target release"
+            if now < self.claw_settle_deadline:
+                return f"claw closing after drop {self.claw_settle_deadline - now:.1f}s"
+            id4_confirmed = self._id4_target_confirmed()
+            if id4_confirmed is False:
+                return self._fault_id4(
+                    "drop claw close not confirmed",
+                    CLAW_SETTLE_S,
+                )
+            self.algorithm_stage = "ready_return"
+            self.return_attempts = 0
+            id4_status = (
+                f"confirmed at {self.id4_actual}"
+                if self.id4_actual is not None
+                else "confirmation unavailable"
+            )
+            return (
+                f"claw closed after drop {id4_status}; "
+                "returning arm to recognition pose"
+            )
+
+        if self.algorithm_stage == "ready_return":
+            self.state = "returning to recognition pose"
+            target_id1 = READY_ID1_TICK
+            target_id2 = READY_ID2_TICK
+            if not self.servo_bridge.write_enabled:
+                self._set_arm_targets(target_id1, target_id2)
+                return self._start_next_cycle(now)
+            if can_command:
+                feedback = self.servo_bridge.command_arm_ready(timeout_s=7.0)
+                self.last_command_time = time.monotonic()
+                if feedback is None:
+                    self.algorithm_stage = "fault"
+                    self.state = "fault"
+                    self.status = f"recognition pose failed: {self.servo_bridge.status}"
+                    return self.status
+                self.id1, self.id2, self.id6 = map(int, feedback)
+                self.arm_preview.set_feedback(self.id1, self.id2, self.id6)
+                return self._start_next_cycle(self.last_command_time)
+            return "waiting to return to recognition pose"
+
+        if self.algorithm_stage == "idle_retract":
+            self.state = "five-second timeout retract"
+            target_id1 = HOME_ID1_TICK
+            target_id2 = HOME_ID2_TICK
+            self.id6 = BASE_YAW_HOME_TICK
+            if not self.servo_bridge.write_enabled:
+                self._set_arm_targets(target_id1, target_id2)
+                self.algorithm_stage = "idle_complete"
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+                return "preview idle timeout; arm retracted"
+            if can_command:
+                feedback = self.servo_bridge.command_arm_home(timeout_s=8.0)
+                self.last_command_time = time.monotonic()
+                if feedback is None:
+                    self.algorithm_stage = "fault"
+                    self.state = "fault"
+                    self.status = f"idle retract failed: {self.servo_bridge.status}"
+                    return self.status
+                self.id1, self.id2, self.id6 = map(int, feedback)
+                self.algorithm_stage = "idle_complete"
+                self.state = "idle retracted"
+                self.arm_preview.set_feedback(self.id1, self.id2, self.id6)
+                self.arm_preview.publish("no red target for 5s; arm retracted")
+                return "no red target for 5s; arm retracted"
+            return "five-second timeout; waiting to retract arm"
+
+        if self.algorithm_stage == "idle_complete":
+            self.state = "idle retracted"
+            self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+            return "idle retracted; restart application for another run"
+
+        if self.locked_plan is None:
+            plan, plan_text = self._post_center_plan(
+                self.locked_target,
+                frame_shape,
+                self.algorithm_stage,
+            )
+            self.locked_plan = plan
+            self.arm_preview.publish_plan_marker(plan, plan_text)
+            print(
+                "GRASP LOCK "
+                f"target={json.dumps(self.locked_target, ensure_ascii=True, default=str)} "
+                f"plan={plan_text}",
+                flush=True,
+            )
+            if plan["ik_error_mm"] > self.post_center_ik_error_mm:
+                self.state = "post-center unreachable"
+                self.algorithm_stage = "fault"
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4)
+                return f"locked target IK failed: {plan_text}"
+        else:
+            plan = self.locked_plan
+            plan_text = (
+                f"locked IK ID1={plan['id1']} ID2={plan['id2']} "
+                f"progress={plan.get('progress_ratio', 1.0) * 100:.0f}% "
+                f"error={plan['ik_error_mm']:.1f}mm"
+            )
+
+        if self.algorithm_stage in ("overhead", "descend"):
+            motion_stage = self.algorithm_stage
+            self.state = f"locked target {motion_stage}"
+            if not self.servo_bridge.write_enabled:
+                if motion_stage == "overhead":
+                    self.id4 = self.id4_open
+                next_id1 = self._clamp(
+                    self.id1 + self._limited_delta(plan["id1"] - self.id1),
+                    self.id1_limits,
+                )
+                next_id2 = self._clamp(
+                    self.id2 + self._limited_delta(plan["id2"] - self.id2),
+                    self.id2_limits,
+                )
+                next_id1, next_id2 = enforce_angle_gap(
+                    next_id1,
+                    next_id2,
+                    self.id2_limits,
+                    self.angle_gap_degrees,
+                )
+                if can_preview_step:
+                    self.id1, self.id2 = next_id1, next_id2
+                    self.last_preview_step_time = now
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4)
+                if self.id1 == plan["id1"] and self.id2 == plan["id2"]:
+                    if motion_stage == "overhead":
+                        self.algorithm_stage = "descend"
+                        self.locked_plan = None
+                        self.approach_attempts = 0
+                    else:
+                        self.post_center_move_complete = True
+                        self.algorithm_stage = "close"
+                return (
+                    f"preview algorithm {motion_stage} ID1={self.id1}->{plan['id1']} "
+                    f"ID2={self.id2}->{plan['id2']} | {plan_text}"
+                )
+            target_id1 = self._clamp(plan["id1"], self.id1_limits)
+            target_id2 = self._clamp(plan["id2"], self.id2_limits)
+            if self.approach_attempts > 0:
+                if self._arm_target_reached(target_id1, target_id2):
+                    if motion_stage == "overhead":
+                        self.locked_plan = None
+                        self.approach_attempts = 0
+                        self.algorithm_stage = "open"
+                        self.state = "overhead reached; opening claw separately"
+                        return "centered overhead reached; isolated ID4 open enabled"
+                    else:
+                        self.post_center_move_complete = True
+                        self.id4 = self.id4_closed
+                        self.state = "claw_close_ack"
+                        self.close_attempts = 1
+                        result = self._send_claw(
+                            "descend reached; close claw immediately",
+                            fault_on_failure=False,
+                        )
+                        if (
+                            self.servo_bridge.last_command_ok
+                            and not self.servo_bridge.last_claw_assumed
+                        ):
+                            self.algorithm_stage = "close_settle"
+                            self.claw_settle_deadline = (
+                                time.monotonic() + CLAW_SETTLE_S
+                            )
+                            self.return_attempts = 0
+                        else:
+                            self.algorithm_stage = "close_retry"
+                            self.claw_settle_deadline = (
+                                time.monotonic() + CLAW_SETTLE_S
+                            )
+                        return (
+                            f"descend reached ID1={self.id1}/{target_id1} "
+                            f"ID2={self.id2}/{target_id2} | {result}"
+                        )
+                    return (
+                        f"{motion_stage} reached ID1={self.id1}/{target_id1} "
+                        f"ID2={self.id2}/{target_id2}"
+                    )
+                if self.approach_attempts >= VISION1_MAX_ATTEMPTS:
+                    self.algorithm_stage = "fault"
+                    self.state = "fault"
+                    self.status = (
+                        f"{motion_stage} feedback outside +/-{self.approach_feedback_tolerance}: "
+                        f"ID1={self.id1}/{target_id1} ID2={self.id2}/{target_id2}"
+                    )
+                    return self.status
+            if can_command:
+                self._set_arm_targets(target_id1, target_id2)
+                self.approach_attempts += 1
+                self.state = "approach_feedback"
+                result = self._send(
+                    f"locked target algorithm {motion_stage} "
+                    f"attempt={self.approach_attempts}/{VISION1_MAX_ATTEMPTS} | {plan_text}",
+                    require_feedback=True,
+                    synchronize_pair=motion_stage == "descend",
+                )
+                return result
+            return f"locked target; waiting algorithm {motion_stage}"
+
+        if self.algorithm_stage == "close":
+            self.state = "locked target close claw"
+            if not self.servo_bridge.write_enabled:
+                self.id4 = self.id4_closed
+                self.algorithm_stage = "carry_lift"
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4)
+                return "preview claw closed; moving target to drop pose"
+            if can_command:
+                self.id4 = self.id4_closed
+                self.state = "claw_close_ack"
+                self.close_attempts = 1
+                result = self._send_claw(
+                    "locked target; close claw",
+                    fault_on_failure=False,
+                )
+                if (
+                    self.servo_bridge.last_command_ok
+                    and not self.servo_bridge.last_claw_assumed
+                ):
+                    self.algorithm_stage = "close_settle"
+                    self.claw_settle_deadline = time.monotonic() + CLAW_SETTLE_S
+                    self.return_attempts = 0
+                else:
+                    self.algorithm_stage = "close_retry"
+                    self.claw_settle_deadline = time.monotonic() + CLAW_SETTLE_S
+                return result
+            return "locked target; waiting to close claw"
+
+        if self.algorithm_stage == "close_retry":
+            self.state = "retrying grasp claw close"
+            if now < self.claw_settle_deadline:
+                return f"waiting to retry grasp close {self.claw_settle_deadline - now:.1f}s"
+            if can_command:
+                self.id4 = self.id4_closed
+                self.close_attempts += 1
+                result = self._send_claw(
+                    "grasp claw close unconfirmed; conditional retry",
+                    fault_on_failure=False,
+                )
+                if not self.servo_bridge.last_command_ok:
+                    self.algorithm_stage = "fault"
+                    self.state = "fault"
+                    self.status = (
+                        f"grasp claw failed after {self.close_attempts} attempts; "
+                        f"arm held at target, lift suppressed: {self.servo_bridge.status}"
+                    )
+                    print(f"ID4 FAULT {self.status}", flush=True)
+                    self.arm_preview.publish(self.status)
+                    return self.status
+                self.algorithm_stage = "close_settle"
+                self.claw_settle_deadline = time.monotonic() + CLAW_SETTLE_S
+                self.return_attempts = 0
+                return result
+            return "waiting to retry grasp claw close"
+
+        if self.algorithm_stage == "close_settle":
+            self.state = "waiting for claw to close fully"
+            self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+            if now < self.claw_settle_deadline:
+                return f"claw closing; hold arm {self.claw_settle_deadline - now:.1f}s"
+            id4_confirmed = self._id4_target_confirmed()
+            if id4_confirmed is False:
+                return self._fault_id4(
+                    "claw close not confirmed",
+                    CLAW_SETTLE_S,
+                )
+            self.algorithm_stage = "carry_lift"
+            self.return_attempts = 0
+            id4_status = (
+                f"confirmed at {self.id4_actual}"
+                if self.id4_actual is not None
+                else "confirmation unavailable"
+            )
+            return f"claw close {id4_status}; carry motion enabled"
+
+        if self.algorithm_stage == "return":
+            self.state = "returning to standby"
+            target_id1 = READY_ID1_TICK
+            target_id2 = READY_ID2_TICK
+            self.id6 = BASE_YAW_READY_TICK
+            if not self.servo_bridge.write_enabled:
+                self._set_arm_targets(target_id1, target_id2)
+                self.id4 = self.id4_closed
+                self.algorithm_stage = "complete"
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4)
+                return "preview grasp complete; returned to standby"
+            if self.return_attempts > 0:
+                if self._arm_target_reached(target_id1, target_id2):
+                    self.algorithm_stage = "complete"
+                    self.state = "standby"
+                    self.arm_preview.set_targets(self.id1, self.id2, self.id4)
+                    self.arm_preview.publish("grasp complete; returned to standby")
+                    return (
+                        f"grasp complete; standby ID1={self.id1} "
+                        f"ID2={self.id2} ID4={self.id4}"
+                    )
+                if self.return_attempts >= VISION1_MAX_ATTEMPTS:
+                    self.algorithm_stage = "fault"
+                    self.state = "fault"
+                    self.status = (
+                        f"standby feedback outside +/-{self.approach_feedback_tolerance}: "
+                        f"ID1={self.id1}/{target_id1} ID2={self.id2}/{target_id2}"
+                    )
+                    return self.status
+            if can_command:
+                self._set_arm_targets(target_id1, target_id2)
+                self.id4 = self.id4_closed
+                self.return_attempts += 1
+                return self._send(
+                    f"return standby attempt={self.return_attempts}/{VISION1_MAX_ATTEMPTS}",
+                    require_feedback=True,
+                    send_id6=True,
+                )
+            return "grasp complete; waiting to return standby"
+
+        if self.algorithm_stage == "fault":
+            return self.status
+
+        self.state = "algorithm grasp complete"
+        self.arm_preview.set_targets(self.id1, self.id2, self.id4)
+        return (
+            f"algorithm grasp complete ID1={self.id1} "
+            f"ID2={self.id2} ID4={self.id4}; camera ignored"
+        )
+
+    def _update_direct_2(self, target, frame_shape):
+        now = time.monotonic()
+        if self.direct_stage == "complete":
+            self.state = "direct_2_complete"
+            self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+            return "direct-2 grasp complete; holding object"
+
+        if self.direct_stage == "detect":
+            ready, reason = self._target_ready(target)
+            if not ready:
+                self.state = "direct_2_detect"
+                return reason
+            plan, plan_text = self._direct_2_plan(target, frame_shape)
+            if plan is None:
+                self.state = "direct_2_plan_wait"
+                return plan_text
+            if max(plan["overhead_error_mm"], plan["ik_error_mm"]) > self.post_center_ik_error_mm:
+                self.state = "direct_2_unreachable"
+                return f"direct-2 IK rejected: {plan_text}"
+
+            self.direct_target = self._copy_target(target)
+            self.direct_plan = plan
+            self.arm_preview.publish_plan_marker(plan, plan_text)
+            print(
+                "DIRECT2 LOCK "
+                f"target={json.dumps(self.direct_target, ensure_ascii=True, default=str)} "
+                f"plan={plan_text}",
+                flush=True,
+            )
+            if not self.servo_bridge.write_enabled:
+                self._set_arm_targets(plan["overhead_id1"], plan["overhead_id2"])
+                self.id4 = self.id4_open
+                self.id6 = plan["id6"]
+                self.direct_stage = "complete"
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+                return f"preview direct-2 {plan_text}"
+
+            self._set_arm_targets(plan["overhead_id1"], plan["overhead_id2"])
+            self.id4 = self.id4_open
+            self.id6 = plan["id6"]
+            self.direct_attempts = 1
+            self.direct_stage = "overhead_wait"
+            self.algorithm_stage = "direct_2_overhead"
+            self.claw_settle_deadline = now + CLAW_SETTLE_S
+            return self._send(
+                f"direct-2 overhead+ID6+open | {plan_text}",
+                require_feedback=True,
+                send_id4=True,
+                send_id6=True,
+            )
+
+        plan = self.direct_plan
+        if plan is None:
+            self.direct_stage = "detect"
+            return "direct-2 plan missing; detecting again"
+
+        if self.direct_stage == "overhead_wait":
+            target_id1 = plan["overhead_id1"]
+            target_id2 = plan["overhead_id2"]
+            if not self._arm_target_reached(target_id1, target_id2):
+                if self.direct_attempts >= DIRECT_2_MAX_ATTEMPTS:
+                    self.state = "fault"
+                    self.algorithm_stage = "fault"
+                    self.status = (
+                        f"direct-2 overhead not reached ID1={self.id1}/{target_id1} "
+                        f"ID2={self.id2}/{target_id2}"
+                    )
+                    return self.status
+                self._set_arm_targets(target_id1, target_id2)
+                self.direct_attempts += 1
+                return self._send(
+                    f"direct-2 overhead retry "
+                    f"{self.direct_attempts}/{DIRECT_2_MAX_ATTEMPTS}",
+                    require_feedback=True,
+                )
+            if now < self.claw_settle_deadline:
+                return f"direct-2 overhead reached; claw opening {self.claw_settle_deadline - now:.1f}s"
+
+            self._set_arm_targets(plan["id1"], plan["id2"])
+            self.direct_attempts = 1
+            self.direct_stage = "final_wait"
+            self.algorithm_stage = "direct_2_descend"
+            return self._send(
+                "direct-2 descend to solved position",
+                require_feedback=True,
+                synchronize_pair=True,
+            )
+
+        if self.direct_stage == "final_wait":
+            target_id1 = plan["id1"]
+            target_id2 = plan["id2"]
+            if not self._arm_target_reached(target_id1, target_id2):
+                if self.direct_attempts >= DIRECT_2_MAX_ATTEMPTS:
+                    self.state = "fault"
+                    self.algorithm_stage = "fault"
+                    self.status = (
+                        f"direct-2 final not reached ID1={self.id1}/{target_id1} "
+                        f"ID2={self.id2}/{target_id2}"
+                    )
+                    return self.status
+                self._set_arm_targets(target_id1, target_id2)
+                self.direct_attempts += 1
+                return self._send(
+                    f"direct-2 final retry "
+                    f"{self.direct_attempts}/{DIRECT_2_MAX_ATTEMPTS}",
+                    require_feedback=True,
+                    synchronize_pair=True,
+                )
+
+            self.id4 = self.id4_closed
+            self.direct_stage = "close_wait"
+            self.algorithm_stage = "direct_2_close"
+            result = self._send_claw("direct-2 final reached; close claw")
+            if self.servo_bridge.last_command_ok:
+                self.claw_settle_deadline = time.monotonic() + CLAW_SETTLE_S
+            return result
+
+        if self.direct_stage == "close_wait":
+            if now < self.claw_settle_deadline:
+                return f"direct-2 closing claw {self.claw_settle_deadline - now:.1f}s"
+            self.direct_stage = "complete"
+            self.algorithm_stage = "complete"
+            self.state = "direct_2_complete"
+            self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+            self.arm_preview.publish("direct-2 grasp complete; holding object")
+            return "direct-2 grasp complete; holding object"
+
+        return f"direct-2 state {self.direct_stage}"
+
+    def _update_one_shot(self, target, frame_shape):
+        if self.one_shot_complete:
+            self.arm_preview.set_targets(self.id1, self.id2, self.id4)
+            return "one-shot grasp complete; servos stopped"
+
+        if self.one_shot_target is None:
+            ready, reason = self._target_ready(target)
+            if not ready:
+                self.arm_preview.set_targets(preview_id1, preview_id2, self.id4)
+                return reason
+            self.one_shot_target = self._copy_target(target)
+            self.centered_frames = self.stable_frames_required
+
+        target = self.one_shot_target
+        plan, plan_text = self._one_shot_plan(target, frame_shape)
+
+        if not self.servo_bridge.write_enabled:
+            if plan is None:
+                self.arm_preview.set_targets(preview_id1, preview_id2, self.id4)
+                return plan_text
+            self.arm_preview.set_targets(self.id1, self.id2, self.id4)
+            self.arm_preview.publish_plan_marker(plan, plan_text)
+            return f"preview one-shot {plan_text}"
+
+        now = time.monotonic()
+        can_command = now - self.last_command_time >= self.command_interval_s
+        if not can_command:
+            self.arm_preview.set_targets(self.id1, self.id2, self.id4)
+            return "one-shot waiting command interval"
+
+        if self.id4 != self.id4_open:
+            self.state = "one-shot open claw"
+            self.id4 = self.id4_open
+            return self._send_claw("one-shot open claw")
+
+        if not self.one_shot_approach_sent:
+            if plan is None:
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4)
+                return plan_text
+            if plan["ik_error_mm"] > self.max_one_shot_ik_error_mm:
+                self.state = "unreachable"
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4)
+                self.arm_preview.publish_plan_marker(plan, plan_text)
+                return (
+                    f"IK simulation failed: {plan_text}; "
+                    "real servos not commanded"
+                )
+            self.id1 = self._clamp(plan["id1"], self.id1_limits)
+            self.id2 = self._clamp(plan["id2"], self.id2_limits)
+            self.one_shot_approach_sent = True
+            self.state = "one-shot approach"
+            self.arm_preview.publish_plan_marker(plan, plan_text)
+            return self._send(
+                f"one-shot simulated approach {plan_text}",
+                require_feedback=True,
+            )
+
+        if self.id4 != self.id4_closed:
+            self.state = "one-shot close claw"
+            self.id4 = self.id4_closed
+            return self._send_claw("one-shot close claw")
+
+        self.one_shot_complete = True
+        self.state = "one-shot complete"
+        self.arm_preview.set_targets(self.id1, self.id2, self.id4)
+        self.arm_preview.publish("one-shot grasp complete; servos stopped")
+        if plan is None:
+            return "one-shot grasp complete; servos stopped"
+        return f"one-shot grasp complete {plan_text}; servos stopped"
+
+    def restart_recognition(self):
+        if self.feedback_pending:
+            self.status = "restart ignored while servo feedback is pending"
+            return self.status
+        if self.direct_grasp and self.direct_stage == "complete":
+            self.status = "direct-2 complete; exit and reopen for the next grasp"
+            return self.status
+        if self.algorithm_stage in {
+            "open",
+            "open_settle",
+            "overhead",
+            "descend",
+            "close",
+            "close_retry",
+            "close_settle",
+            "return",
+            "carry_lift",
+            "carry_retract",
+            "drop_deploy_id5",
+            "drop_open",
+            "drop_open_retry",
+            "drop_settle",
+            "drop_close_settle",
+            "ready_return",
+            "idle_retract",
+        }:
+            self.status = "restart ignored while grasp motion is active"
+            return self.status
+        if self.direct_stage in {"overhead_wait", "final_wait", "close_wait"}:
+            self.status = "restart ignored while direct-2 motion is active"
+            return self.status
+        self.centered_frames = 0
+        self.center_samples = []
+        self.center_correction_done = False
+        self.center_correction_count = 0
+        self.last_center_error = None
+        self.last_center_command_time = 0.0
+        self.locked_target = None
+        self.locked_plan = None
+        self.approach_attempts = 0
+        self.close_attempts = 0
+        self.return_attempts = 0
+        self.one_shot_target = None
+        self.one_shot_approach_sent = False
+        self.one_shot_complete = False
+        self.direct_target = None
+        self.direct_plan = None
+        self.direct_stage = "detect"
+        self.direct_attempts = 0
+        self.post_center_move_complete = False
+        self.algorithm_stage = "centering"
+        self.cycle_search_enabled = False
+        self.no_target_since = None
+        self.claw_settle_deadline = 0.0
+        self.id4_actual = None
+        self.drop_open_attempts = 0
+        self.state = "searching"
+        self.status = "recognition restarted; searching red square"
+        self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+        self.arm_preview.publish(self.status)
+        return self.status
+
+    def update(self, target, frame_shape, target_present=None):
+        if not self.enabled:
+            return self.status
+        now = time.monotonic()
+        target_present = target is not None if target_present is None else bool(target_present)
+        can_preview_step = (
+            now - self.last_preview_step_time >= self.preview_step_interval_s
+        )
+        if self.read_only_sync:
+            feedback_ready = False
+            feedback = None
+            with self.read_only_feedback_lock:
+                if self.read_only_feedback_ready:
+                    feedback_ready = True
+                    feedback = self.read_only_feedback
+                    self.read_only_feedback_ready = False
+            if feedback_ready:
+                if feedback is not None and self._apply_feedback(feedback):
+                    self.state = "read_only_sync"
+                    self.status = (
+                        f"read-only synchronized ID1={self.id1} ID2={self.id2} "
+                        f"ID4={self.id4} ID6={self.arm_preview.id6}"
+                    )
+                elif feedback is None:
+                    self.status = f"read-only sync waiting | {self.servo_bridge.status}"
+            if now - self.last_feedback_attempt >= 1.0:
+                self.last_feedback_attempt = now
+                self._start_read_only_feedback()
+            self.arm_preview.publish(self.status, state="READ_ONLY_SYNC")
+            return self.status
+        if self.servo_bridge.write_enabled and self.startup_stage != "complete":
+            return self._update_startup(now)
+        if self.servo_bridge.write_enabled and not self.synchronized:
+            if now - self.last_feedback_attempt < 0.8:
+                return self.status
+            self.last_feedback_attempt = now
+            feedback = self.servo_bridge.query_positions()
+            if feedback is None:
+                self.status = "waiting for RCT6 position synchronization"
+                return f"{self.status} | {self.servo_bridge.status}"
+            if not self._apply_feedback(feedback):
+                return self.status
+            self.state = "searching"
+            self.status = f"synchronized ID1={self.id1} ID2={self.id2}"
+            return self.status
+
+        if self.feedback_pending:
+            if now < self.feedback_due:
+                return f"moving; feedback in {self.feedback_due - now:.1f}s"
+            feedback = self.servo_bridge.query_positions()
+            if feedback is None:
+                self.feedback_failures += 1
+                if self.feedback_failures >= 3:
+                    self.feedback_pending = False
+                    self.state = "fault"
+                    self.algorithm_stage = "fault"
+                    self.status = (
+                        "servo feedback unavailable; motion stopped at requested target "
+                        f"ID1={self.id1} ID2={self.id2}"
+                    )
+                    self.arm_preview.set_targets(
+                        self.id1,
+                        self.id2,
+                        self.id4,
+                        self.id6,
+                    )
+                    self.arm_preview.publish(self.status)
+                    return self.status
+                self.feedback_due = now + 0.5
+                return f"servo feedback retry {self.feedback_failures}/3"
+            if not self._apply_feedback(feedback):
+                return self.status
+
+        if self.state == "fault":
+            return self.status
+        if self.direct_grasp:
+            return self._update_direct_2(target, frame_shape)
+        if self.one_shot:
+            return self._update_one_shot(target, frame_shape)
+        if self.algorithm_stage in {
+            "carry_lift",
+            "carry_retract",
+            "drop_deploy_id5",
+            "drop_open",
+            "drop_open_retry",
+            "drop_settle",
+            "close_retry",
+            "drop_close_settle",
+            "ready_return",
+            "idle_retract",
+            "idle_complete",
+        }:
+            return self._update_locked_grasp(frame_shape, now, can_preview_step)
+        if self.cycle_search_enabled and target_present:
+            self.no_target_since = None
+        if self.locked_target is not None:
+            target = self.locked_target
+        if target is None:
+            self.centered_frames = 0
+            self.state = "searching"
+            self.last_center_error = None
+            can_command = now - self.last_command_time >= self.command_interval_s
+            if self.cycle_search_enabled:
+                if target_present:
+                    self.no_target_since = None
+                    self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+                    return "red target visible at frame edge; idle timer paused"
+                if self.no_target_since is None:
+                    self.no_target_since = now
+                idle_elapsed = now - self.no_target_since
+                if idle_elapsed >= VISION1_NO_TARGET_RETRACT_S:
+                    self.algorithm_stage = "idle_retract"
+                    self.return_attempts = 0
+                    return self._update_locked_grasp(
+                        frame_shape,
+                        now,
+                        can_preview_step,
+                    )
+                remaining = VISION1_NO_TARGET_RETRACT_S - idle_elapsed
+                idle_text = f"no red target; retract in {remaining:.1f}s"
+            else:
+                idle_text = "grasp searching red target; holding current pose"
+            self.arm_preview.set_targets(self.id1, self.id2, self.id4)
+            return idle_text
+        edge_note = ""
+        if not target.get("fully_visible", True):
+            self.centered_frames = 0
+            self.center_samples.clear()
+            edge_note = " EDGE"
+        if target.get("area_percent", 0.0) < 0.4:
+            self.centered_frames = 0
+            self.center_samples.clear()
+            self.state = "target too small"
+            self.arm_preview.set_targets(self.id1, self.id2, self.id4)
+            return "red square area below 0.4%; grasp disabled"
+        distance_cm = target.get("distance_cm")
+        if (
+            distance_cm is None
+            or not GRASP_MIN_DISTANCE_CM <= distance_cm <= GRASP_MAX_DISTANCE_CM
+        ):
+            self.centered_frames = 0
+            self.center_samples.clear()
+            self.state = "target outside calibrated range"
+            self.arm_preview.set_targets(self.id1, self.id2, self.id4)
+            distance_text = "unknown" if distance_cm is None else f"{distance_cm:.1f}cm"
+            return (
+                f"target distance {distance_text} outside calibrated "
+                f"{GRASP_MIN_DISTANCE_CM:.0f}-{GRASP_MAX_DISTANCE_CM:.0f}cm range"
+            )
+
+        height, width = frame_shape[:2]
+        cx, cy = target["center"]
+        error_x = cx - width / 2.0
+        error_y = cy - height / 2.0
+        square_distance_mm = None if distance_cm is None else distance_cm * 10.0
+        gripper_distance_mm = None
+        if square_distance_mm is not None:
+            gripper_distance_mm = square_distance_mm - self.camera_gripper_offset_mm
+        distance_scale = max(
+            CENTERING_DISTANCE_SCALE_LIMITS[0],
+            min(
+                CENTERING_DISTANCE_SCALE_LIMITS[1],
+                distance_cm / CENTERING_REFERENCE_DISTANCE_CM,
+            ),
+        )
+
+        can_command = now - self.last_command_time >= max(
+            self.command_interval_s,
+            CENTER_COMMAND_SETTLE_S,
+        )
+        fast_centered = (
+            abs(error_x) <= FAST_CENTER_LOCK_X_PX
+            and abs(error_y) <= FAST_CENTER_LOCK_Y_PX
+        )
+        if fast_centered:
+            self.center_correction_done = True
+        if not self.center_correction_done:
+            self.centered_frames = 0
+            self.center_samples.clear()
+            self.state = "single ID2/ID6 correction"
+            delta_id2 = self._single_id2_correction(-error_y, distance_scale)
+            delta_id6 = self._single_id6_correction(error_x, distance_scale)
+            if delta_id2 == 0 and delta_id6 == 0:
+                self.center_correction_done = True
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+                return "target already inside single-correction range"
+            if not self.servo_bridge.write_enabled:
+                preview_id2 = self._clamp(self.id2 + delta_id2, self.preview_id2_limits)
+                preview_id6 = self._clamp(self.id6 + delta_id6, ID6_SAFE_LIMITS)
+                preview_id1, preview_id2 = enforce_angle_gap(
+                    self.id1,
+                    preview_id2,
+                    self.preview_id2_limits,
+                    self.angle_gap_degrees,
+                )
+                self.id1, self.id2 = preview_id1, preview_id2
+                self.id6 = preview_id6
+                self.center_correction_done = True
+                self.center_correction_count += 1
+                self.last_preview_step_time = now
+                self.arm_preview.set_targets(preview_id1, preview_id2, self.id4, preview_id6)
+                return (
+                    f"preview single center correction dx={error_x:.0f} dy={error_y:.0f} "
+                    f"distance={distance_cm:.1f}cm scale={distance_scale:.2f} "
+                    f"dID2={delta_id2} dID6={delta_id6}"
+                )
+            if can_command:
+                if (
+                    self.last_center_error is not None
+                    and now - self.last_center_command_time < 1.50
+                    and abs(error_x - self.last_center_error[0]) <= 4.0
+                    and abs(error_y - self.last_center_error[1]) <= 4.0
+                ):
+                    return (
+                        f"waiting for fresh center frame dx={error_x:.0f} "
+                        f"dy={error_y:.0f}"
+                    )
+                previous_id2 = self.id2
+                previous_id6 = self.id6
+                self.id2 = self._clamp(self.id2 + delta_id2, self.id2_limits)
+                self.id6 = self._clamp(self.id6 + delta_id6, ID6_SAFE_LIMITS)
+                self.center_correction_done = True
+                self.center_correction_count += 1
+                send_id2 = self.id2 != previous_id2
+                send_id6 = self.id6 != previous_id6
+                if not send_id2 and not send_id6:
+                    self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+                    return "single center correction reached servo limit"
+                self.last_center_error = (float(error_x), float(error_y))
+                self.last_center_command_time = now
+                return self._send_center_correction(
+                    f"single center correction{edge_note} dx={error_x:.0f} "
+                    f"dy={error_y:.0f} distance={distance_cm:.1f}cm "
+                    f"scale={distance_scale:.2f} dID2={self.id2 - previous_id2} "
+                    f"dID6={self.id6 - previous_id6}",
+                    send_id2=send_id2,
+                    send_id6=send_id6,
+                )
+            self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+            return f"waiting single center correction dx={error_x:.0f} dy={error_y:.0f}"
+
+        verify_delta_id2 = self._single_id2_correction(-error_y, distance_scale)
+        verify_delta_id6 = self._single_id6_correction(error_x, distance_scale)
+        if not fast_centered and (verify_delta_id2 != 0 or verify_delta_id6 != 0):
+            self.centered_frames = 0
+            self.center_samples.clear()
+            if self.center_correction_count < self.max_center_corrections:
+                self.center_correction_done = False
+                self.state = "center verification retry"
+                return (
+                    f"center verify retry {self.center_correction_count + 1}/"
+                    f"{self.max_center_corrections} dx={error_x:.0f} dy={error_y:.0f} "
+                    f"dID2={verify_delta_id2} dID6={verify_delta_id6}"
+                )
+            self.center_correction_done = False
+            self.center_correction_count = 0
+            self.state = "center correction continuing"
+            print(
+                f"CENTER NOT LOCKED restarting corrections "
+                f"dx={error_x:.0f} dy={error_y:.0f}",
+                flush=True,
+            )
+            return (
+                f"target not centered dx={error_x:.0f} dy={error_y:.0f}; "
+                "continuing correction"
+            )
+
+        self.centered_frames += 1
+        required_frames = max(self.stable_frames_required, ACCURATE_LOCK_FRAMES)
+        self.center_samples.append(self._copy_target(target))
+        self.center_samples = self.center_samples[-required_frames:]
+        if len(self.center_samples) < required_frames:
+            self.state = "confirming accurate center"
+            self.arm_preview.set_targets(self.id1, self.id2, self.id4)
+            return f"accurate center confirm {len(self.center_samples)}/{required_frames}"
+        if self.locked_target is None:
+            distances = [
+                sample.get("distance_cm")
+                for sample in self.center_samples
+                if sample.get("distance_cm") is not None
+            ]
+            if len(distances) < required_frames:
+                self.state = "waiting stable distance"
+                return "centered; waiting complete distance samples"
+            distance_spread = max(distances) - min(distances)
+            if distance_spread > MAX_LOCK_DISTANCE_SPREAD_CM:
+                self.center_samples.pop(0)
+                self.state = "distance estimate unstable"
+                return (
+                    f"centered but distance spread={distance_spread:.2f}cm; "
+                    "waiting stable frame"
+                )
+            if self.center_only:
+                self.state = "red target centered; center-only hold"
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+                return (
+                    f"center-only hold dx={error_x:.0f} dy={error_y:.0f} "
+                    f"distance={float(np.median(distances)):.2f}cm"
+                )
+            self.locked_target = self._copy_target(target)
+            self.locked_target["distance_cm"] = float(np.median(distances))
+            area_samples = [sample.get("area_percent", 0.0) for sample in self.center_samples]
+            self.locked_target["area_percent"] = float(np.median(area_samples))
+            self.locked_plan = None
+            self.approach_attempts = 0
+            self.return_attempts = 0
+            self.algorithm_stage = "open"
+            self.state = "target locked"
+
+        return self._update_locked_grasp(frame_shape, now, can_preview_step)
+
+
+def arm_joint_positions(id1_tick, id2_tick, id4_tick, id6_tick=BASE_YAW_CENTER_TICK):
+    return joint_positions(id1_tick, id2_tick, id4_tick, id6_tick)
+
+
+class ArmPreviewPublisher:
+    def __init__(self, enabled, id1, id2, id4, id6=BASE_YAW_CENTER_TICK):
+        self.enabled = enabled
+        self.id1 = id1
+        self.id2 = id2
+        self.id4 = id4
+        self.id6 = id6
+        self.feedback_id1 = None
+        self.feedback_id2 = None
+        self.feedback_id6 = None
+        self.rclpy = None
+        self.String = None
+        self.JointState = None
+        self.Marker = None
+        self.node = None
+        self.joint_pub = None
+        self.status_pub = None
+        self.target_pub = None
+        self.marker_pub = None
+
+        if self.enabled:
+            self._open()
+
+    def set_targets(self, id1, id2, id4, id6=None):
+        self.id1 = int(id1)
+        self.id2 = int(id2)
+        self.id4 = int(id4)
+        if id6 is not None:
+            self.id6 = int(id6)
+
+    def set_feedback(self, id1, id2, id6=None):
+        self.feedback_id1 = int(id1)
+        self.feedback_id2 = int(id2)
+        if id6 is not None:
+            self.feedback_id6 = int(id6)
+
+    def _open(self):
+        try:
+            import rclpy
+            from sensor_msgs.msg import JointState
+            from std_msgs.msg import String
+            from visualization_msgs.msg import Marker
+        except ImportError as exc:
+            self.enabled = False
+            print(f"arm preview disabled: ROS import failed: {exc}")
+            return
+
+        self.rclpy = rclpy
+        self.JointState = JointState
+        self.String = String
+        self.Marker = Marker
+        if not rclpy.ok():
+            rclpy.init(args=None)
+        self.node = rclpy.create_node("target_vision_arm_preview")
+        self.joint_pub = self.node.create_publisher(JointState, "/joint_states", 10)
+        self.status_pub = self.node.create_publisher(String, "/arm/grasp_status", 10)
+        self.target_pub = self.node.create_publisher(String, "/arm/servo_targets", 10)
+        self.marker_pub = self.node.create_publisher(Marker, "/arm/vision_target_marker", 10)
+        self.default_marker_pub = self.node.create_publisher(Marker, "/visualization_marker", 10)
+        print("arm preview publishing /joint_states, /arm/grasp_status, and target markers")
+
+    def _publish_marker(self, marker):
+        self.marker_pub.publish(marker)
+        self.default_marker_pub.publish(marker)
+
+    def publish_plan_marker(self, plan, detail="vision target model"):
+        if not self.enabled or plan is None or self.marker_pub is None:
+            return
+
+        try:
+            now = self.node.get_clock().now().to_msg()
+            target_x_m = (plan["current_x_mm"] + plan["forward_mm"] + plan.get("target_distance_mm", 0.0)) / 1000.0
+            target_y_m = plan["lateral_mm"] / 1000.0
+            target_z_m = (plan["current_z_mm"] + plan["vertical_target_mm"]) / 1000.0
+            gripper_x_m = (plan["current_x_mm"] + plan["forward_mm"]) / 1000.0
+            gripper_z_m = (plan["current_z_mm"] + plan["vertical_target_mm"]) / 1000.0
+
+            target = self.Marker()
+            target.header.frame_id = "base_link"
+            target.header.stamp = now
+            target.ns = "vision_target"
+            target.id = 1
+            # Debug visualization is intentionally larger than the real object
+            # so it remains visible on the small RK screen.
+            real_target_size_m = plan.get("target_size_mm", RED_CUBE_SIDE_MM) / 1000.0
+            target_size_m = max(0.08, real_target_size_m * 1.8)
+            target.type = (
+                self.Marker.SPHERE
+                if plan.get("target_kind") == "ball"
+                else self.Marker.CUBE
+            )
+            target.action = self.Marker.ADD
+            target.pose.position.x = target_x_m
+            target.pose.position.y = target_y_m
+            target.pose.position.z = target_z_m
+            target.pose.orientation.w = 1.0
+            target.scale.x = target_size_m
+            target.scale.y = target_size_m
+            target.scale.z = target_size_m
+            target.color.r = 1.0
+            target.color.g = 0.05
+            target.color.b = 0.02
+            target.color.a = 0.9
+            self._publish_marker(target)
+
+            goal = self.Marker()
+            goal.header.frame_id = "base_link"
+            goal.header.stamp = now
+            goal.ns = "vision_target"
+            goal.id = 2
+            goal.type = self.Marker.SPHERE
+            goal.action = self.Marker.ADD
+            goal.pose.position.x = gripper_x_m
+            goal.pose.position.y = 0.0
+            goal.pose.position.z = gripper_z_m
+            goal.pose.orientation.w = 1.0
+            goal.scale.x = 0.055
+            goal.scale.y = 0.055
+            goal.scale.z = 0.055
+            goal.color.r = 0.0
+            goal.color.g = 1.0
+            goal.color.b = 0.15
+            goal.color.a = 0.95
+            self._publish_marker(goal)
+
+            line = self.Marker()
+            line.header.frame_id = "base_link"
+            line.header.stamp = now
+            line.ns = "vision_target"
+            line.id = 3
+            line.type = self.Marker.LINE_STRIP
+            line.action = self.Marker.ADD
+            line.scale.x = 0.012
+            line.color.r = 0.1
+            line.color.g = 0.65
+            line.color.b = 1.0
+            line.color.a = 0.9
+            point_type = type(line.points[0]) if line.points else None
+            if point_type is None:
+                from geometry_msgs.msg import Point
+                point_type = Point
+            p1 = point_type()
+            p1.x = gripper_x_m
+            p1.y = 0.0
+            p1.z = gripper_z_m
+            p2 = point_type()
+            p2.x = target_x_m
+            p2.y = target_y_m
+            p2.z = target_z_m
+            line.points = [p1, p2]
+            self._publish_marker(line)
+
+            label = self.Marker()
+            label.header.frame_id = "base_link"
+            label.header.stamp = now
+            label.ns = "vision_target"
+            label.id = 4
+            label.type = self.Marker.TEXT_VIEW_FACING
+            label.action = self.Marker.ADD
+            label.pose.position.x = target_x_m
+            label.pose.position.y = target_y_m
+            label.pose.position.z = target_z_m + 0.09
+            label.pose.orientation.w = 1.0
+            label.scale.z = 0.045
+            label.color.r = 1.0
+            label.color.g = 1.0
+            label.color.b = 0.15
+            label.color.a = 1.0
+            label.text = (
+                f"d={plan['distance_mm']:.0f}mm "
+                f"lat={plan['lateral_mm']:.0f} "
+                f"dz={plan['vertical_target_mm']:.0f}\n"
+                f"ID1={plan['id1']} ID2={plan['id2']} "
+                f"err={plan['ik_error_mm']:.1f}mm"
+            )
+            self._publish_marker(label)
+        except Exception as exc:
+            print(f"target marker publish failed: {exc}")
+
+    def publish(self, detail, target=None, state=None):
+        if not self.enabled:
+            return
+
+        try:
+            msg = self.JointState()
+            msg.header.stamp = self.node.get_clock().now().to_msg()
+            msg.header.frame_id = "base_mount"
+            msg.name = JOINT_NAMES
+            msg.position = arm_joint_positions(self.id1, self.id2, self.id4, self.id6)
+            self.joint_pub.publish(msg)
+
+            payload = {
+                "state": state or "VISION_PREVIEW",
+                "detail": detail,
+                "id1": self.id1,
+                "id2": self.id2,
+                "id4": self.id4,
+                "id6": self.id6,
+                "feedback_id1": self.feedback_id1,
+                "feedback_id2": self.feedback_id2,
+                "feedback_id6": self.feedback_id6,
+            }
+            if target is not None:
+                payload.update(
+                    {
+                        "color": target.get("color"),
+                        "kind": target.get("kind"),
+                        "center": target.get("center"),
+                        "bbox": target.get("bbox"),
+                        "area_percent": round(target.get("area_percent", 0.0), 2),
+                        "distance_cm": None
+                        if target.get("distance_cm") is None
+                        else round(target.get("distance_cm"), 1),
+                    }
+                )
+            status = self.String(data=json.dumps(payload, ensure_ascii=False))
+            self.status_pub.publish(status)
+            self.target_pub.publish(status)
+            self.rclpy.spin_once(self.node, timeout_sec=0.0)
+        except Exception as exc:
+            self.enabled = False
+            if "context is invalid" not in str(exc):
+                print(f"arm preview stopped: {exc}")
+
+    def close(self):
+        if self.node is not None:
+            self.node.destroy_node()
+            self.node = None
+        if self.rclpy is not None and self.rclpy.ok():
+            self.rclpy.shutdown()
+
+
+class TargetDetector:
+    def __init__(self):
+        self.qr = cv2.QRCodeDetector()
+        self.templates = self._load_templates()
+        self.qr_feature_detector = None
+        self.qr_template_features = {}
+        if hasattr(cv2, "SIFT_create"):
+            self.qr_feature_detector = cv2.SIFT_create(
+                nfeatures=2000,
+                contrastThreshold=0.02,
+            )
+            for label, template in self.templates.items():
+                keypoints, descriptors = self.qr_feature_detector.detectAndCompute(
+                    template,
+                    None,
+                )
+                if descriptors is not None and len(keypoints) >= 8:
+                    self.qr_template_features[label] = (
+                        template.shape,
+                        keypoints,
+                        descriptors,
+                    )
+
+    def _load_templates(self):
+        asset_dir = Path(__file__).resolve().parent / "assets"
+        templates = {}
+        for label in ("red", "blue"):
+            path = asset_dir / f"{label}.png"
+            img = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+            if img is not None:
+                templates[label] = img
+        return templates
+
+    def detect(self, frame):
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        rings = self._detect_rings(hsv)
+        colored_balls = []
+        for detector in BALL_DETECTORS:
+            colored_balls.extend(detector.detect(hsv, rings))
+        squares = self._detect_squares(hsv)
+        qr_detections = self._detect_qr(frame)
+        colored_balls = self._suppress_qr_overlap(
+            colored_balls,
+            qr_detections,
+            colors={"blue"},
+            kinds={"ball"},
+            min_overlap=0.34,
+        )
+        squares = self._suppress_qr_overlap(
+            squares,
+            qr_detections,
+            colors={"red", "blue"},
+            kinds={"square"},
+            min_overlap=0.40,
+        )
+        non_white_mask = cv2.bitwise_or(
+            yellow.mask(hsv),
+            cv2.bitwise_or(red.mask(hsv), blue.mask(hsv)),
+        )
+        strong_color_mask = cv2.inRange(
+            hsv,
+            np.array((0, 90, 50)),
+            np.array((180, 255, 255)),
+        )
+        non_white_mask = cv2.bitwise_and(non_white_mask, strong_color_mask)
+        white_balls = WHITE_DETECTOR.detect(
+            hsv,
+            [*colored_balls, *rings, *squares, *qr_detections],
+            non_white_mask,
+        )
+        white_balls = self._suppress_qr_overlap(
+            white_balls,
+            qr_detections,
+            colors={"white"},
+            kinds={"ball"},
+            min_overlap=0.24,
+        )
+        if colored_balls and len(white_balls) > 1:
+            white_balls = []
+        detections = []
+        detections.extend(colored_balls)
+        detections.extend(squares)
+        detections.extend(rings)
+        detections.extend(qr_detections)
+        detections.extend(white_balls)
+        self._add_frame_ratios(detections, frame.shape)
+        return detections
+
+    @staticmethod
+    def _add_frame_ratios(detections, frame_shape):
+        height, width = frame_shape[:2]
+        frame_area = max(1, width * height)
+        short_side = max(1, min(width, height))
+
+        for det in detections:
+            if det.get("kind") == "ball":
+                radius = float(det.get("radius", 0))
+                circle_area = np.pi * radius * radius
+                det["area_ratio"] = circle_area / frame_area
+                det["area_percent"] = det["area_ratio"] * 100.0
+                det["diameter_ratio"] = (2.0 * radius) / short_side
+                det["distance_cm"] = TargetDetector._estimate_distance_cm(
+                    det["area_percent"],
+                    BALL_DISTANCE_OFFSET_CM,
+                    BALL_DISTANCE_SCALE_CM,
+                )
+            elif det.get("kind") == "square":
+                x, y, w, h = det.get("bbox", (0, 0, 0, 0))
+                box_area = max(0.0, float(det.get("projected_area", 0.0)))
+                if box_area == 0.0:
+                    box_area = max(0, w * h)
+                det["area_ratio"] = box_area / frame_area
+                det["area_percent"] = det["area_ratio"] * 100.0
+                det["diameter_ratio"] = max(w, h) / short_side
+                det["distance_cm"] = TargetDetector._estimate_distance_cm(
+                    det["area_percent"],
+                    SQUARE_DISTANCE_OFFSET_CM,
+                    SQUARE_DISTANCE_SCALE_CM,
+                )
+            elif det.get("kind") == "ring":
+                radius = float(det.get("outer_radius", 0))
+                circle_area = np.pi * radius * radius
+                det["area_ratio"] = circle_area / frame_area
+                det["area_percent"] = det["area_ratio"] * 100.0
+                det["diameter_ratio"] = (2.0 * radius) / short_side
+                det["distance_cm"] = TargetDetector._estimate_distance_cm(
+                    det["area_percent"],
+                    BALL_DISTANCE_OFFSET_CM,
+                    BALL_DISTANCE_SCALE_CM,
+                )
+
+    @staticmethod
+    def _estimate_distance_cm(area_percent, offset_cm, scale_cm):
+        if area_percent <= 0.0:
+            return None
+        return offset_cm + scale_cm / np.sqrt(area_percent)
+
+    def _suppress_qr_overlap(
+        self,
+        detections,
+        qr_detections,
+        colors=None,
+        kinds=None,
+        min_overlap=0.35,
+    ):
+        if not detections or not qr_detections:
+            return detections
+
+        colors = None if colors is None else set(colors)
+        kinds = None if kinds is None else set(kinds)
+        filtered = []
+        for det in detections:
+            if colors is not None and det.get("color") not in colors:
+                filtered.append(det)
+                continue
+            if kinds is not None and det.get("kind") not in kinds:
+                filtered.append(det)
+                continue
+
+            det_bbox = det.get("bbox")
+            if det_bbox is None:
+                filtered.append(det)
+                continue
+
+            blocked = any(
+                self._bbox_overlap_ratio(det_bbox, qr.get("bbox")) >= min_overlap
+                for qr in qr_detections
+            )
+            if not blocked:
+                filtered.append(det)
+        return filtered
+
+    @staticmethod
+    def _bbox_overlap_ratio(bbox_a, bbox_b):
+        if bbox_a is None or bbox_b is None:
+            return 0.0
+
+        ax, ay, aw, ah = bbox_a
+        bx, by, bw, bh = bbox_b
+        ix0 = max(ax, bx)
+        iy0 = max(ay, by)
+        ix1 = min(ax + aw, bx + bw)
+        iy1 = min(ay + ah, by + bh)
+        if ix1 <= ix0 or iy1 <= iy0:
+            return 0.0
+
+        intersection = (ix1 - ix0) * (iy1 - iy0)
+        area_a = max(1, aw * ah)
+        area_b = max(1, bw * bh)
+        return intersection / min(area_a, area_b)
+
+    def draw(self, frame, detections):
+        out = frame.copy()
+        height, width = out.shape[:2]
+        center_x = width // 2
+        center_y = height // 2
+        cv2.line(out, (center_x, 0), (center_x, height), (255, 255, 255), 1)
+        cv2.line(out, (0, center_y), (width, center_y), (255, 255, 255), 1)
+        cv2.circle(out, (center_x, center_y), 10, (0, 255, 255), 2)
+        for det in detections:
+            color = det["color"]
+            bgr = DRAW_COLORS.get(color, (0, 255, 0))
+            label = f"{color} {det['kind']}"
+
+            if det["kind"] == "ball":
+                x, y, w, h = det["bbox"]
+                cx, cy = det["center"]
+                radius = det["radius"]
+                area_percent = det.get("area_percent", 0.0)
+                distance_cm = det.get("distance_cm")
+                if distance_cm is None:
+                    label = f"{label} fill {area_percent:.2f}%"
+                else:
+                    label = f"{label} fill {area_percent:.2f}% d {distance_cm:.1f}cm"
+                cv2.rectangle(out, (x, y), (x + w, y + h), bgr, 2)
+                cv2.circle(out, (cx, cy), radius, bgr, 2)
+                self._label(out, label, x, y, bgr)
+            elif det["kind"] == "square":
+                cv2.drawContours(out, [det["box"]], 0, bgr, 2)
+                x, y, w, h = det["bbox"]
+                area_percent = det.get("area_percent", 0.0)
+                distance_cm = det.get("distance_cm")
+                if det.get("source") == "qr":
+                    confidence = det.get("confidence", 0)
+                    label = f"{color} QR conf {confidence:.0f}%"
+                    if distance_cm is None:
+                        label = f"{label} fill {area_percent:.2f}%"
+                    else:
+                        label = (
+                            f"{label} fill {area_percent:.2f}% "
+                            f"depth {distance_cm:.1f}cm"
+                        )
+                elif distance_cm is None:
+                    label = f"{label} fill {area_percent:.2f}%"
+                else:
+                    label = f"{label} fill {area_percent:.2f}% d {distance_cm:.1f}cm"
+                if not det.get("fully_visible", True):
+                    label = f"{label} EDGE"
+                self._label(out, label, x, y, bgr)
+            elif det["kind"] == "ring":
+                cx, cy = det["center"]
+                cv2.circle(out, (cx, cy), det["outer_radius"], bgr, 2)
+                cv2.circle(out, (cx, cy), det["inner_radius"], bgr, 2)
+                x, y, w, h = det["bbox"]
+                cv2.rectangle(out, (x, y), (x + w, y + h), bgr, 1)
+                area_percent = det.get("area_percent", 0.0)
+                distance_cm = det.get("distance_cm")
+                if distance_cm is None:
+                    label = f"{label} fill {area_percent:.2f}%"
+                else:
+                    label = (
+                        f"{label} fill {area_percent:.2f}% "
+                        f"depth {distance_cm:.1f}cm"
+                    )
+                self._label(out, label, x, y, bgr)
+            elif det["kind"] == "qr":
+                pts = det["points"].astype(np.int32)
+                cv2.polylines(out, [pts], True, bgr, 3)
+                x, y, _, _ = cv2.boundingRect(pts)
+                self._label(out, f"{color} QR", x, y, bgr)
+
+        info = self.summary(detections)
+        cv2.putText(out, info, (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (0, 255, 0), 2)
+        return out, info
+
+    @staticmethod
+    def _label(img, text, x, y, bgr):
+        y = max(22, y)
+        cv2.putText(img, text, (x, y - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.55, bgr, 2)
+
+    @staticmethod
+    def summary(detections):
+        order = [
+            ("yellow", "ball"),
+            ("red", "ball"),
+            ("blue", "ball"),
+            ("white", "ball"),
+            ("red", "square"),
+            ("blue", "square"),
+            ("red", "ring"),
+            ("blue", "ring"),
+            ("red", "qr"),
+            ("blue", "qr"),
+        ]
+        parts = []
+        for color, kind in order:
+            matching = [
+                det
+                for det in detections
+                if det["color"] == color and det["kind"] == kind
+            ]
+            count = len(matching)
+            if count:
+                if kind in {"ball", "ring"}:
+                    measurements = ",".join(
+                        TargetDetector._format_area_measurement(det)
+                        for det in matching
+                    )
+                    parts.append(f"{color}-{kind}:{count} {measurements}")
+                elif kind == "square":
+                    measurements = ",".join(
+                        TargetDetector._format_area_measurement(det)
+                        for det in matching
+                    )
+                    parts.append(f"{color}-{kind}:{count} {measurements}")
+                else:
+                    parts.append(f"{color}-{kind}:{count}")
+        return " | ".join(parts) if parts else "searching selected targets..."
+
+    @staticmethod
+    def _format_area_measurement(det):
+        area_percent = det.get("area_percent", 0.0)
+        distance_cm = det.get("distance_cm")
+        if distance_cm is None:
+            return f"fill={area_percent:.2f}%"
+        return f"fill={area_percent:.2f}% dist={distance_cm:.1f}cm"
+
+    def _mask(self, hsv, color):
+        return MASK_BUILDERS[color](hsv)
+
+    def _detect_balls(self, hsv, rings=None):
+        results = []
+        rings = rings or []
+        for detector in BALL_DETECTORS:
+            results.extend(detector.detect(hsv, rings))
+        return results
+
+    def _detect_white_balls(self, hsv, occupied_detections=None, non_white_mask=None):
+        occupied_detections = occupied_detections or []
+        return WHITE_DETECTOR.detect(hsv, occupied_detections, non_white_mask)
+
+    def _detect_squares(self, hsv):
+        results = []
+        frame_height, frame_width = hsv.shape[:2]
+        edge_margin = max(12, int(min(frame_width, frame_height) * 0.015))
+        for color in SHAPE_COLORS:
+            contours = self._external_contours(self._mask(hsv, color))
+            for contour in contours:
+                area = cv2.contourArea(contour)
+                if area < 450:
+                    continue
+                contour_circularity = self._circularity(contour)
+                peri = cv2.arcLength(contour, True)
+                poly = cv2.approxPolyDP(contour, 0.035 * peri, True)
+                if len(poly) < 4 or len(poly) > 6:
+                    continue
+                if contour_circularity > 0.88:
+                    continue
+                rect = cv2.minAreaRect(contour)
+                (cx, cy), (w, h), angle = rect
+                if min(w, h) < 16:
+                    continue
+                fill = area / (w * h) if w * h > 0 else 0
+                aspect = max(w, h) / min(w, h) if min(w, h) else 999
+                hull_area = cv2.contourArea(cv2.convexHull(contour))
+                solidity = area / hull_area if hull_area > 0 else 0.0
+                if fill < 0.72 or solidity < 0.88 or aspect > 1.8:
+                    continue
+                box = cv2.boxPoints(rect).astype(np.int32)
+                x, y, bw, bh = cv2.boundingRect(box)
+                fully_visible = (
+                    x > edge_margin
+                    and y > edge_margin
+                    and x + bw < frame_width - edge_margin
+                    and y + bh < frame_height - edge_margin
+                )
+                results.append(
+                    {
+                        "kind": "square",
+                        "color": color,
+                        "center": (int(cx), int(cy)),
+                        "box": box,
+                        "bbox": (x, y, bw, bh),
+                        "projected_area": float(area),
+                        "contour_area": float(area),
+                        "rect_fill": float(fill),
+                        "solidity": float(solidity),
+                        "fully_visible": fully_visible,
+                        "angle": round(angle, 1),
+                    }
+                )
+        return results
+
+    def _detect_rings(self, hsv):
+        results = []
+        for color in SHAPE_COLORS:
+            mask = self._mask(hsv, color)
+            contours, hierarchy = cv2.findContours(mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+            if hierarchy is None:
+                continue
+            hierarchy = hierarchy[0]
+            for idx, contour in enumerate(contours):
+                child_idx = hierarchy[idx][2]
+                if child_idx < 0:
+                    continue
+                area = cv2.contourArea(contour)
+                outer_circularity = self._circularity(contour)
+                if area < 300 or outer_circularity < 0.60:
+                    continue
+                (cx, cy), outer_radius = cv2.minEnclosingCircle(contour)
+                child = contours[child_idx]
+                child_area = cv2.contourArea(child)
+                (inner_center, inner_radius) = cv2.minEnclosingCircle(child)
+                inner_circularity = self._circularity(child)
+                if outer_radius < 14 or inner_radius < 5 or child_area < 40:
+                    continue
+                hole_ratio = inner_radius / outer_radius if outer_radius > 0 else 0
+                center_offset = np.hypot(inner_center[0] - cx, inner_center[1] - cy)
+                if not 0.24 <= hole_ratio <= 0.72:
+                    continue
+                if center_offset > outer_radius * 0.35 or inner_circularity < 0.42:
+                    continue
+
+                x, y, w, h = cv2.boundingRect(contour)
+                results.append(
+                    {
+                        "kind": "ring",
+                        "color": color,
+                        "center": (int(cx), int(cy)),
+                        "outer_radius": int(outer_radius),
+                        "inner_radius": int(inner_radius),
+                        "bbox": (x, y, w, h),
+                        "score": round(outer_circularity, 2),
+                    }
+                )
+        return results
+
+    @staticmethod
+    def _center_fill(mask, cx, cy, radius):
+        radius = max(3, int(radius * 0.28))
+        center_mask = np.zeros(mask.shape, dtype=np.uint8)
+        cv2.circle(center_mask, (int(cx), int(cy)), radius, 255, -1)
+        center_area = np.count_nonzero(center_mask)
+        if center_area == 0:
+            return 0.0
+        colored_area = np.count_nonzero(cv2.bitwise_and(mask, center_mask))
+        return colored_area / center_area
+
+    @staticmethod
+    def _mask_ratio_in_circle(mask, cx, cy, radius, scale=0.82):
+        if mask is None:
+            return 0.0
+        radius = max(3, int(radius * scale))
+        circle_mask = np.zeros(mask.shape, dtype=np.uint8)
+        cv2.circle(circle_mask, (int(cx), int(cy)), radius, 255, -1)
+        circle_area = np.count_nonzero(circle_mask)
+        if circle_area == 0:
+            return 0.0
+        masked_area = np.count_nonzero(cv2.bitwise_and(mask, circle_mask))
+        return masked_area / circle_area
+
+    @staticmethod
+    def _circle_hsv_mean(hsv, cx, cy, radius, scale=0.55):
+        radius = max(3, int(radius * scale))
+        circle_mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
+        cv2.circle(circle_mask, (int(cx), int(cy)), radius, 255, -1)
+        sat_mean = cv2.mean(hsv[:, :, 1], mask=circle_mask)[0]
+        val_mean = cv2.mean(hsv[:, :, 2], mask=circle_mask)[0]
+        return sat_mean, val_mean
+
+    @staticmethod
+    def _overlaps_existing_ring(bbox, color, rings):
+        x, y, w, h = bbox
+        area = max(1, w * h)
+        for ring in rings:
+            if ring.get("color") != color:
+                continue
+            rx, ry, rw, rh = ring["bbox"]
+            ix0 = max(x, rx)
+            iy0 = max(y, ry)
+            ix1 = min(x + w, rx + rw)
+            iy1 = min(y + h, ry + rh)
+            if ix1 <= ix0 or iy1 <= iy0:
+                continue
+            overlap = (ix1 - ix0) * (iy1 - iy0) / area
+            if overlap > 0.45:
+                return True
+        return False
+
+    @staticmethod
+    def _overlaps_existing_detection(bbox, detections, min_overlap=0.38):
+        x, y, w, h = bbox
+        area = max(1, w * h)
+        for det in detections:
+            dx, dy, dw, dh = det.get("bbox", (0, 0, 0, 0))
+            ix0 = max(x, dx)
+            iy0 = max(y, dy)
+            ix1 = min(x + w, dx + dw)
+            iy1 = min(y + h, dy + dh)
+            if ix1 <= ix0 or iy1 <= iy0:
+                continue
+            overlap = (ix1 - ix0) * (iy1 - iy0) / area
+            if overlap > min_overlap:
+                return True
+        return False
+
+    def _detect_qr(self, frame):
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        results = []
+
+        def add_result(candidate):
+            for index, existing in enumerate(results):
+                overlap = self._bbox_overlap_ratio(
+                    candidate.get("bbox"),
+                    existing.get("bbox"),
+                )
+                if candidate.get("color") == existing.get("color") or overlap >= 0.45:
+                    if candidate.get("confidence", 0.0) > existing.get("confidence", 0.0):
+                        results[index] = candidate
+                    return
+            results.append(candidate)
+
+        if zbar_decode is not None:
+            symbols = [ZBarSymbol.QRCODE] if ZBarSymbol is not None else None
+            for barcode in zbar_decode(gray, symbols=symbols):
+                decoded = barcode.data.decode("utf-8", "replace")
+                color = self._color_from_qr_text(decoded)
+                if color not in ("red", "blue"):
+                    continue
+                points = self._barcode_points(barcode)
+                confidence = self._barcode_confidence(barcode, gray)
+                add_result(self._qr_as_square(color, points, decoded, confidence))
+            if {item["color"] for item in results} == {"red", "blue"}:
+                return results
+
+        if hasattr(self.qr, "detectAndDecodeMulti"):
+            try:
+                ok, decoded_info, points, _ = self.qr.detectAndDecodeMulti(gray)
+                if ok and points is not None:
+                    for idx, qr_points in enumerate(points):
+                        decoded = decoded_info[idx] if idx < len(decoded_info) else ""
+                        color = self._color_from_qr_text(decoded)
+                        if color in ("red", "blue"):
+                            add_result(self._qr_as_square(color, qr_points, decoded, 100.0))
+            except cv2.error:
+                pass
+
+        if {item["color"] for item in results} != {"red", "blue"}:
+            try:
+                decoded, points, _ = self.qr.detectAndDecode(gray)
+                if points is not None:
+                    color = self._color_from_qr_text(decoded)
+                    if color in ("red", "blue"):
+                        add_result(self._qr_as_square(color, points, decoded, 100.0))
+            except cv2.error:
+                pass
+
+        if {item["color"] for item in results} != {"red", "blue"}:
+            for candidate in self._detect_qr_templates(gray):
+                add_result(candidate)
+
+        return results
+
+    def _detect_qr_templates(self, gray):
+        if self.qr_feature_detector is None or not self.qr_template_features:
+            return []
+        scene_keypoints, scene_descriptors = self.qr_feature_detector.detectAndCompute(
+            gray,
+            None,
+        )
+        if scene_descriptors is None or len(scene_keypoints) < 8:
+            return []
+
+        matcher = cv2.BFMatcher(cv2.NORM_L2)
+        frame_height, frame_width = gray.shape[:2]
+        frame_area = frame_height * frame_width
+        results = []
+        for label, (template_shape, template_keypoints, template_descriptors) in self.qr_template_features.items():
+            try:
+                matches = matcher.knnMatch(template_descriptors, scene_descriptors, k=2)
+            except cv2.error:
+                continue
+            good = [
+                first
+                for pair in matches
+                if len(pair) == 2
+                for first, second in [pair]
+                if first.distance < 0.72 * second.distance
+            ]
+            if len(good) < 8:
+                continue
+            source_points = np.float32(
+                [template_keypoints[item.queryIdx].pt for item in good]
+            )
+            target_points = np.float32(
+                [scene_keypoints[item.trainIdx].pt for item in good]
+            )
+            matrix, inlier_mask = cv2.findHomography(
+                source_points,
+                target_points,
+                cv2.RANSAC,
+                4.0,
+            )
+            if matrix is None or inlier_mask is None:
+                continue
+            inliers = int(inlier_mask.sum())
+            inlier_ratio = inliers / max(1, len(good))
+            if inliers < 8 or inlier_ratio < 0.35:
+                continue
+
+            template_height, template_width = template_shape[:2]
+            corners = np.float32(
+                [[
+                    [0, 0],
+                    [template_width - 1, 0],
+                    [template_width - 1, template_height - 1],
+                    [0, template_height - 1],
+                ]]
+            )
+            try:
+                projected = cv2.perspectiveTransform(corners, matrix)[0]
+            except cv2.error:
+                continue
+            if not np.isfinite(projected).all():
+                continue
+            contour = np.rint(projected).astype(np.int32)
+            area = abs(cv2.contourArea(contour))
+            if area < 400.0 or area > frame_area * 0.35:
+                continue
+            if not cv2.isContourConvex(contour):
+                continue
+            if (
+                projected[:, 0].min() < -12
+                or projected[:, 1].min() < -12
+                or projected[:, 0].max() > frame_width + 12
+                or projected[:, 1].max() > frame_height + 12
+            ):
+                continue
+            side_lengths = [
+                float(np.linalg.norm(projected[(index + 1) % 4] - projected[index]))
+                for index in range(4)
+            ]
+            if min(side_lengths) < 12.0 or max(side_lengths) / min(side_lengths) > 2.0:
+                continue
+            confidence = 100.0 * (
+                0.55 * min(1.0, inliers / 30.0)
+                + 0.45 * min(1.0, inlier_ratio)
+            )
+            results.append(
+                self._qr_as_square(
+                    label,
+                    projected,
+                    "R" if label == "red" else "B",
+                    confidence,
+                )
+            )
+        return results
+
+    @staticmethod
+    def _color_from_qr_text(text):
+        normalized = (text or "").strip().lower()
+        return QR_COLOR_ALIASES.get(normalized)
+
+    @staticmethod
+    def _barcode_points(barcode):
+        polygon = getattr(barcode, "polygon", None) or []
+        if len(polygon) >= 4:
+            pts = np.array([(p.x, p.y) for p in polygon], dtype=np.float32)
+            rect = cv2.minAreaRect(pts)
+            return cv2.boxPoints(rect)
+        rect = barcode.rect
+        x, y, w, h = rect.left, rect.top, rect.width, rect.height
+        return np.array([[x, y], [x + w, y], [x + w, y + h], [x, y + h]], dtype=np.float32)
+
+    @staticmethod
+    def _barcode_confidence(barcode, gray):
+        quality = getattr(barcode, "quality", None)
+        if quality is not None:
+            return max(0.0, min(100.0, float(quality)))
+
+        rect = barcode.rect
+        height, width = gray.shape[:2]
+        x0 = max(0, rect.left)
+        y0 = max(0, rect.top)
+        x1 = min(width, rect.left + rect.width)
+        y1 = min(height, rect.top + rect.height)
+        roi = gray[y0:y1, x0:x1]
+        if roi.size == 0:
+            return 60.0
+
+        sharpness = cv2.Laplacian(roi, cv2.CV_64F).var()
+        sharp_score = min(1.0, sharpness / 900.0)
+        size_score = min(1.0, max(rect.width, rect.height) / 180.0)
+        return 60.0 + 40.0 * (0.65 * sharp_score + 0.35 * size_score)
+
+    @staticmethod
+    def _qr_as_square(color, points, decoded, confidence):
+        points = np.asarray(points, dtype=np.float32).reshape(-1, 2)
+        if len(points) != 4:
+            points = cv2.boxPoints(cv2.minAreaRect(points))
+        box = points.astype(np.int32)
+        x, y, w, h = cv2.boundingRect(box)
+        center = (int(x + w / 2), int(y + h / 2))
+        return {
+            "kind": "square",
+            "color": color,
+            "source": "qr",
+            "decoded": decoded,
+            "confidence": float(confidence),
+            "center": center,
+            "box": box,
+            "bbox": (x, y, w, h),
+            "projected_area": abs(float(cv2.contourArea(points))),
+            "angle": 0.0,
+        }
+
+    def _match_qr_template(self, gray, points):
+        if not self.templates:
+            return None, 0.0
+
+        points = np.asarray(points, dtype=np.float32).reshape(4, 2)
+        side = 240
+        dst = np.array(
+            [[0, 0], [side - 1, 0], [side - 1, side - 1], [0, side - 1]],
+            dtype=np.float32,
+        )
+        try:
+            matrix = cv2.getPerspectiveTransform(points, dst)
+            roi = cv2.warpPerspective(gray, matrix, (side, side))
+        except cv2.error:
+            return None, 0.0
+
+        if roi.size == 0:
+            return None, 0.0
+        scores = {}
+        for label, template in self.templates.items():
+            resized = cv2.resize(template, (side, side))
+            score = cv2.matchTemplate(roi, resized, cv2.TM_CCOEFF_NORMED).max()
+            scores[label] = float(score)
+        best = max(scores, key=scores.get)
+        confidence = max(0.0, min(100.0, scores[best] * 100.0))
+        return (best, confidence) if scores[best] > 0.35 else (None, 0.0)
+
+    @staticmethod
+    def _external_contours(mask):
+        return external_contours(mask)
+
+    @staticmethod
+    def _circularity(contour):
+        return contour_circularity(contour)
+
+
+def parse_device(value):
+    return int(value) if str(value).isdigit() else value
+
+
+def camera_candidates(device):
+    if device != "auto":
+        return [device]
+
+    candidates = []
+    by_id = Path("/dev/v4l/by-id")
+    if by_id.exists():
+        for item in sorted(by_id.iterdir()):
+            if "video-index0" in item.name or "camera" in item.name.lower():
+                try:
+                    candidates.append(str(item.resolve()))
+                except OSError:
+                    pass
+
+    candidates.extend(["/dev/video20", "/dev/video21"])
+    for item in sorted(Path("/dev").glob("video*"), key=lambda p: p.name):
+        if item.name[5:].isdigit():
+            candidates.append(str(item))
+
+    deduped = []
+    seen = set()
+    for item in candidates:
+        if item not in seen:
+            seen.add(item)
+            deduped.append(item)
+    return deduped
+
+
+def open_camera(device, width, height, fps):
+    errors = []
+    candidates = camera_candidates(device)
+    for attempt in range(1, 4):
+        for candidate in candidates:
+            subprocess.run(
+                [
+                    "v4l2-ctl",
+                    "-d",
+                    str(candidate),
+                    "--set-ctrl=exposure_dynamic_framerate=0",
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+            cap = cv2.VideoCapture(parse_device(candidate), cv2.CAP_V4L2)
+            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+            cap.set(cv2.CAP_PROP_FPS, fps)
+            read_timeout = getattr(cv2, "CAP_PROP_READ_TIMEOUT_MSEC", None)
+            if read_timeout is not None:
+                cap.set(read_timeout, 1500)
+            if not cap.isOpened():
+                errors.append(f"attempt {attempt} {candidate}: open failed")
+                cap.release()
+                continue
+            for _ in range(1):
+                ok, _ = cap.read()
+                if ok:
+                    actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    actual_fps = cap.get(cv2.CAP_PROP_FPS)
+                    print(
+                        f"Camera: {candidate} {actual_width}x{actual_height} "
+                        f"reported_fps={actual_fps:.1f} attempt={attempt}"
+                    )
+                    return cap
+                time.sleep(0.05)
+            errors.append(f"attempt {attempt} {candidate}: no frames")
+            cap.release()
+            time.sleep(0.25)
+        if attempt < 3:
+            print(f"Camera unavailable; retrying {attempt}/3", flush=True)
+            time.sleep(1.0)
+    raise RuntimeError("Cannot open camera. Tried: " + "; ".join(errors))
+
+
+def set_pipewire(active):
+    command = "start" if active else "stop"
+    services = ["pipewire.socket", "pipewire.service", "pipewire-media-session.service"]
+    subprocess.run(
+        ["systemctl", "--user", command, *services],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+
+
+def stop_old_camera_viewers():
+    user = getpass.getuser()
+    for name in ("cheese", "guvcview", "gst-launch-1.0"):
+        subprocess.run(
+            ["pkill", "-u", user, "-x", name],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    subprocess.run(
+        ["pkill", "-u", user, "-f", "/home/cat/bin/camera-preview"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+
+
+def ensure_display_env():
+    uid = os.getuid()
+    os.environ.setdefault("XDG_RUNTIME_DIR", f"/run/user/{uid}")
+    os.environ.setdefault("DBUS_SESSION_BUS_ADDRESS", f"unix:path=/run/user/{uid}/bus")
+    os.environ.setdefault("WAYLAND_DISPLAY", "wayland-0")
+    os.environ.setdefault("DISPLAY", ":0")
+
+
+def local_ip_hint():
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.connect(("8.8.8.8", 80))
+        ip = sock.getsockname()[0]
+        sock.close()
+        return ip
+    except OSError:
+        return "127.0.0.1"
+
+
+def build_arg_parser():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--device", default=os.environ.get("CAMERA_DEVICE", "auto"))
+    parser.add_argument("--width", type=int, default=640)
+    parser.add_argument("--height", type=int, default=480)
+    parser.add_argument("--fps", type=int, default=30)
+    parser.add_argument("--detect-every-n-frames", type=int, default=1)
+    parser.add_argument("--detection-scale", type=float, default=1.0)
+    parser.add_argument("--web-port", type=int, default=8080)
+    parser.add_argument("--no-web", action="store_true")
+    parser.add_argument("--no-window", action="store_true")
+    parser.add_argument("--keep-pipewire", action="store_true")
+    parser.add_argument("--keep-camera-users", action="store_true")
+    parser.add_argument("--disable-servo-trigger", action="store_true")
+    parser.add_argument("--servo-uart", default=os.environ.get("SERVO_UART", "/dev/ttyS0"))
+    parser.add_argument("--servo-baud", type=int, default=int(os.environ.get("SERVO_BAUD", "115200")))
+    parser.add_argument("--trigger-command", default=os.environ.get("SERVO_TRIGGER_COMMAND", "linkstart"))
+    parser.add_argument("--trigger-color", default="red", choices=BALL_COLORS)
+    parser.add_argument("--trigger-kind", default="square", choices=("ball", "square", "ring", "qr", "any"))
+    parser.add_argument("--trigger-stable-frames", type=int, default=3)
+    parser.add_argument("--trigger-reset-frames", type=int, default=8)
+    parser.add_argument("--trigger-cooldown", type=float, default=5.0)
+    parser.add_argument("--enable-arm-preview", action="store_true")
+    parser.add_argument("--preview-id1", type=int, default=READY_ID1_TICK)
+    parser.add_argument("--preview-id2", type=int, default=READY_ID2_TICK)
+    parser.add_argument("--preview-id4", type=int, default=GRIPPER_CLOSED_TICK)
+    parser.add_argument("--preview-id6", type=int, default=BASE_YAW_READY_TICK)
+    parser.add_argument("--enable-red-square-grasp", action="store_true")
+    parser.add_argument(
+        "--execute-red-square-grasp",
+        action="store_true",
+        default=os.environ.get("RED_SQUARE_EXECUTE", "").lower() in {"1", "true", "yes"},
+    )
+    parser.add_argument("--skip-grasp-startup-sequence", action="store_true")
+    parser.add_argument("--grasp-id1-ready", type=int, default=READY_ID1_TICK)
+    parser.add_argument("--grasp-id2-ready", type=int, default=READY_ID2_TICK)
+    parser.add_argument("--grasp-id4-closed", type=int, default=GRIPPER_CLOSED_TICK)
+    parser.add_argument("--grasp-id4-open", type=int, default=GRIPPER_OPEN_TICK)
+    parser.add_argument("--grasp-center-deadband-px", type=float, default=30.0)
+    parser.add_argument("--grasp-stable-frames", type=int, default=1)
+    parser.add_argument("--grasp-command-interval", type=float, default=0.20)
+    parser.add_argument("--grasp-id2-pixel-gain", type=float, default=0.15)
+    parser.add_argument("--grasp-id6-pixel-gain", type=float, default=0.18)
+    parser.add_argument("--grasp-id6-max-step-ticks", type=int, default=60)
+    parser.add_argument("--grasp-id1-pixel-gain-y", type=float, default=0.0)
+    parser.add_argument("--grasp-id2-distance-gain", type=float, default=0.25)
+    parser.add_argument("--camera-gripper-offset-mm", type=float, default=50.0)
+    parser.add_argument("--target-gripper-distance-mm", type=float, default=20.0)
+    parser.add_argument("--grasp-distance-deadband-mm", type=float, default=12.0)
+    parser.add_argument("--grasp-max-step-ticks", type=int, default=18)
+    parser.add_argument("--servo-angle-gap-deg", type=float, default=MIN_ANGLE_GAP_DEG)
+    parser.add_argument("--grasp-id1-min", type=int, default=ID1_SAFE_LIMITS[0])
+    parser.add_argument("--grasp-id1-max", type=int, default=ID1_SAFE_LIMITS[1])
+    parser.add_argument("--grasp-id2-min", type=int, default=ID2_SAFE_LIMITS[0])
+    parser.add_argument("--grasp-id2-max", type=int, default=ID2_SAFE_LIMITS[1])
+    parser.add_argument("--grasp-one-shot", action="store_true")
+    parser.add_argument("--grasp-direct-2", action="store_true")
+    parser.add_argument(
+        "--grasp-center-only",
+        action="store_true",
+        default=os.environ.get("VISION_CENTER_ONLY", "").lower()
+        in {"1", "true", "yes"},
+    )
+    parser.add_argument("--camera-gripper-vertical-offset-mm", type=float, default=0.0)
+    parser.add_argument("--max-lateral-offset-mm", type=float, default=45.0)
+    parser.add_argument("--max-one-shot-ik-error-mm", type=float, default=15.0)
+    parser.add_argument("--post-center-retreat-mm", type=float, default=0.0)
+    parser.add_argument("--post-center-down-mm", type=float, default=280.0)
+    parser.add_argument("--post-center-ik-error-mm", type=float, default=18.0)
+    parser.add_argument("--window-x", type=int, default=None)
+    parser.add_argument("--window-y", type=int, default=None)
+    parser.add_argument("--window-width", type=int, default=None)
+    parser.add_argument("--window-height", type=int, default=None)
+    return parser
+
+
+def main(argv=None):
+    args, _ = build_arg_parser().parse_known_args(argv)
+    ensure_display_env()
+
+    shutdown_requested = False
+
+    def request_shutdown(signum, _frame):
+        nonlocal shutdown_requested
+        if shutdown_requested:
+            return
+        shutdown_requested = True
+        print(f"APP EXIT signal={signum}", flush=True)
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGINT, request_shutdown)
+    signal.signal(signal.SIGTERM, request_shutdown)
+
+    state = FrameState()
+    detector = TargetDetector()
+    auto_grasp_enabled = args.enable_red_square_grasp
+    execute_auto_grasp = auto_grasp_enabled and args.execute_red_square_grasp
+    preview_id4 = (
+        args.preview_id4
+        if execute_auto_grasp
+        else load_last_id4_target(args.preview_id4)
+    )
+    servo_trigger = SerialTrigger(
+        args.servo_uart,
+        args.servo_baud,
+        args.trigger_command,
+        args.trigger_color,
+        args.trigger_kind,
+        args.trigger_stable_frames,
+        args.trigger_reset_frames,
+        args.trigger_cooldown,
+        enabled=not args.disable_servo_trigger and not auto_grasp_enabled,
+    )
+    arm_preview = ArmPreviewPublisher(
+        args.enable_arm_preview or auto_grasp_enabled,
+        args.preview_id1,
+        args.preview_id2,
+        preview_id4,
+        args.preview_id6,
+    )
+    servo_bridge = AbsoluteServoBridge(
+        args.servo_uart,
+        args.servo_baud,
+        enabled=auto_grasp_enabled,
+        write_enabled=execute_auto_grasp,
+    )
+    grasp_controller = RedSquareGraspController(
+        auto_grasp_enabled,
+        servo_bridge,
+        arm_preview,
+        args.grasp_id1_ready,
+        args.grasp_id2_ready,
+        args.grasp_id4_closed,
+        args.grasp_id4_open,
+        args.grasp_center_deadband_px,
+        args.grasp_stable_frames,
+        args.grasp_command_interval,
+        args.grasp_id2_pixel_gain,
+        args.grasp_id6_pixel_gain,
+        args.grasp_id6_max_step_ticks,
+        args.grasp_id1_pixel_gain_y,
+        args.grasp_id2_distance_gain,
+        args.camera_gripper_offset_mm,
+        args.target_gripper_distance_mm,
+        args.grasp_distance_deadband_mm,
+        args.grasp_max_step_ticks,
+        (args.grasp_id1_min, args.grasp_id1_max),
+        (args.grasp_id2_min, args.grasp_id2_max),
+        args.servo_angle_gap_deg,
+        startup_sequence=not args.skip_grasp_startup_sequence,
+        one_shot=args.grasp_one_shot,
+        direct_grasp=args.grasp_direct_2,
+        camera_gripper_vertical_offset_mm=args.camera_gripper_vertical_offset_mm,
+        max_lateral_offset_mm=args.max_lateral_offset_mm,
+        max_one_shot_ik_error_mm=args.max_one_shot_ik_error_mm,
+        post_center_retreat_mm=args.post_center_retreat_mm,
+        post_center_down_mm=args.post_center_down_mm,
+        post_center_ik_error_mm=args.post_center_ik_error_mm,
+        center_only=args.grasp_center_only,
+        initial_id4=preview_id4,
+    )
+    server = None
+    if not args.no_web:
+        server = ThreadedHTTPServer(("0.0.0.0", args.web_port), StreamHandler, state)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        print(f"Web view: http://{local_ip_hint()}:{args.web_port}")
+
+    if not args.keep_camera_users:
+        stop_old_camera_viewers()
+    if not args.keep_pipewire:
+        set_pipewire(False)
+    cap = open_camera(args.device, args.width, args.height, args.fps)
+    window_enabled = not args.no_window
+    window_close_watcher = None
+    if window_enabled:
+        cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(
+            WINDOW_NAME,
+            args.window_width or min(args.width, 1120),
+            args.window_height or min(args.height, 630),
+        )
+        if args.window_x is not None and args.window_y is not None:
+            cv2.moveWindow(WINDOW_NAME, args.window_x, args.window_y)
+        window_close_watcher = WindowCloseWatcher(WINDOW_NAME)
+        window_close_watcher.start()
+
+    print("Press q or Esc in the preview window to quit.")
+    fps_started = time.monotonic()
+    fps_last_log = fps_started
+    fps_frames = 0
+    display_fps = 0.0
+    detection_frame_index = 0
+    detections = []
+    detection_interval = max(1, args.detect_every_n_frames)
+    detection_scale = max(0.4, min(1.0, float(args.detection_scale)))
+    detection_executor = concurrent.futures.ProcessPoolExecutor(
+        max_workers=1,
+        mp_context=multiprocessing.get_context("spawn"),
+    )
+    detection_future = None
+
+    perf_started = fps_started
+    perf_frames = 0
+    perf_detect_frames = 0
+    perf_read_s = 0.0
+    perf_detect_s = 0.0
+    perf_post_s = 0.0
+    perf_display_s = 0.0
+
+    def matches_selected_target(detection):
+        if detection.get("color") != args.trigger_color:
+            return False
+        if auto_grasp_enabled:
+            if args.grasp_direct_2:
+                return detection.get("kind") == "square"
+            return detection.get("kind") in {"square", "ring"}
+        return (
+            args.trigger_kind == "any"
+            and detection.get("kind") in {"ball", "square", "ring", "qr"}
+            or detection.get("kind") == args.trigger_kind
+        )
+
+    try:
+        while True:
+            read_started = time.perf_counter()
+            ok, frame = cap.read()
+            read_elapsed = time.perf_counter() - read_started
+            if not ok:
+                time.sleep(0.02)
+                continue
+            detect_elapsed = 0.0
+            if detection_future is not None and detection_future.done():
+                try:
+                    detections, detect_elapsed = detection_future.result()
+                    perf_detect_frames += 1
+                except Exception as exc:
+                    print(f"detection worker failed: {exc}", flush=True)
+                detection_future = None
+            if (
+                detection_frame_index % detection_interval == 0
+                and detection_future is None
+            ):
+                detection_future = detection_executor.submit(
+                    detection_process_worker,
+                    frame.copy(),
+                    detection_scale,
+                )
+            detection_frame_index += 1
+            post_started = time.perf_counter()
+            selected_targets = [
+                det for det in detections
+                if matches_selected_target(det)
+            ]
+            fully_visible_targets = [
+                det for det in selected_targets
+                if det.get("fully_visible", True)
+            ]
+            preview_target = max(
+                fully_visible_targets,
+                key=lambda det: det.get("bbox", (0, 0, 0, 0))[2]
+                * det.get("bbox", (0, 0, 0, 0))[3],
+                default=None,
+            )
+            display_detections = [
+                det for det in detections
+                if not matches_selected_target(det)
+            ]
+            if preview_target is not None:
+                display_detections.append(preview_target)
+            trigger_info = servo_trigger.update(display_detections)
+            output, info = detector.draw(frame, display_detections)
+            if auto_grasp_enabled:
+                grasp_info = grasp_controller.update(
+                    preview_target,
+                    frame.shape,
+                    target_present=bool(selected_targets),
+                )
+                arm_preview.publish(
+                    grasp_info,
+                    preview_target,
+                    grasp_controller.state,
+                )
+                info = f"{info} | {grasp_info}"
+            elif preview_target is not None:
+                arm_preview.publish(
+                    f"{args.trigger_color} {args.trigger_kind} detected",
+                    preview_target,
+                )
+            else:
+                arm_preview.publish(
+                    f"searching {args.trigger_color} {args.trigger_kind}"
+                )
+            if trigger_info:
+                info = f"{info} | {trigger_info}"
+            fps_frames += 1
+            fps_elapsed = time.monotonic() - fps_started
+            if fps_elapsed >= 1.0:
+                display_fps = fps_frames / fps_elapsed
+                fps_started = time.monotonic()
+                fps_frames = 0
+            if time.monotonic() - fps_last_log >= 5.0:
+                print(f"VISION FPS={display_fps:.1f}", flush=True)
+                fps_last_log = time.monotonic()
+            info = f"{info} | FPS {display_fps:.1f}"
+            state.update(output, info)
+            post_elapsed = time.perf_counter() - post_started
+            display_started = time.perf_counter()
+            if window_enabled:
+                cv2.imshow(WINDOW_NAME, output)
+                key = cv2.waitKey(1) & 0xFF
+                if key in (ord("r"), ord("R")) and auto_grasp_enabled:
+                    print(grasp_controller.restart_recognition(), flush=True)
+                if key in (27, ord("q")):
+                    break
+                try:
+                    if cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) == 0:
+                        break
+                except cv2.error:
+                    pass
+                if window_close_watcher.closed.is_set():
+                    break
+            display_elapsed = time.perf_counter() - display_started
+            perf_frames += 1
+            perf_read_s += read_elapsed
+            perf_detect_s += detect_elapsed
+            perf_post_s += post_elapsed
+            perf_display_s += display_elapsed
+            perf_elapsed = time.monotonic() - perf_started
+            if perf_elapsed >= 5.0 and perf_frames:
+                detect_divisor = max(1, perf_detect_frames)
+                print(
+                    "VISION PERF "
+                    f"read={perf_read_s * 1000.0 / perf_frames:.1f}ms "
+                    f"detect={perf_detect_s * 1000.0 / detect_divisor:.1f}ms/detect "
+                    f"post={perf_post_s * 1000.0 / perf_frames:.1f}ms "
+                    f"display={perf_display_s * 1000.0 / perf_frames:.1f}ms",
+                    flush=True,
+                )
+                perf_started = time.monotonic()
+                perf_frames = 0
+                perf_detect_frames = 0
+                perf_read_s = 0.0
+                perf_detect_s = 0.0
+                perf_post_s = 0.0
+                perf_display_s = 0.0
+    except KeyboardInterrupt:
+        print("APP EXIT shutdown requested", flush=True)
+    finally:
+        state.running = False
+        detection_executor.shutdown(wait=False, cancel_futures=True)
+        cap.release()
+        servo_trigger.close()
+        if auto_grasp_enabled and servo_bridge.write_enabled:
+            try:
+                print("APP EXIT requesting confirmed ARMHOME", flush=True)
+                home_feedback = servo_bridge.command_arm_home(timeout_s=8.0)
+                if home_feedback is None:
+                    raise RuntimeError(servo_bridge.status)
+                print(
+                    f"APP EXIT home confirmed ID1={home_feedback[0]} "
+                    f"ID2={home_feedback[1]} ID6={home_feedback[2]}",
+                    flush=True,
+                )
+            except Exception as exc:
+                print(f"APP EXIT retract failed: {exc}", flush=True)
+        servo_bridge.close()
+        arm_preview.close()
+        if server is not None:
+            server.shutdown()
+        if window_enabled:
+            cv2.destroyAllWindows()
+        if window_close_watcher is not None:
+            window_close_watcher.stop()
+        if not args.keep_pipewire:
+            set_pipewire(True)
+
+
+if __name__ == "__main__":
+    main()

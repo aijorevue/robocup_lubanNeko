@@ -1,0 +1,76 @@
+from pathlib import Path
+
+from ament_index_python.packages import get_package_share_directory
+from launch import LaunchDescription
+from launch.actions import ExecuteProcess, TimerAction
+from launch_ros.actions import Node
+
+
+DESKTOP_ENV = {
+    "XDG_RUNTIME_DIR": "/run/user/1000",
+    "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1000/bus",
+    "DISPLAY": ":0",
+    "XAUTHORITY": "/run/user/1000/.mutter-Xwaylandauth.8MU4R3",
+    "QT_QPA_PLATFORM": "xcb",
+}
+
+
+def generate_launch_description():
+    share_dir = Path(get_package_share_directory("ros2_test1"))
+    robot_description = (share_dir / "urdf" / "arm_5.urdf").read_text()
+    rviz_config = str(share_dir / "rviz" / "arm_5.rviz")
+
+    return LaunchDescription(
+        [
+            ExecuteProcess(
+                cmd=[
+                    "bash",
+                    "-lc",
+                    "pkill -f '/ros2_test1/[t]arget_vision|python3 -m ros2_test1.[t]arget_vision' || true",
+                ],
+                output="screen",
+            ),
+            Node(
+                package="robot_state_publisher",
+                executable="robot_state_publisher",
+                parameters=[{"robot_description": robot_description}],
+                output="screen",
+            ),
+            TimerAction(
+                period=1.0,
+                actions=[
+                    Node(
+                        package="ros2_test1",
+                        executable="target_vision",
+                        name="target_vision_preview",
+                        arguments=[
+                            "--enable-arm-preview",
+                            "--disable-servo-trigger",
+                            "--preview-id1",
+                            "403",
+                            "--preview-id2",
+                            "50",
+                            "--preview-id4",
+                            "1000",
+                            "--preview-id6",
+                            "500",
+                        ],
+                        additional_env=DESKTOP_ENV,
+                        output="screen",
+                    )
+                ],
+            ),
+            TimerAction(
+                period=1.5,
+                actions=[
+                    Node(
+                        package="rviz2",
+                        executable="rviz2",
+                        arguments=["-d", rviz_config],
+                        additional_env=DESKTOP_ENV,
+                        output="screen",
+                    )
+                ],
+            ),
+        ]
+    )

@@ -1,0 +1,51 @@
+[0.853s] Invoking command in '/home/cat/ros2_ws/ros2_test1': PYTHONPATH=/home/cat/ros2_ws/build/ros2_test1/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/ros2_test1 build --build-base /home/cat/ros2_ws/build/ros2_test1/build install --record /home/cat/ros2_ws/build/ros2_test1/install.log --single-version-externally-managed install_data
+[1.126s] running egg_info
+[1.127s] creating ../build/ros2_test1/ros2_test1.egg-info
+[1.127s] writing ../build/ros2_test1/ros2_test1.egg-info/PKG-INFO
+[1.128s] writing dependency_links to ../build/ros2_test1/ros2_test1.egg-info/dependency_links.txt
+[1.128s] writing entry points to ../build/ros2_test1/ros2_test1.egg-info/entry_points.txt
+[1.129s] writing requirements to ../build/ros2_test1/ros2_test1.egg-info/requires.txt
+[1.129s] writing top-level names to ../build/ros2_test1/ros2_test1.egg-info/top_level.txt
+[1.129s] writing manifest file '../build/ros2_test1/ros2_test1.egg-info/SOURCES.txt'
+[1.130s] reading manifest file '../build/ros2_test1/ros2_test1.egg-info/SOURCES.txt'
+[1.131s] writing manifest file '../build/ros2_test1/ros2_test1.egg-info/SOURCES.txt'
+[1.132s] running build
+[1.133s] running build_py
+[1.133s] creating /home/cat/ros2_ws/build/ros2_test1/build
+[1.134s] creating /home/cat/ros2_ws/build/ros2_test1/build/lib
+[1.134s] creating /home/cat/ros2_ws/build/ros2_test1/build/lib/ros2_test1
+[1.135s] copying ros2_test1/__init__.py -> /home/cat/ros2_ws/build/ros2_test1/build/lib/ros2_test1
+[1.135s] copying ros2_test1/face_detector.py -> /home/cat/ros2_ws/build/ros2_test1/build/lib/ros2_test1
+[1.136s] copying ros2_test1/target_vision.py -> /home/cat/ros2_ws/build/ros2_test1/build/lib/ros2_test1
+[1.136s] creating /home/cat/ros2_ws/build/ros2_test1/build/lib/ros2_test1/assets
+[1.137s] copying ros2_test1/assets/blue.png -> /home/cat/ros2_ws/build/ros2_test1/build/lib/ros2_test1/assets
+[1.137s] copying ros2_test1/assets/red.png -> /home/cat/ros2_ws/build/ros2_test1/build/lib/ros2_test1/assets
+[1.138s] running install
+[1.138s] running install_lib
+[1.138s] creating /home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages/ros2_test1
+[1.139s] copying /home/cat/ros2_ws/build/ros2_test1/build/lib/ros2_test1/__init__.py -> /home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages/ros2_test1
+[1.139s] copying /home/cat/ros2_ws/build/ros2_test1/build/lib/ros2_test1/face_detector.py -> /home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages/ros2_test1
+[1.140s] copying /home/cat/ros2_ws/build/ros2_test1/build/lib/ros2_test1/target_vision.py -> /home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages/ros2_test1
+[1.140s] creating /home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages/ros2_test1/assets
+[1.140s] copying /home/cat/ros2_ws/build/ros2_test1/build/lib/ros2_test1/assets/red.png -> /home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages/ros2_test1/assets
+[1.141s] copying /home/cat/ros2_ws/build/ros2_test1/build/lib/ros2_test1/assets/blue.png -> /home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages/ros2_test1/assets
+[1.141s] byte-compiling /home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages/ros2_test1/__init__.py to __init__.cpython-310.pyc
+[1.142s] byte-compiling /home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages/ros2_test1/face_detector.py to face_detector.cpython-310.pyc
+[1.142s] byte-compiling /home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages/ros2_test1/target_vision.py to target_vision.cpython-310.pyc
+[1.144s] running install_data
+[1.144s] creating /home/cat/ros2_ws/install/ros2_test1/share
+[1.145s] creating /home/cat/ros2_ws/install/ros2_test1/share/ament_index
+[1.145s] creating /home/cat/ros2_ws/install/ros2_test1/share/ament_index/resource_index
+[1.146s] creating /home/cat/ros2_ws/install/ros2_test1/share/ament_index/resource_index/packages
+[1.146s] copying resource/ros2_test1 -> /home/cat/ros2_ws/install/ros2_test1/share/ament_index/resource_index/packages
+[1.146s] creating /home/cat/ros2_ws/install/ros2_test1/share/ros2_test1
+[1.147s] copying package.xml -> /home/cat/ros2_ws/install/ros2_test1/share/ros2_test1
+[1.147s] creating /home/cat/ros2_ws/install/ros2_test1/share/ros2_test1/launch
+[1.148s] copying launch/target_vision.launch.py -> /home/cat/ros2_ws/install/ros2_test1/share/ros2_test1/launch
+[1.148s] running install_egg_info
+[1.149s] Copying ../build/ros2_test1/ros2_test1.egg-info to /home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages/ros2_test1-0.1.0-py3.10.egg-info
+[1.149s] running install_scripts
+[1.178s] Installing face_detector script to /home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1
+[1.178s] Installing target_vision script to /home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1
+[1.179s] writing list of installed files to '/home/cat/ros2_ws/build/ros2_test1/install.log'
+[1.231s] Invoked command in '/home/cat/ros2_ws/ros2_test1' returned '0': PYTHONPATH=/home/cat/ros2_ws/build/ros2_test1/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/ros2_test1 build --build-base /home/cat/ros2_ws/build/ros2_test1/build install --record /home/cat/ros2_ws/build/ros2_test1/install.log --single-version-externally-managed install_data

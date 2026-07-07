@@ -1,0 +1,27 @@
+[0.769s] Invoking command in '/home/cat/ros2_ws/ros2_test1': PYTHONPATH=/home/cat/ros2_ws/build/ros2_test1/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/ros2_test1 build --build-base /home/cat/ros2_ws/build/ros2_test1/build install --record /home/cat/ros2_ws/build/ros2_test1/install.log --single-version-externally-managed install_data
+[1.044s] running egg_info
+[1.045s] writing ../build/ros2_test1/ros2_test1.egg-info/PKG-INFO
+[1.046s] writing dependency_links to ../build/ros2_test1/ros2_test1.egg-info/dependency_links.txt
+[1.046s] writing entry points to ../build/ros2_test1/ros2_test1.egg-info/entry_points.txt
+[1.046s] writing requirements to ../build/ros2_test1/ros2_test1.egg-info/requires.txt
+[1.046s] writing top-level names to ../build/ros2_test1/ros2_test1.egg-info/top_level.txt
+[1.049s] reading manifest file '../build/ros2_test1/ros2_test1.egg-info/SOURCES.txt'
+[1.050s] writing manifest file '../build/ros2_test1/ros2_test1.egg-info/SOURCES.txt'
+[1.050s] running build
+[1.051s] running build_py
+[1.051s] copying ros2_test1/target_vision.py -> /home/cat/ros2_ws/build/ros2_test1/build/lib/ros2_test1
+[1.053s] running install
+[1.053s] running install_lib
+[1.054s] copying /home/cat/ros2_ws/build/ros2_test1/build/lib/ros2_test1/target_vision.py -> /home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages/ros2_test1
+[1.056s] byte-compiling /home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages/ros2_test1/target_vision.py to target_vision.cpython-310.pyc
+[1.078s] running install_data
+[1.078s] running install_egg_info
+[1.081s] removing '/home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages/ros2_test1-0.1.0-py3.10.egg-info' (and everything under it)
+[1.081s] Copying ../build/ros2_test1/ros2_test1.egg-info to /home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages/ros2_test1-0.1.0-py3.10.egg-info
+[1.082s] running install_scripts
+[1.112s] Installing arm_joint_state_seed script to /home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1
+[1.112s] Installing face_detector script to /home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1
+[1.112s] Installing red_square_arm script to /home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1
+[1.112s] Installing target_vision script to /home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1
+[1.113s] writing list of installed files to '/home/cat/ros2_ws/build/ros2_test1/install.log'
+[1.180s] Invoked command in '/home/cat/ros2_ws/ros2_test1' returned '0': PYTHONPATH=/home/cat/ros2_ws/build/ros2_test1/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/ros2_test1 build --build-base /home/cat/ros2_ws/build/ros2_test1/build install --record /home/cat/ros2_ws/build/ros2_test1/install.log --single-version-externally-managed install_data

@@ -1,0 +1,40 @@
+[0.000000] (-) TimerEvent: {}
+[0.000457] (-) JobUnselected: {'identifier': 'ros2_test1'}
+[0.000606] (stm32_bridge) JobQueued: {'identifier': 'stm32_bridge', 'dependencies': OrderedDict()}
+[0.000766] (stm32_bridge) JobStarted: {'identifier': 'stm32_bridge'}
+[0.098130] (-) TimerEvent: {}
+[0.198834] (-) TimerEvent: {}
+[0.299435] (-) TimerEvent: {}
+[0.400032] (-) TimerEvent: {}
+[0.500720] (-) TimerEvent: {}
+[0.601390] (-) TimerEvent: {}
+[0.702128] (-) TimerEvent: {}
+[0.802801] (-) TimerEvent: {}
+[0.903631] (stm32_bridge) Command: {'cmd': ['/usr/bin/python3', '-W', 'ignore:setup.py install is deprecated', '-W', 'ignore:easy_install command is deprecated', 'setup.py', 'egg_info', '--egg-base', '../../build/stm32_bridge', 'build', '--build-base', '/home/cat/ros2_ws/build/stm32_bridge/build', 'install', '--record', '/home/cat/ros2_ws/build/stm32_bridge/install.log', '--single-version-externally-managed', 'install_data'], 'cwd': '/home/cat/ros2_ws/src/stm32_bridge', 'env': {'USER': 'cat', 'SSH_CLIENT': '198.18.0.1 63635 22', 'XDG_SESSION_TYPE': 'tty', 'SHLVL': '0', 'LD_LIBRARY_PATH': '/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/aarch64-linux-gnu:/opt/ros/humble/lib', 'MOTD_SHOWN': 'pam', 'HOME': '/home/cat', 'MUTTER_DEBUG_ENABLE_ATOMIC_KMS': '0', 'OLDPWD': '/home/cat', 'ROS_PYTHON_VERSION': '3', 'DBUS_SESSION_BUS_ADDRESS': 'unix:path=/run/user/1000/bus', 'ROS_DISTRO': 'humble', 'LOGNAME': 'cat', '_': '/usr/bin/colcon', 'ROS_VERSION': '2', 'XDG_SESSION_CLASS': 'user', 'XDG_SESSION_ID': '16', 'ROS_LOCALHOST_ONLY': '0', 'PATH': '/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin', 'XDG_RUNTIME_DIR': '/run/user/1000', 'LANG': 'zh_CN.UTF-8', 'AMENT_PREFIX_PATH': '/opt/ros/humble', 'SHELL': '/bin/bash', 'CLUTTER_PAINT': 'disable-dynamic-max-render-time', 'MUTTER_DEBUG_FORCE_KMS_MODE': 'simple', 'PWD': '/home/cat/ros2_ws/build/stm32_bridge', 'SSH_CONNECTION': '198.18.0.1 63635 198.18.0.207 22', 'PYTHONPATH': '/home/cat/ros2_ws/build/stm32_bridge/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/cat/ros2_ws/install/stm32_bridge/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages', 'COLCON': '1'}, 'shell': False}
+[0.907850] (-) TimerEvent: {}
+[1.008377] (-) TimerEvent: {}
+[1.108999] (-) TimerEvent: {}
+[1.209112] (stm32_bridge) StdoutLine: {'line': b'running egg_info\n'}
+[1.210145] (-) TimerEvent: {}
+[1.210899] (stm32_bridge) StdoutLine: {'line': b'writing ../../build/stm32_bridge/stm32_bridge.egg-info/PKG-INFO\n'}
+[1.211744] (stm32_bridge) StdoutLine: {'line': b'writing dependency_links to ../../build/stm32_bridge/stm32_bridge.egg-info/dependency_links.txt\n'}
+[1.212212] (stm32_bridge) StdoutLine: {'line': b'writing entry points to ../../build/stm32_bridge/stm32_bridge.egg-info/entry_points.txt\n'}
+[1.212631] (stm32_bridge) StdoutLine: {'line': b'writing requirements to ../../build/stm32_bridge/stm32_bridge.egg-info/requires.txt\n'}
+[1.213013] (stm32_bridge) StdoutLine: {'line': b'writing top-level names to ../../build/stm32_bridge/stm32_bridge.egg-info/top_level.txt\n'}
+[1.213941] (stm32_bridge) StdoutLine: {'line': b"reading manifest file '../../build/stm32_bridge/stm32_bridge.egg-info/SOURCES.txt'\n"}
+[1.215098] (stm32_bridge) StdoutLine: {'line': b"writing manifest file '../../build/stm32_bridge/stm32_bridge.egg-info/SOURCES.txt'\n"}
+[1.215561] (stm32_bridge) StdoutLine: {'line': b'running build\n'}
+[1.215952] (stm32_bridge) StdoutLine: {'line': b'running build_py\n'}
+[1.216565] (stm32_bridge) StdoutLine: {'line': b'running install\n'}
+[1.216937] (stm32_bridge) StdoutLine: {'line': b'running install_lib\n'}
+[1.218305] (stm32_bridge) StdoutLine: {'line': b'running install_data\n'}
+[1.218747] (stm32_bridge) StdoutLine: {'line': b'running install_egg_info\n'}
+[1.221400] (stm32_bridge) StdoutLine: {'line': b"removing '/home/cat/ros2_ws/install/stm32_bridge/lib/python3.10/site-packages/stm32_bridge-0.1.0-py3.10.egg-info' (and everything under it)\n"}
+[1.221945] (stm32_bridge) StdoutLine: {'line': b'Copying ../../build/stm32_bridge/stm32_bridge.egg-info to /home/cat/ros2_ws/install/stm32_bridge/lib/python3.10/site-packages/stm32_bridge-0.1.0-py3.10.egg-info\n'}
+[1.223130] (stm32_bridge) StdoutLine: {'line': b'running install_scripts\n'}
+[1.258660] (stm32_bridge) StdoutLine: {'line': b'Installing stm32_bridge_node script to /home/cat/ros2_ws/install/stm32_bridge/lib/stm32_bridge\n'}
+[1.259828] (stm32_bridge) StdoutLine: {'line': b"writing list of installed files to '/home/cat/ros2_ws/build/stm32_bridge/install.log'\n"}
+[1.310546] (-) TimerEvent: {}
+[1.344016] (stm32_bridge) CommandEnded: {'returncode': 0}
+[1.361005] (stm32_bridge) JobEnded: {'identifier': 'stm32_bridge', 'rc': 0}
+[1.362540] (-) EventReactorShutdown: {}

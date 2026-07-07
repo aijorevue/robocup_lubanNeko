@@ -1,0 +1,259 @@
+<?xml version="1.0"?>
+<robot name="arm_5_parallel_linkage">
+  <material name="dark_gray"><color rgba="0.18 0.20 0.23 1"/></material>
+  <material name="orange"><color rgba="0.95 0.42 0.08 1"/></material>
+  <material name="blue"><color rgba="0.10 0.42 0.85 1"/></material>
+  <material name="silver"><color rgba="0.72 0.75 0.80 1"/></material>
+  <material name="red"><color rgba="0.80 0.08 0.08 1"/></material>
+  <material name="white"><color rgba="0.95 0.95 0.95 1"/></material>
+  <material name="green"><color rgba="0.10 0.80 0.20 1"/></material>
+
+  <!-- ===== 底座 ===== -->
+  <link name="base_mount">
+    <visual>
+      <origin xyz="0 0 -0.130"/>
+      <geometry><box size="0.24 0.22 0.02"/></geometry>
+      <material name="dark_gray"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 -0.095"/>
+      <geometry><cylinder radius="0.075" length="0.05"/></geometry>
+      <material name="red"/>
+    </visual>
+  </link>
+
+  <joint name="servo_base_yaw" type="continuous">
+    <parent link="base_mount"/>
+    <child link="base_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+  </joint>
+
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 -0.035"/>
+      <geometry><box size="0.20 0.18 0.07"/></geometry>
+      <material name="dark_gray"/>
+    </visual>
+    <visual>
+      <origin xyz="0 -0.05 0.035" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.045" length="0.045"/></geometry>
+      <material name="red"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0.05 0.035" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.045" length="0.045"/></geometry>
+      <material name="red"/>
+    </visual>
+  </link>
+
+  <!-- ===== 蓝色主动杆支链 ===== -->
+  <joint name="servo_blue" type="revolute">
+    <parent link="base_link"/>
+    <child link="blue_active_bar"/>
+    <origin xyz="0 -0.05 0.035"/>
+    <axis xyz="0 -1 0"/>
+    <limit lower="-0.5196" upper="1.5628" effort="10" velocity="1.5"/>
+  </joint>
+
+  <link name="blue_active_bar">
+    <visual>
+      <origin xyz="0.119 0 0" rpy="0 1.5708 0"/>
+      <geometry><cylinder radius="0.011" length="0.238"/></geometry>
+      <material name="blue"/>
+    </visual>
+    <visual>
+      <origin xyz="0.238 0 0" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.0175" length="0.045"/></geometry>
+      <material name="silver"/>
+    </visual>
+  </link>
+
+  <joint name="blue_chain_passive" type="continuous">
+    <parent link="blue_active_bar"/>
+    <child link="orange_upper_bar"/>
+    <origin xyz="0.238 0 0"/>
+    <axis xyz="0 -1 0"/>
+  </joint>
+
+  <link name="orange_upper_bar">
+    <visual>
+      <origin xyz="0.0397 0 0" rpy="0 1.5708 0"/>
+      <geometry><cylinder radius="0.0095" length="0.0794"/></geometry>
+      <material name="orange"/>
+    </visual>
+    <visual>
+      <origin xyz="0.0794 0 0" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.017" length="0.045"/></geometry>
+      <material name="silver"/>
+    </visual>
+    <visual>
+      <origin xyz="0.0794 0.05 0" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.008" length="0.10"/></geometry>
+      <material name="silver"/>
+    </visual>
+  </link>
+
+  <!-- ===== 延伸杆主体 (固定在被动橙杆上, 跟随转动) ===== -->
+  <joint name="extension_main_fixed" type="fixed">
+    <parent link="orange_upper_bar"/>
+    <child link="extension_bar"/>
+    <origin xyz="0 0 0"/>
+  </joint>
+
+  <link name="extension_bar">
+    <visual>
+      <origin xyz="-0.0953 0 0" rpy="0 1.5708 0"/>
+      <geometry><cylinder radius="0.009" length="0.1906"/></geometry>
+      <material name="orange"/>
+    </visual>
+    <visual>
+      <origin xyz="-0.1906 0 0" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.015" length="0.04"/></geometry>
+      <material name="silver"/>
+    </visual>
+  </link>
+
+  <!-- ===== 延伸杆前端 (水平补偿关节, 保持平行于底面) ===== -->
+  <joint name="extension_level" type="revolute">
+    <parent link="extension_bar"/>
+    <child link="extension_tip"/>
+    <origin xyz="-0.1906 0 0"/>
+    <axis xyz="0 -1 0"/>
+    <limit lower="-6.28" upper="6.28" effort="5" velocity="1.0"/>
+  </joint>
+
+  <link name="extension_tip">
+    <visual>
+      <origin xyz="0.030 0 0" rpy="0 1.5708 0"/>
+      <geometry><cylinder radius="0.009" length="0.060"/></geometry>
+      <material name="orange"/>
+    </visual>
+    <visual>
+      <origin xyz="0.060 0 0" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.015" length="0.04"/></geometry>
+      <material name="silver"/>
+    </visual>
+  </link>
+
+  <!-- ===== 矩形平台 (连在延伸杆前端水平段上) ===== -->
+  <joint name="platform_fixed" type="fixed">
+    <parent link="extension_tip"/>
+    <child link="square_platform"/>
+    <origin xyz="0.060 0 0"/>
+  </joint>
+
+  <link name="square_platform">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.1392 0.0721 0.0075"/></geometry>
+      <material name="green"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0.004" rpy="0 0 0"/>
+      <geometry><box size="0.1392 0.0721 0.001"/></geometry>
+      <material name="white"/>
+    </visual>
+  </link>
+
+  <!-- ===== 末端执行器 (摄像头 + 钩爪, 连在板子上) ===== -->
+  <joint name="wrist_fixed" type="fixed">
+    <parent link="square_platform"/>
+    <child link="end_effector"/>
+    <origin xyz="0 0 -0.008"/>
+  </joint>
+
+  <link name="end_effector">
+    <!-- 摄像头模块 -->
+    <visual>
+      <origin xyz="0 0 0.045" rpy="0 0 0"/>
+      <geometry><box size="0.04 0.04 0.03"/></geometry>
+      <material name="dark_gray"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0.03" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.012" length="0.02"/></geometry>
+      <material name="dark_gray"/>
+    </visual>
+    <!-- 舵机外壳 -->
+    <visual>
+      <origin xyz="0 0 0.01" rpy="0 1.5708 0"/>
+      <geometry><box size="0.06 0.04 0.04"/></geometry>
+      <material name="dark_gray"/>
+    </visual>
+  </link>
+
+  <joint name="gripper_left" type="revolute">
+    <parent link="end_effector"/>
+    <child link="gripper_finger_left"/>
+    <origin xyz="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-0.8" upper="0" effort="5" velocity="1.0"/>
+  </joint>
+
+  <link name="gripper_finger_left">
+    <visual>
+      <origin xyz="0.011825 0 -0.03515" rpy="0 0 0"/>
+      <geometry><box size="0.02365 0.0075 0.0703"/></geometry>
+      <material name="silver"/>
+    </visual>
+  </link>
+
+  <joint name="gripper_right" type="revolute">
+    <parent link="end_effector"/>
+    <child link="gripper_finger_right"/>
+    <origin xyz="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="0" upper="0.8" effort="5" velocity="1.0"/>
+  </joint>
+
+  <link name="gripper_finger_right">
+    <visual>
+      <origin xyz="-0.011825 0 -0.03515" rpy="0 0 0"/>
+      <geometry><box size="0.02365 0.0075 0.0703"/></geometry>
+      <material name="silver"/>
+    </visual>
+  </link>
+
+  <!-- ===== 橙色主动杆支链 ===== -->
+  <joint name="servo_orange" type="revolute">
+    <parent link="base_link"/>
+    <child link="orange_active_bar"/>
+    <origin xyz="0 0.05 0.035"/>
+    <axis xyz="0 -1 0"/>
+    <limit lower="1.8601" upper="4.1751" effort="10" velocity="1.5"/>
+  </joint>
+
+  <link name="orange_active_bar">
+    <visual>
+      <origin xyz="0.0397 0 0" rpy="0 1.5708 0"/>
+      <geometry><cylinder radius="0.011" length="0.0794"/></geometry>
+      <material name="orange"/>
+    </visual>
+    <visual>
+      <origin xyz="0.0794 0 0" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.0175" length="0.045"/></geometry>
+      <material name="silver"/>
+    </visual>
+  </link>
+
+  <joint name="orange_chain_passive" type="continuous">
+    <parent link="orange_active_bar"/>
+    <child link="blue_upper_bar"/>
+    <origin xyz="0.0794 0 0"/>
+    <axis xyz="0 -1 0"/>
+  </joint>
+
+  <link name="blue_upper_bar">
+    <visual>
+      <origin xyz="0.119 0 0" rpy="0 1.5708 0"/>
+      <geometry><cylinder radius="0.0095" length="0.238"/></geometry>
+      <material name="blue"/>
+    </visual>
+    <visual>
+      <origin xyz="0.238 0 0" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.017" length="0.045"/></geometry>
+      <material name="silver"/>
+    </visual>
+  </link>
+</robot>
