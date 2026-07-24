@@ -1066,6 +1066,7 @@ class RedSquareGraspController:
         center_deadband_px,
         stable_frames,
         command_interval_s,
+        retrigger_cooldown_s,
         id2_pixel_gain,
         id6_pixel_gain,
         id6_max_step_ticks,
@@ -1113,6 +1114,8 @@ class RedSquareGraspController:
         self.center_deadband_px = center_deadband_px
         self.stable_frames_required = max(1, stable_frames)
         self.command_interval_s = command_interval_s
+        self.retrigger_cooldown_s = max(0.0, float(retrigger_cooldown_s))
+        self.ignore_new_targets_until = 0.0
         self.id2_pixel_gain = id2_pixel_gain
         self.id6_pixel_gain = max(0.0, float(id6_pixel_gain))
         self.id6_max_step_ticks = max(1, int(id6_max_step_ticks))
@@ -1757,7 +1760,7 @@ class RedSquareGraspController:
             return ""
         return self._send_splitter_id4(target, reason)
 
-    def _reset_cycle_for_search(self, status):
+    def _reset_cycle_for_search(self, status, start_retrigger_cooldown=False):
         self.locked_target = None
         self.locked_plan = None
         self.last_visual_target = None
@@ -1775,6 +1778,10 @@ class RedSquareGraspController:
         self.motion_stage_after_wait = None
         self.abort_after_return = False
         self.algorithm_stage = "centering"
+        if start_retrigger_cooldown and self.retrigger_cooldown_s > 0.0:
+            self.ignore_new_targets_until = (
+                time.monotonic() + self.retrigger_cooldown_s
+            )
         self.state = "searching"
         self.status = status
         self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
@@ -2927,7 +2934,10 @@ class RedSquareGraspController:
             if not self.servo_bridge.write_enabled:
                 self.id4 = self.id4_closed
                 self.id5 = CATCHER_HOME_TICK
-                return self._reset_cycle_for_search("preview ready for next target")
+                return self._reset_cycle_for_search(
+                    "preview ready for next target",
+                    start_retrigger_cooldown=True,
+                )
             if can_command:
                 result = self._send_id4(self.id4_closed, "close claw for next search")
                 if self.servo_bridge.last_command_ok:
@@ -2953,7 +2963,8 @@ class RedSquareGraspController:
                         return home_result
                 return self._reset_cycle_for_search(
                     f"ready for next target ID1={self.id1} ID2={self.id2} "
-                    f"ID5={self.id5} ID6={self.id6} ID7={self.id4}"
+                    f"ID5={self.id5} ID6={self.id6} ID7={self.id4}",
+                    start_retrigger_cooldown=True,
                 )
 
         if self.algorithm_stage == "final_return":
@@ -2965,7 +2976,10 @@ class RedSquareGraspController:
                 self.id1 = target_id1
                 self.id2 = target_id2
                 self.id6 = target_id6
-                return self._reset_cycle_for_search("preview final return to standby")
+                return self._reset_cycle_for_search(
+                    "preview final return to standby",
+                    start_retrigger_cooldown=True,
+                )
             if can_command:
                 self.id1 = target_id1
                 self.id2 = target_id2
@@ -2994,7 +3008,8 @@ class RedSquareGraspController:
                     return home_result
             return self._reset_cycle_for_search(
                 f"ready for next target ID1={self.id1} ID2={self.id2} "
-                f"ID5={self.id5} ID6={self.id6} ID7={self.id4}"
+                f"ID5={self.id5} ID6={self.id6} ID7={self.id4}",
+                start_retrigger_cooldown=True,
             )
 
         if self.algorithm_stage == "fault":
@@ -3148,13 +3163,20 @@ class RedSquareGraspController:
                 can_preview_step,
                 live_target=live_target,
             )
+        cooldown_remaining = self.ignore_new_targets_until - now
+        ignoring_new_target = target is not None and cooldown_remaining > 0.0
+        if ignoring_new_target:
+            target = None
+            self.centered_frames = 0
+            self.last_visual_target = None
         if target is None:
             self.centered_frames = 0
             self.centering_correction_count = 0
-            self.visual_lost_frames += 1
-            if self.visual_lost_frames > 6:
-                self.last_visual_target = None
-            self.state = "searching"
+            if not ignoring_new_target:
+                self.visual_lost_frames += 1
+                if self.visual_lost_frames > 6:
+                    self.last_visual_target = None
+            self.state = "post-grasp cooldown" if ignoring_new_target else "searching"
             can_command = now - self.last_command_time >= self.command_interval_s
             expand_id1 = self._clamp(
                 self.id1 + self._limited_delta(READY_ID1_TICK - self.id1),
@@ -3180,7 +3202,7 @@ class RedSquareGraspController:
                     self.last_preview_step_time = now
                 self.arm_preview.set_targets(expand_id1, expand_id2, self.id4, expand_id6)
                 return (
-                    f"preview searching red target; slow expand "
+                    f"preview {self.state}; slow expand "
                     f"ID1={expand_id1} ID2={expand_id2} ID6={expand_id6}"
                 )
             if can_command and (
@@ -3189,8 +3211,18 @@ class RedSquareGraspController:
                 or expand_id6 != self.id6
             ):
                 self.id1, self.id2, self.id6 = expand_id1, expand_id2, expand_id6
-                return self._send("searching red target; slow expand", require_feedback=False)
+                reason = (
+                    "post-grasp cooldown; slow expand"
+                    if ignoring_new_target
+                    else "searching red target; slow expand"
+                )
+                return self._send(reason, require_feedback=False)
             self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+            if ignoring_new_target:
+                return (
+                    f"post-grasp cooldown {max(0.0, cooldown_remaining):.1f}s; "
+                    "new target ignored"
+                )
             return "grasp searching red target"
         edge_note = ""
         hold_reason = self._centering_target_hold_reason(target, frame_shape)
@@ -3579,10 +3611,6 @@ class TargetDetector:
         self.qr_template_features = {}
         self.qr_template_every = max(1, int(qr_template_every))
         self._qr_fallback_counter = 0
-        # when the template fallback recently matched, it is the active
-        # tracking source and must run on every pass; only throttle after
-        # this many consecutive empty results (i.e. no QR in the scene)
-        self._qr_template_miss_streak = 99
         self.qr_matcher = cv2.BFMatcher(cv2.NORM_L2)
         # cv2.QRCodeDetector cannot decode without quirc; those paths only
         # spam "Library QUIRC is not linked" and never return decoded text.
@@ -4127,20 +4155,10 @@ class TargetDetector:
                 pass
 
         if {item["color"] for item in results} != {"red", "blue"}:
-            # Run SIFT fallback every pass while it is actively tracking a
-            # template QR; throttle only after it has missed a few times in a
-            # row (empty scene), so idle CPU cost drops without hurting
-            # tracking accuracy.
             self._qr_fallback_counter += 1
-            template_active = self._qr_template_miss_streak < 3
-            if template_active or self._qr_fallback_counter >= self.qr_template_every:
+            if self._qr_fallback_counter >= self.qr_template_every:
                 self._qr_fallback_counter = 0
-                template_hits = self._detect_qr_templates(gray)
-                if template_hits:
-                    self._qr_template_miss_streak = 0
-                else:
-                    self._qr_template_miss_streak += 1
-                for candidate in template_hits:
+                for candidate in self._detect_qr_templates(gray):
                     add_result(candidate)
 
         return results
@@ -4526,6 +4544,7 @@ def build_arg_parser():
     parser.add_argument("--grasp-center-deadband-px", type=float, default=28.0)
     parser.add_argument("--grasp-stable-frames", type=int, default=5)
     parser.add_argument("--grasp-command-interval", type=float, default=1.40)
+    parser.add_argument("--grasp-retrigger-cooldown", type=float, default=0.0)
     parser.add_argument("--grasp-id2-pixel-gain", type=float, default=0.12)
     parser.add_argument("--grasp-id6-pixel-gain", type=float, default=0.18)
     parser.add_argument("--grasp-id6-max-step-ticks", type=int, default=60)
@@ -4656,6 +4675,7 @@ def main(argv=None):
         args.grasp_center_deadband_px,
         args.grasp_stable_frames,
         args.grasp_command_interval,
+        args.grasp_retrigger_cooldown,
         args.grasp_id2_pixel_gain,
         args.grasp_id6_pixel_gain,
         args.grasp_id6_max_step_ticks,
