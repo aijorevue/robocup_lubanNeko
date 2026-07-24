@@ -1,0 +1,62 @@
+[0.000000] (-) TimerEvent: {}
+[0.000348] (-) JobUnselected: {'identifier': 'stm32_bridge'}
+[0.000978] (ros2_test1) JobQueued: {'identifier': 'ros2_test1', 'dependencies': OrderedDict()}
+[0.001114] (ros2_test1) JobStarted: {'identifier': 'ros2_test1'}
+[0.098966] (-) TimerEvent: {}
+[0.199942] (-) TimerEvent: {}
+[0.301221] (-) TimerEvent: {}
+[0.402746] (-) TimerEvent: {}
+[0.503668] (-) TimerEvent: {}
+[0.604470] (-) TimerEvent: {}
+[0.705273] (-) TimerEvent: {}
+[0.806246] (-) TimerEvent: {}
+[0.907293] (-) TimerEvent: {}
+[0.972529] (ros2_test1) Command: {'cmd': ['/usr/bin/python3', '-W', 'ignore:setup.py install is deprecated', '-W', 'ignore:easy_install command is deprecated', 'setup.py', 'develop', '--editable', '--build-directory', '/home/cat/ros2_ws/build/ros2_test1/build', '--no-deps', 'symlink_data'], 'cwd': '/home/cat/ros2_ws/build/ros2_test1', 'env': {'LESSOPEN': '| /usr/bin/lesspipe %s', 'USER': 'cat', 'SSH_CLIENT': '192.168.137.1 55396 22', 'XDG_SESSION_TYPE': 'tty', 'SHLVL': '1', 'LD_LIBRARY_PATH': '/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/aarch64-linux-gnu:/opt/ros/humble/lib', 'MOTD_SHOWN': 'pam', 'HOME': '/home/cat', 'MUTTER_DEBUG_ENABLE_ATOMIC_KMS': '0', 'OLDPWD': '/home/cat/ros2_ws', 'SSH_TTY': '/dev/pts/4', 'ROS_PYTHON_VERSION': '3', 'DBUS_SESSION_BUS_ADDRESS': 'unix:path=/run/user/1000/bus', 'https_proxy': 'http://192.168.137.1:7892', 'COLCON_PREFIX_PATH': '/home/cat/ros2_ws/install', 'ROS_DISTRO': 'humble', 'LOGNAME': 'cat', 'http_proxy': 'http://192.168.137.1:7892', '_': '/usr/bin/colcon', 'ROS_VERSION': '2', 'XDG_SESSION_CLASS': 'user', 'TERM': 'dumb', 'XDG_SESSION_ID': '12', 'ROS_LOCALHOST_ONLY': '0', 'PATH': '/home/cat/bin:/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin', 'XDG_RUNTIME_DIR': '/run/user/1000', 'LANG': 'zh_CN.UTF-8', 'LS_COLORS': '', 'AMENT_PREFIX_PATH': '/home/cat/ros2_ws/install/ros2_test1:/home/cat/ros2_ws/install/stm32_bridge:/opt/ros/humble', 'SHELL': '/bin/bash', 'CLUTTER_PAINT': 'disable-dynamic-max-render-time', 'LESSCLOSE': '/usr/bin/lesspipe %s %s', 'MUTTER_DEBUG_FORCE_KMS_MODE': 'simple', 'PWD': '/home/cat/ros2_ws/build/ros2_test1', 'SSH_CONNECTION': '192.168.137.1 55396 192.168.137.207 22', 'XDG_DATA_DIRS': '/usr/share/gnome:/usr/local/share:/usr/share:/var/lib/snapd/desktop', 'PYTHONPATH': '/home/cat/ros2_ws/build/ros2_test1/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages:/home/cat/ros2_ws/install/stm32_bridge/lib/python3.10/site-packages:/home/cat/ros2_ws/build/ros2_test1:/home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages', 'COLCON': '1'}, 'shell': False}
+[1.007372] (-) TimerEvent: {}
+[1.107842] (-) TimerEvent: {}
+[1.208823] (-) TimerEvent: {}
+[1.309706] (-) TimerEvent: {}
+[1.391710] (ros2_test1) StdoutLine: {'line': b'running develop\n'}
+[1.409879] (-) TimerEvent: {}
+[1.510591] (-) TimerEvent: {}
+[1.562121] (ros2_test1) StdoutLine: {'line': b'running egg_info\n'}
+[1.562373] (ros2_test1) StdoutLine: {'line': b'creating ros2_test1.egg-info\n'}
+[1.562510] (ros2_test1) StdoutLine: {'line': b'writing ros2_test1.egg-info/PKG-INFO\n'}
+[1.562697] (ros2_test1) StdoutLine: {'line': b'writing dependency_links to ros2_test1.egg-info/dependency_links.txt\n'}
+[1.562936] (ros2_test1) StdoutLine: {'line': b'writing entry points to ros2_test1.egg-info/entry_points.txt\n'}
+[1.563069] (ros2_test1) StdoutLine: {'line': b'writing requirements to ros2_test1.egg-info/requires.txt\n'}
+[1.563186] (ros2_test1) StdoutLine: {'line': b'writing top-level names to ros2_test1.egg-info/top_level.txt\n'}
+[1.563511] (ros2_test1) StdoutLine: {'line': b"writing manifest file 'ros2_test1.egg-info/SOURCES.txt'\n"}
+[1.566000] (ros2_test1) StdoutLine: {'line': b"reading manifest file 'ros2_test1.egg-info/SOURCES.txt'\n"}
+[1.566926] (ros2_test1) StdoutLine: {'line': b"writing manifest file 'ros2_test1.egg-info/SOURCES.txt'\n"}
+[1.568751] (ros2_test1) StdoutLine: {'line': b'running build_ext\n'}
+[1.569057] (ros2_test1) StdoutLine: {'line': b'Creating /home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages/ros2-test1.egg-link (link to .)\n'}
+[1.570212] (ros2_test1) StdoutLine: {'line': b'Installing target_vision script to /home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1\n'}
+[1.570420] (ros2_test1) StdoutLine: {'line': b'Installing target_vision_rc script to /home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1\n'}
+[1.570678] (ros2_test1) StdoutLine: {'line': b'\n'}
+[1.570780] (ros2_test1) StdoutLine: {'line': b'Installed /home/cat/ros2_ws/build/ros2_test1\n'}
+[1.570894] (ros2_test1) StdoutLine: {'line': b'running symlink_data\n'}
+[1.571022] (ros2_test1) StdoutLine: {'line': b'creating /home/cat/ros2_ws/install/ros2_test1/share\n'}
+[1.571140] (ros2_test1) StdoutLine: {'line': b'creating /home/cat/ros2_ws/install/ros2_test1/share/ament_index\n'}
+[1.571233] (ros2_test1) StdoutLine: {'line': b'creating /home/cat/ros2_ws/install/ros2_test1/share/ament_index/resource_index\n'}
+[1.571350] (ros2_test1) StdoutLine: {'line': b'creating /home/cat/ros2_ws/install/ros2_test1/share/ament_index/resource_index/packages\n'}
+[1.571455] (ros2_test1) StdoutLine: {'line': b'symbolically linking /home/cat/ros2_ws/build/ros2_test1/resource/ros2_test1 -> /home/cat/ros2_ws/install/ros2_test1/share/ament_index/resource_index/packages\n'}
+[1.571580] (ros2_test1) StdoutLine: {'line': b'creating /home/cat/ros2_ws/install/ros2_test1/share/ros2_test1\n'}
+[1.571689] (ros2_test1) StdoutLine: {'line': b'symbolically linking /home/cat/ros2_ws/build/ros2_test1/package.xml -> /home/cat/ros2_ws/install/ros2_test1/share/ros2_test1\n'}
+[1.571796] (ros2_test1) StdoutLine: {'line': b'creating /home/cat/ros2_ws/install/ros2_test1/share/ros2_test1/launch\n'}
+[1.571923] (ros2_test1) StdoutLine: {'line': b'symbolically linking /home/cat/ros2_ws/build/ros2_test1/launch/red_square_grasp_rc.launch.py -> /home/cat/ros2_ws/install/ros2_test1/share/ros2_test1/launch\n'}
+[1.572039] (ros2_test1) StdoutLine: {'line': b'symbolically linking /home/cat/ros2_ws/build/ros2_test1/launch/red_square_grasp_rk_direct.launch.py -> /home/cat/ros2_ws/install/ros2_test1/share/ros2_test1/launch\n'}
+[1.572167] (ros2_test1) StdoutLine: {'line': b'symbolically linking /home/cat/ros2_ws/build/ros2_test1/launch/red_square_grasp_all.launch.py -> /home/cat/ros2_ws/install/ros2_test1/share/ros2_test1/launch\n'}
+[1.572272] (ros2_test1) StdoutLine: {'line': b'creating /home/cat/ros2_ws/install/ros2_test1/share/ros2_test1/config\n'}
+[1.572379] (ros2_test1) StdoutLine: {'line': b'symbolically linking /home/cat/ros2_ws/build/ros2_test1/config/red_square_grasp_calibration.json -> /home/cat/ros2_ws/install/ros2_test1/share/ros2_test1/config\n'}
+[1.572465] (ros2_test1) StdoutLine: {'line': b'creating /home/cat/ros2_ws/install/ros2_test1/share/ros2_test1/urdf\n'}
+[1.572548] (ros2_test1) StdoutLine: {'line': b'symbolically linking /home/cat/ros2_ws/build/ros2_test1/urdf/arm_5.urdf -> /home/cat/ros2_ws/install/ros2_test1/share/ros2_test1/urdf\n'}
+[1.572634] (ros2_test1) StdoutLine: {'line': b'creating /home/cat/ros2_ws/install/ros2_test1/share/ros2_test1/rviz\n'}
+[1.572738] (ros2_test1) StdoutLine: {'line': b'symbolically linking /home/cat/ros2_ws/build/ros2_test1/rviz/arm_5.rviz -> /home/cat/ros2_ws/install/ros2_test1/share/ros2_test1/rviz\n'}
+[1.572824] (ros2_test1) StdoutLine: {'line': b'creating /home/cat/ros2_ws/install/ros2_test1/share/ros2_test1/hook\n'}
+[1.572905] (ros2_test1) StdoutLine: {'line': b'symbolically linking /home/cat/ros2_ws/build/ros2_test1/hooks/ament_prefix_path.dsv -> /home/cat/ros2_ws/install/ros2_test1/share/ros2_test1/hook\n'}
+[1.572988] (ros2_test1) StdoutLine: {'line': b'symbolically linking /home/cat/ros2_ws/build/ros2_test1/hooks/ament_prefix_path.sh -> /home/cat/ros2_ws/install/ros2_test1/share/ros2_test1/hook\n'}
+[1.610636] (-) TimerEvent: {}
+[1.631567] (ros2_test1) CommandEnded: {'returncode': 0}
+[1.647881] (ros2_test1) JobEnded: {'identifier': 'ros2_test1', 'rc': 0}
+[1.648600] (-) EventReactorShutdown: {}

@@ -1,1 +1,0 @@
-/home/cat/ros2_ws/ros2_test1/launch/rk_arm_display.launch.py

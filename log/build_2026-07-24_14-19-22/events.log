@@ -1,0 +1,42 @@
+[0.000000] (-) TimerEvent: {}
+[0.001312] (-) JobUnselected: {'identifier': 'stm32_bridge'}
+[0.001560] (ros2_test1) JobQueued: {'identifier': 'ros2_test1', 'dependencies': OrderedDict()}
+[0.001775] (ros2_test1) JobStarted: {'identifier': 'ros2_test1'}
+[0.098914] (-) TimerEvent: {}
+[0.199729] (-) TimerEvent: {}
+[0.300605] (-) TimerEvent: {}
+[0.401361] (-) TimerEvent: {}
+[0.501912] (-) TimerEvent: {}
+[0.602737] (-) TimerEvent: {}
+[0.703592] (-) TimerEvent: {}
+[0.804474] (-) TimerEvent: {}
+[0.905275] (-) TimerEvent: {}
+[1.004620] (ros2_test1) Command: {'cmd': ['/usr/bin/python3', '-W', 'ignore:setup.py install is deprecated', '-W', 'ignore:easy_install command is deprecated', 'setup.py', 'develop', '--editable', '--build-directory', '/home/cat/ros2_ws/build/ros2_test1/build', '--no-deps', 'symlink_data'], 'cwd': '/home/cat/ros2_ws/build/ros2_test1', 'env': {'LESSOPEN': '| /usr/bin/lesspipe %s', 'USER': 'cat', 'SSH_CLIENT': '192.168.137.1 55396 22', 'XDG_SESSION_TYPE': 'tty', 'SHLVL': '1', 'LD_LIBRARY_PATH': '/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/aarch64-linux-gnu:/opt/ros/humble/lib', 'MOTD_SHOWN': 'pam', 'HOME': '/home/cat', 'MUTTER_DEBUG_ENABLE_ATOMIC_KMS': '0', 'OLDPWD': '/home/cat/ros2_ws', 'SSH_TTY': '/dev/pts/4', 'ROS_PYTHON_VERSION': '3', 'DBUS_SESSION_BUS_ADDRESS': 'unix:path=/run/user/1000/bus', 'https_proxy': 'http://192.168.137.1:7892', 'COLCON_PREFIX_PATH': '/home/cat/ros2_ws/install', 'ROS_DISTRO': 'humble', 'LOGNAME': 'cat', 'http_proxy': 'http://192.168.137.1:7892', '_': '/usr/bin/colcon', 'ROS_VERSION': '2', 'XDG_SESSION_CLASS': 'user', 'TERM': 'dumb', 'XDG_SESSION_ID': '12', 'ROS_LOCALHOST_ONLY': '0', 'PATH': '/home/cat/bin:/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin', 'XDG_RUNTIME_DIR': '/run/user/1000', 'LANG': 'zh_CN.UTF-8', 'LS_COLORS': '', 'AMENT_PREFIX_PATH': '/home/cat/ros2_ws/install/ros2_test1:/home/cat/ros2_ws/install/stm32_bridge:/opt/ros/humble', 'SHELL': '/bin/bash', 'CLUTTER_PAINT': 'disable-dynamic-max-render-time', 'LESSCLOSE': '/usr/bin/lesspipe %s %s', 'MUTTER_DEBUG_FORCE_KMS_MODE': 'simple', 'PWD': '/home/cat/ros2_ws/build/ros2_test1', 'SSH_CONNECTION': '192.168.137.1 55396 192.168.137.207 22', 'XDG_DATA_DIRS': '/usr/share/gnome:/usr/local/share:/usr/share:/var/lib/snapd/desktop', 'PYTHONPATH': '/home/cat/ros2_ws/build/ros2_test1/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages:/home/cat/ros2_ws/install/stm32_bridge/lib/python3.10/site-packages:/home/cat/ros2_ws/build/ros2_test1:/home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages', 'COLCON': '1'}, 'shell': False}
+[1.005761] (-) TimerEvent: {}
+[1.106222] (-) TimerEvent: {}
+[1.207332] (-) TimerEvent: {}
+[1.309823] (-) TimerEvent: {}
+[1.409578] (ros2_test1) StdoutLine: {'line': b'running develop\n'}
+[1.410642] (-) TimerEvent: {}
+[1.511334] (-) TimerEvent: {}
+[1.612195] (-) TimerEvent: {}
+[1.618083] (ros2_test1) StdoutLine: {'line': b'running egg_info\n'}
+[1.618481] (ros2_test1) StdoutLine: {'line': b'writing ros2_test1.egg-info/PKG-INFO\n'}
+[1.619145] (ros2_test1) StdoutLine: {'line': b'writing dependency_links to ros2_test1.egg-info/dependency_links.txt\n'}
+[1.619921] (ros2_test1) StdoutLine: {'line': b'writing entry points to ros2_test1.egg-info/entry_points.txt\n'}
+[1.620524] (ros2_test1) StdoutLine: {'line': b'writing requirements to ros2_test1.egg-info/requires.txt\n'}
+[1.621048] (ros2_test1) StdoutLine: {'line': b'writing top-level names to ros2_test1.egg-info/top_level.txt\n'}
+[1.624047] (ros2_test1) StdoutLine: {'line': b"reading manifest file 'ros2_test1.egg-info/SOURCES.txt'\n"}
+[1.625918] (ros2_test1) StdoutLine: {'line': b"writing manifest file 'ros2_test1.egg-info/SOURCES.txt'\n"}
+[1.628409] (ros2_test1) StdoutLine: {'line': b'running build_ext\n'}
+[1.629067] (ros2_test1) StdoutLine: {'line': b'Creating /home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages/ros2-test1.egg-link (link to .)\n'}
+[1.630366] (ros2_test1) StdoutLine: {'line': b'Installing target_vision script to /home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1\n'}
+[1.630948] (ros2_test1) StdoutLine: {'line': b'Installing target_vision_rc script to /home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1\n'}
+[1.631517] (ros2_test1) StdoutLine: {'line': b'\n'}
+[1.632058] (ros2_test1) StdoutLine: {'line': b'Installed /home/cat/ros2_ws/build/ros2_test1\n'}
+[1.632612] (ros2_test1) StdoutLine: {'line': b'running symlink_data\n'}
+[1.633216] (ros2_test1) StderrLine: {'line': b"error: can't copy '/home/cat/ros2_ws/build/ros2_test1/launch/rviz_preview.launch.py': doesn't exist or not a regular file\n"}
+[1.712419] (-) TimerEvent: {}
+[1.714128] (ros2_test1) CommandEnded: {'returncode': 1}
+[1.715640] (ros2_test1) JobEnded: {'identifier': 'ros2_test1', 'rc': 1}
+[1.725570] (-) EventReactorShutdown: {}

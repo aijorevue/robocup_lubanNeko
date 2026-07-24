@@ -1,31 +1,31 @@
-# Ros2_test1
+# ros2_test1 Mechanical Arm Vision Grasp
 
-Clean target-vision package for the RK3588S camera.
-
-The active program is `ros2_test1.target_vision`. It detects only:
-
-- yellow, red, and blue balls
-- red and blue squares
-- red and blue rings
-- QR codes whose decoded content matches `R` or `B`, using `assets/red.png` and `assets/blue.png` as templates/fallbacks
-
-Run from the board:
+Current project entry:
 
 ```bash
-cd ~/ros2_ws/ros2_test1
-python3 -m ros2_test1.target_vision
+RED_SQUARE_EXECUTE=true /home/cat/ros2_ws/start_target_vision.sh
 ```
 
-After building the ROS 2 package:
+Default mode is RK-only direct UART. RCT6 mode is still available:
 
 ```bash
-cd ~/ros2_ws
-source /opt/ros/humble/setup.bash
-colcon build --packages-select ros2_test1
-source install/setup.bash
-ros2 run ros2_test1 target_vision
+SERVO_MODE=rc RED_SQUARE_EXECUTE=true /home/cat/ros2_ws/start_target_vision.sh
 ```
 
-The HDMI screen shows a live OpenCV window. A browser preview is also available on port `8080`.
+## Active Runtime Files
 
-Old experiments and generated files are under `archive/`.
+- `start_target_vision.sh`: unified desktop launcher
+- `launch/red_square_grasp_rk_direct.launch.py`: RK-only entry
+- `launch/red_square_grasp_rc.launch.py`: RCT6 entry
+- `ros2_test1/launch_common.py`: shared RK/RC launch assembly
+- `ros2_test1/target_vision.py`: RK-only visual grasp logic
+- `ros2_test1/target_vision_rc.py`: RCT6 visual grasp logic
+- `ros2_test1/arm_kinematics_common.py`: shared IK and joint mapping
+- `ros2_test1/arm_kinematics.py`: RK calibration profile
+- `ros2_test1/arm_kinematics_rc.py`: RCT6 calibration profile
+- `ros2_test1/detectors/`: color and shape detection helpers
+- `ros2_test1/assets/red.png`, `ros2_test1/assets/blue.png`: QR templates
+
+Old backups and demos are kept under `backups/` and are not installed as active console scripts.
+
+More detail is in `ARCHITECTURE.md`.
