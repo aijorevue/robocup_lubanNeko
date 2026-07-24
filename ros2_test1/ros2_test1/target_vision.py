@@ -377,10 +377,10 @@ class DetectionSmoother:
 _PROCESS_DETECTOR = None
 
 
-def detection_process_worker(source_frame, detection_scale):
+def detection_process_worker(source_frame, detection_scale, qr_template_every=1):
     global _PROCESS_DETECTOR
     if _PROCESS_DETECTOR is None:
-        _PROCESS_DETECTOR = TargetDetector()
+        _PROCESS_DETECTOR = TargetDetector(qr_template_every=qr_template_every)
     detect_started = time.perf_counter()
     if detection_scale < 0.999:
         source_height, source_width = source_frame.shape[:2]
@@ -3572,11 +3572,23 @@ class ArmPreviewPublisher:
 
 
 class TargetDetector:
-    def __init__(self):
+    def __init__(self, qr_template_every=1):
         self.qr = cv2.QRCodeDetector()
         self.templates = self._load_templates()
         self.qr_feature_detector = None
         self.qr_template_features = {}
+        self.qr_template_every = max(1, int(qr_template_every))
+        self._qr_fallback_counter = 0
+        # when the template fallback recently matched, it is the active
+        # tracking source and must run on every pass; only throttle after
+        # this many consecutive empty results (i.e. no QR in the scene)
+        self._qr_template_miss_streak = 99
+        self.qr_matcher = cv2.BFMatcher(cv2.NORM_L2)
+        # cv2.QRCodeDetector cannot decode without quirc; those paths only
+        # spam "Library QUIRC is not linked" and never return decoded text.
+        self._cv_qr_usable = bool(
+            re.search(r"QUIRC:\s*YES", cv2.getBuildInformation())
+        )
         if hasattr(cv2, "SIFT_create"):
             self.qr_feature_detector = cv2.SIFT_create(
                 nfeatures=2000,
@@ -4092,7 +4104,7 @@ class TargetDetector:
             if {item["color"] for item in results} == {"red", "blue"}:
                 return results
 
-        if hasattr(self.qr, "detectAndDecodeMulti"):
+        if self._cv_qr_usable and hasattr(self.qr, "detectAndDecodeMulti"):
             try:
                 ok, decoded_info, points, _ = self.qr.detectAndDecodeMulti(gray)
                 if ok and points is not None:
@@ -4104,7 +4116,7 @@ class TargetDetector:
             except cv2.error:
                 pass
 
-        if {item["color"] for item in results} != {"red", "blue"}:
+        if self._cv_qr_usable and {item["color"] for item in results} != {"red", "blue"}:
             try:
                 decoded, points, _ = self.qr.detectAndDecode(gray)
                 if points is not None:
@@ -4115,8 +4127,21 @@ class TargetDetector:
                 pass
 
         if {item["color"] for item in results} != {"red", "blue"}:
-            for candidate in self._detect_qr_templates(gray):
-                add_result(candidate)
+            # Run SIFT fallback every pass while it is actively tracking a
+            # template QR; throttle only after it has missed a few times in a
+            # row (empty scene), so idle CPU cost drops without hurting
+            # tracking accuracy.
+            self._qr_fallback_counter += 1
+            template_active = self._qr_template_miss_streak < 3
+            if template_active or self._qr_fallback_counter >= self.qr_template_every:
+                self._qr_fallback_counter = 0
+                template_hits = self._detect_qr_templates(gray)
+                if template_hits:
+                    self._qr_template_miss_streak = 0
+                else:
+                    self._qr_template_miss_streak += 1
+                for candidate in template_hits:
+                    add_result(candidate)
 
         return results
 
@@ -4130,7 +4155,7 @@ class TargetDetector:
         if scene_descriptors is None or len(scene_keypoints) < 8:
             return []
 
-        matcher = cv2.BFMatcher(cv2.NORM_L2)
+        matcher = self.qr_matcher
         frame_height, frame_width = gray.shape[:2]
         frame_area = frame_height * frame_width
         results = []
@@ -4447,6 +4472,14 @@ def build_arg_parser():
     parser.add_argument("--fps", type=int, default=30)
     parser.add_argument("--detect-every-n-frames", type=int, default=1)
     parser.add_argument("--detection-scale", type=float, default=1.0)
+    parser.add_argument(
+        "--qr-template-every",
+        type=int,
+        default=3,
+        help="run the SIFT QR-template fallback only every N detection passes "
+        "(1 restores the old always-on behavior); zbar QR decoding still runs "
+        "on every detection pass",
+    )
     parser.add_argument("--detection-smoothing-alpha", type=float, default=0.32)
     parser.add_argument("--detection-smoothing-match-px", type=float, default=90.0)
     parser.add_argument("--web-port", type=int, default=8080)
@@ -4734,6 +4767,7 @@ def main(argv=None):
                     detection_process_worker,
                     frame.copy(),
                     detection_scale,
+                    args.qr_template_every,
                 )
             detection_frame_index += 1
             post_started = time.perf_counter()

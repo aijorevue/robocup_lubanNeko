@@ -79,6 +79,8 @@ MODE_PROFILES = {
             "--direct-zp-time-ms",
             "450",
             "--post-center-direct-descend",
+            "--qr-template-every",
+            "1",
             "--detection-smoothing-alpha",
             "0.18",
             "--detection-smoothing-match-px",
