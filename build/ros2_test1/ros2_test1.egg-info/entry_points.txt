@@ -5,4 +5,5 @@ red_square_arm = ros2_test1.red_square_arm:main
 red_square_tracker = ros2_test1.red_square_tracker:main
 target_vision = ros2_test1.target_vision:main
 target_vision_2 = ros2_test1.target_vision_2:main
+target_vision_rc = ros2_test1.target_vision_rc:main
 

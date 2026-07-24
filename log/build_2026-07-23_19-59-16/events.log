@@ -1,0 +1,53 @@
+[0.000000] (-) TimerEvent: {}
+[0.003323] (-) JobUnselected: {'identifier': 'stm32_bridge'}
+[0.003480] (ros2_test1) JobQueued: {'identifier': 'ros2_test1', 'dependencies': OrderedDict()}
+[0.003549] (ros2_test1) JobStarted: {'identifier': 'ros2_test1'}
+[0.100103] (-) TimerEvent: {}
+[0.200930] (-) TimerEvent: {}
+[0.301852] (-) TimerEvent: {}
+[0.402561] (-) TimerEvent: {}
+[0.502901] (-) TimerEvent: {}
+[0.608411] (-) TimerEvent: {}
+[0.708941] (-) TimerEvent: {}
+[0.809366] (-) TimerEvent: {}
+[0.909866] (-) TimerEvent: {}
+[1.010716] (-) TimerEvent: {}
+[1.112007] (-) TimerEvent: {}
+[1.213515] (-) TimerEvent: {}
+[1.314710] (-) TimerEvent: {}
+[1.415079] (-) TimerEvent: {}
+[1.469389] (ros2_test1) Command: {'cmd': ['/usr/bin/python3', '-W', 'ignore:setup.py install is deprecated', '-W', 'ignore:easy_install command is deprecated', 'setup.py', 'develop', '--editable', '--build-directory', '/home/cat/ros2_ws/build/ros2_test1/build', '--no-deps', 'symlink_data'], 'cwd': '/home/cat/ros2_ws/build/ros2_test1', 'env': {'USER': 'cat', 'SSH_CLIENT': '192.168.137.1 58671 22', 'XDG_SESSION_TYPE': 'tty', 'SHLVL': '0', 'MOTD_SHOWN': 'pam', 'HOME': '/home/cat', 'MUTTER_DEBUG_ENABLE_ATOMIC_KMS': '0', 'OLDPWD': '/home/cat', 'DBUS_SESSION_BUS_ADDRESS': 'unix:path=/run/user/1000/bus', 'LOGNAME': 'cat', '_': '/usr/bin/colcon', 'XDG_SESSION_CLASS': 'user', 'XDG_SESSION_ID': '243', 'PATH': '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin', 'XDG_RUNTIME_DIR': '/run/user/1000', 'LANG': 'zh_CN.UTF-8', 'SHELL': '/bin/bash', 'CLUTTER_PAINT': 'disable-dynamic-max-render-time', 'MUTTER_DEBUG_FORCE_KMS_MODE': 'simple', 'PWD': '/home/cat/ros2_ws/build/ros2_test1', 'SSH_CONNECTION': '192.168.137.1 58671 192.168.137.207 22', 'COLCON': '1', 'PYTHONPATH': '/home/cat/ros2_ws/build/ros2_test1/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages:'}, 'shell': False}
+[1.515235] (-) TimerEvent: {}
+[1.615563] (-) TimerEvent: {}
+[1.715907] (-) TimerEvent: {}
+[1.816269] (-) TimerEvent: {}
+[1.916873] (-) TimerEvent: {}
+[2.017788] (-) TimerEvent: {}
+[2.054756] (ros2_test1) StdoutLine: {'line': b'running develop\n'}
+[2.118065] (-) TimerEvent: {}
+[2.218869] (-) TimerEvent: {}
+[2.280521] (ros2_test1) StdoutLine: {'line': b'running egg_info\n'}
+[2.284563] (ros2_test1) StdoutLine: {'line': b'writing ros2_test1.egg-info/PKG-INFO\n'}
+[2.287191] (ros2_test1) StdoutLine: {'line': b'writing dependency_links to ros2_test1.egg-info/dependency_links.txt\n'}
+[2.289083] (ros2_test1) StdoutLine: {'line': b'writing entry points to ros2_test1.egg-info/entry_points.txt\n'}
+[2.291724] (ros2_test1) StdoutLine: {'line': b'writing requirements to ros2_test1.egg-info/requires.txt\n'}
+[2.293130] (ros2_test1) StdoutLine: {'line': b'writing top-level names to ros2_test1.egg-info/top_level.txt\n'}
+[2.296712] (ros2_test1) StdoutLine: {'line': b"reading manifest file 'ros2_test1.egg-info/SOURCES.txt'\n"}
+[2.302743] (ros2_test1) StdoutLine: {'line': b"writing manifest file 'ros2_test1.egg-info/SOURCES.txt'\n"}
+[2.303038] (ros2_test1) StdoutLine: {'line': b'running build_ext\n'}
+[2.303221] (ros2_test1) StdoutLine: {'line': b'Creating /home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages/ros2-test1.egg-link (link to .)\n'}
+[2.303390] (ros2_test1) StdoutLine: {'line': b'Installing arm_joint_state_seed script to /home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1\n'}
+[2.306823] (ros2_test1) StdoutLine: {'line': b'Installing face_detector script to /home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1\n'}
+[2.307163] (ros2_test1) StdoutLine: {'line': b'Installing red_square_arm script to /home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1\n'}
+[2.307352] (ros2_test1) StdoutLine: {'line': b'Installing red_square_tracker script to /home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1\n'}
+[2.307521] (ros2_test1) StdoutLine: {'line': b'Installing target_vision script to /home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1\n'}
+[2.307685] (ros2_test1) StdoutLine: {'line': b'Installing target_vision_2 script to /home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1\n'}
+[2.310888] (ros2_test1) StdoutLine: {'line': b'\n'}
+[2.312827] (ros2_test1) StdoutLine: {'line': b'Installed /home/cat/ros2_ws/build/ros2_test1\n'}
+[2.314789] (ros2_test1) StdoutLine: {'line': b'running symlink_data\n'}
+[2.319239] (-) TimerEvent: {}
+[2.418088] (ros2_test1) CommandEnded: {'returncode': 0}
+[2.430730] (-) TimerEvent: {}
+[2.533371] (ros2_test1) JobEnded: {'identifier': 'ros2_test1', 'rc': 0}
+[2.537254] (-) TimerEvent: {}
+[2.537609] (-) EventReactorShutdown: {}

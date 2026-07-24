@@ -1,0 +1,23 @@
+[0.997s] Invoking command in '/home/cat/ros2_ws/build/ros2_test1': PYTHONPATH=/home/cat/ros2_ws/build/ros2_test1/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/cat/ros2_ws/build/ros2_test1/build --no-deps symlink_data
+[1.405s] running develop
+[1.616s] running egg_info
+[1.616s] writing ros2_test1.egg-info/PKG-INFO
+[1.617s] writing dependency_links to ros2_test1.egg-info/dependency_links.txt
+[1.618s] writing entry points to ros2_test1.egg-info/entry_points.txt
+[1.618s] writing requirements to ros2_test1.egg-info/requires.txt
+[1.619s] writing top-level names to ros2_test1.egg-info/top_level.txt
+[1.624s] reading manifest file 'ros2_test1.egg-info/SOURCES.txt'
+[1.627s] writing manifest file 'ros2_test1.egg-info/SOURCES.txt'
+[1.629s] running build_ext
+[1.630s] Creating /home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages/ros2-test1.egg-link (link to .)
+[1.631s] Installing arm_joint_state_seed script to /home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1
+[1.632s] Installing face_detector script to /home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1
+[1.632s] Installing red_square_arm script to /home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1
+[1.632s] Installing red_square_tracker script to /home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1
+[1.633s] Installing target_vision script to /home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1
+[1.633s] Installing target_vision_2 script to /home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1
+[1.633s] Installing target_vision_rc script to /home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1
+[1.634s] 
+[1.635s] Installed /home/cat/ros2_ws/build/ros2_test1
+[1.635s] running symlink_data
+[1.719s] Invoked command in '/home/cat/ros2_ws/build/ros2_test1' returned '0': PYTHONPATH=/home/cat/ros2_ws/build/ros2_test1/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/cat/ros2_ws/build/ros2_test1/build --no-deps symlink_data

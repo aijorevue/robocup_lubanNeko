@@ -32,6 +32,7 @@ setup(
     entry_points={
         'console_scripts': [
             'target_vision = ros2_test1.target_vision:main',
+            'target_vision_rc = ros2_test1.target_vision_rc:main',
             'target_vision_2 = ros2_test1.target_vision_2:main',
             'red_square_tracker = ros2_test1.red_square_tracker:main',
             'arm_joint_state_seed = ros2_test1.arm_joint_state_seed:main',

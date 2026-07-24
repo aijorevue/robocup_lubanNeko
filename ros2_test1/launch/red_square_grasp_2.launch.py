@@ -73,7 +73,7 @@ def generate_launch_description():
                             "--preview-id4",
                             "1000",
                             "--preview-id6",
-                            "510",
+                            "350",
                             "--grasp-id1-ready",
                             "550",
                             "--grasp-id2-ready",

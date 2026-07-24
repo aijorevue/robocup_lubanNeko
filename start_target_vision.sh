@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -eo pipefail
 
 LOCK=/tmp/target_vision_desktop.lock
 exec 9>"$LOCK"
@@ -9,11 +10,37 @@ fi
 LOG=/home/cat/ros2_ws/target_vision_desktop.log
 exec >>"$LOG" 2>&1
 
-echo "==== $(date '+%F %T') start target vision arm preview ===="
+MODE="${SERVO_MODE:-rk}"
+case "$MODE" in
+  rk|rk_direct|direct)
+    MODE="rk"
+    LAUNCH_FILE="red_square_grasp_rk_direct.launch.py"
+    export DIRECT_SERVO_BUS=1
+    export DIRECT_ZP_UART="${DIRECT_ZP_UART:-/dev/ttyS0}"
+    export DIRECT_ARM_UART="${DIRECT_ARM_UART:-/dev/ttyS9}"
+    export DIRECT_ZP_TIME_MS="${DIRECT_ZP_TIME_MS:-450}"
+    export DIRECT_ARM_TIME_MS="${DIRECT_ARM_TIME_MS:-700}"
+    ;;
+  rc|rct6)
+    MODE="rc"
+    LAUNCH_FILE="red_square_grasp_rc.launch.py"
+    unset DIRECT_SERVO_BUS
+    unset DIRECT_ZP_UART
+    unset DIRECT_ARM_UART
+    unset DIRECT_ZP_TIME_MS
+    unset DIRECT_ARM_TIME_MS
+    ;;
+  *)
+    echo "Unknown SERVO_MODE=$MODE. Use rk or rc."
+    exit 2
+    ;;
+esac
+
+echo "==== $(date '+%F %T') start target vision mode=$MODE launch=$LAUNCH_FILE ===="
 export DISPLAY="${DISPLAY:-:0}"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=${XDG_RUNTIME_DIR}/bus}"
-export CAMERA_DEVICE="${CAMERA_DEVICE:-auto}"
+export CAMERA_DEVICE="${CAMERA_DEVICE:-/dev/video20}"
 export PYTHONUNBUFFERED=1
 
 XAUTH_FILE="$(find "$XDG_RUNTIME_DIR" -maxdepth 1 -name '.mutter-Xwaylandauth.*' -print -quit 2>/dev/null)"
@@ -28,31 +55,18 @@ export AMENT_PREFIX_PATH="/home/cat/ros2_ws/install/ros2_test1:${AMENT_PREFIX_PA
 export CMAKE_PREFIX_PATH="/home/cat/ros2_ws/install/ros2_test1:${CMAKE_PREFIX_PATH:-}"
 cd /home/cat/ros2_ws
 
+pkill -u "$(id -un)" -f "ros2_test1.target_vision|ros2_test1.target_vision_rc|/ros2_test1/target_vision|/ros2_test1/target_vision_rc" 2>/dev/null || true
+pkill -INT -u "$(id -un)" -f "[t]arget_vision.*--enable-red-square-grasp" 2>/dev/null || true
+pkill -INT -u "$(id -un)" -f "[t]arget_vision_rc.*--enable-red-square-grasp" 2>/dev/null || true
 pkill -INT -u "$(id -un)" -f "/home/cat/bin/[s]ervo_slider_gui" 2>/dev/null || true
-pkill -INT -u "$(id -un)" -f "/home/cat/bin/[s]ervo_position" 2>/dev/null || true
-
-# Let the previous controller finish ARMHOME and release the UART lock.
-pkill -INT -u "$(id -un)" -f "/ros2_test1/[t]arget_vision" 2>/dev/null || true
-for _ in $(seq 1 100); do
-  if ! pgrep -u "$(id -un)" -f "/ros2_test1/[t]arget_vision" >/dev/null; then
-    break
-  fi
-  sleep 0.1
-done
-if pgrep -u "$(id -un)" -f "/ros2_test1/[t]arget_vision" >/dev/null; then
-  echo "previous target_vision did not finish ARMHOME within 10s"
-  exit 1
-fi
-
-pkill -INT -u "$(id -un)" -f "[r]ed_square_grasp_all.launch.py" 2>/dev/null || true
-pkill -INT -u "$(id -un)" -f "[r]ed_square_grasp_2.launch.py" 2>/dev/null || true
-pkill -TERM -u "$(id -un)" -f "/rviz2/rviz2.*arm_5.rviz" 2>/dev/null || true
-pkill -TERM -u "$(id -un)" -f "/robot_state_publisher/[r]obot_state_publisher" 2>/dev/null || true
-sleep 0.3
+pkill -u "$(id -un)" -f "[r]ed_square_grasp_all.launch.py|[r]ed_square_grasp_rc.launch.py|[r]ed_square_grasp_rk_direct.launch.py" 2>/dev/null || true
+pkill -u "$(id -un)" -f "/rviz2/rviz2.*arm_5.rviz" 2>/dev/null || true
+pkill -u "$(id -un)" -f "/robot_state_publisher/[r]obot_state_publisher" 2>/dev/null || true
+sleep 1
 
 flock -u 9
 exec 9>&-
-exec ros2 launch ros2_test1 red_square_grasp_all.launch.py \
+exec ros2 launch ros2_test1 "$LAUNCH_FILE" \
   execute:="${RED_SQUARE_EXECUTE:-true}" \
   target_color:="${VISION_TARGET_COLOR:-red}" \
-  target_kind:="${VISION_TARGET_KIND:-square}"
+  target_kind:="${VISION_TARGET_KIND:-any}"

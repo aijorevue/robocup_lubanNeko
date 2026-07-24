@@ -53,7 +53,7 @@ def generate_launch_description():
                             "--preview-id4",
                             "1000",
                             "--preview-id6",
-                            "510",
+                            "350",
                         ],
                         additional_env=DESKTOP_ENV,
                         output="screen",
