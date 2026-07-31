@@ -73,30 +73,34 @@ GOLF_BALL_DIAMETER_MM = 42.67
 RED_CUBE_SIDE_MM = 30.0
 RED_RING_OUTER_DIAMETER_MM = 55.0
 RING_DISTANCE_EXTRA_CM = 6.0
-RING_EXTRA_DESCEND_MM = 30.0
-RING_LOCAL_EXTRA_DESCEND_MM = 20.0
-RING_LOCAL_EXTRA_DISTANCE_RANGE_CM = (21.8, 23.1)
-RING_LOCAL_EXTRA_CENTER_Y_RANGE_PX = (295.0, 335.0)
-RING_LOG_REPEAT_EXTRA_DISTANCE_RANGE_CM = (23.0, 24.4)
-RING_LOG_REPEAT_EXTRA_CENTER_X_RANGE_PX = (350.0, 410.0)
-RING_LOG_REPEAT_EXTRA_CENTER_Y_RANGE_PX = (260.0, 315.0)
-QR_EXTRA_DESCEND_MM = 40.0
+QR_DISPLAY_DISTANCE_OFFSET_CM = 2.0
+RING_DESCEND_BIAS_MM = 60.0
+GRASP_DESCEND_DEPTH_TABLE_CM_MM = (
+    (10.0, 105.0),
+    (20.0, 128.0),
+    (24.0, 153.0),
+    (25.0, 190.0),
+    (29.0, 235.0),
+    (30.0, 251.0),
+    (40.0, 251.0),
+)
 GRASP_ID1_CALIBRATION_TICKS = -5
 GRASP_DESCEND_ID2_BIAS_TICKS = 15
 POST_CENTER_REFERENCE_DISTANCE_MM = 235.0
 POST_CENTER_MIN_DOWN_MM = 105.0
 POST_CENTER_MAX_DOWN_MM = 210.0
+POST_OPEN_RETREAT_MM = 50.0
 SINGLE_ID2_DEADBAND_PX = 45.0
 SINGLE_ID2_MIN_STEP_TICKS = 8
 SINGLE_ID2_MAX_STEP_TICKS = 40
 SINGLE_ID6_MIN_STEP_TICKS = 1
 ID6_SAFE_LIMITS = (300, 700)
-CENTERING_SLOW_COMMAND_INTERVAL_S = 0.40
-CENTERING_SLOW_ID2_GAIN = 0.08
-CENTERING_SLOW_ID6_GAIN = 0.06
-CENTERING_SLOW_ID2_MAX_STEP_TICKS = 16
-CENTERING_SLOW_ID6_MAX_STEP_TICKS = 8
-CENTERING_VECTOR_COMPONENT_DEADBAND_PX = 8.0
+CENTERING_SLOW_COMMAND_INTERVAL_S = 0.48
+CENTERING_SLOW_ID2_GAIN = 0.06
+CENTERING_SLOW_ID6_GAIN = 0.045
+CENTERING_SLOW_ID2_MAX_STEP_TICKS = 12
+CENTERING_SLOW_ID6_MAX_STEP_TICKS = 6
+CENTERING_VECTOR_COMPONENT_DEADBAND_PX = 5.0
 SPLITTER_YELLOW_TICK = 800
 SPLITTER_OTHER_BALL_TICK = 1600
 CATCHER_HOME_TICK = 800
@@ -114,7 +118,7 @@ GRASP_DISTANCE_CALIBRATION = (
     (30.0, (551, 460), (242, 481)),
 )
 GRASP_MIN_DISTANCE_CM = 10.0
-GRASP_MAX_DISTANCE_CM = 30.0
+GRASP_MAX_DISTANCE_CM = 40.0
 SQUARE_DISTANCE_OFFSET_CM = BALL_DISTANCE_OFFSET_CM
 SQUARE_DISTANCE_SCALE_CM = (
     BALL_DISTANCE_SCALE_CM
@@ -1374,6 +1378,7 @@ class RedSquareGraspController:
         )
         self.angle_gap_degrees = max(0.0, float(angle_gap_degrees))
         self.centered_frames = 0
+        self.center_distance_samples = []
         self.horizontal_correction_done = False
         self.centering_correction_count = 0
         self.last_command_time = 0.0
@@ -1420,6 +1425,7 @@ class RedSquareGraspController:
         self.approach_feedback_tolerance = 10
         self.stage_deadline = 0.0
         self.next_stage_after_open = None
+        self.next_stage_after_retreat = None
         self.motion_stage_after_wait = None
         self.algorithm_stage = "centering"
         self.read_only_sync = enabled and servo_bridge.enabled and not servo_bridge.write_enabled
@@ -1496,6 +1502,21 @@ class RedSquareGraspController:
         cx, cy = target["center"]
         return cx - width / 2.0, cy - height / 2.0
 
+    def _record_center_distance_sample(self, distance_cm):
+        if distance_cm is None:
+            return None
+        try:
+            sample = float(distance_cm)
+        except (TypeError, ValueError):
+            return None
+        self.center_distance_samples.append(sample)
+        self.center_distance_samples = self.center_distance_samples[-8:]
+        sorted_samples = sorted(self.center_distance_samples)
+        mid = len(sorted_samples) // 2
+        if len(sorted_samples) % 2:
+            return sorted_samples[mid]
+        return (sorted_samples[mid - 1] + sorted_samples[mid]) / 2.0
+
     def _accept_live_target(self, live_target):
         center = self._target_center(live_target)
         if center is None:
@@ -1560,8 +1581,12 @@ class RedSquareGraspController:
         self.visual_descend_start = None
         self.visual_descend_step_index = 0
         self.post_center_move_complete = False
+        self.center_distance_samples = []
         self.approach_attempts = 0
         self.return_attempts = 0
+        self.next_stage_after_open = None
+        self.next_stage_after_retreat = None
+        self.motion_stage_after_wait = None
         self.abort_after_return = True
         self.algorithm_stage = "return"
         self.state = "abort to standby"
@@ -2040,12 +2065,14 @@ class RedSquareGraspController:
         self.visual_descend_start = None
         self.visual_descend_step_index = 0
         self.centered_frames = 0
+        self.center_distance_samples = []
         self.horizontal_correction_done = False
         self.centering_correction_count = 0
         self.post_center_move_complete = False
         self.approach_attempts = 0
         self.return_attempts = 0
         self.next_stage_after_open = None
+        self.next_stage_after_retreat = None
         self.motion_stage_after_wait = None
         self.abort_after_return = False
         self.algorithm_stage = "centering"
@@ -2741,34 +2768,22 @@ class RedSquareGraspController:
         }
 
     @staticmethod
-    def _ring_local_extra_descend_mm(offsets):
-        if offsets.get("target_kind") != "ring":
-            return 0.0
-        distance_cm = offsets.get("distance_mm", 0.0) / 10.0
-        center_x = offsets.get("center_x_px", 0.0)
-        center_y = offsets.get("center_y_px", 0.0)
-        if (
-            RING_LOCAL_EXTRA_DISTANCE_RANGE_CM[0]
-            <= distance_cm
-            <= RING_LOCAL_EXTRA_DISTANCE_RANGE_CM[1]
-            and RING_LOCAL_EXTRA_CENTER_Y_RANGE_PX[0]
-            <= center_y
-            <= RING_LOCAL_EXTRA_CENTER_Y_RANGE_PX[1]
-        ):
-            return RING_LOCAL_EXTRA_DESCEND_MM
-        if (
-            RING_LOG_REPEAT_EXTRA_DISTANCE_RANGE_CM[0]
-            <= distance_cm
-            <= RING_LOG_REPEAT_EXTRA_DISTANCE_RANGE_CM[1]
-            and RING_LOG_REPEAT_EXTRA_CENTER_X_RANGE_PX[0]
-            <= center_x
-            <= RING_LOG_REPEAT_EXTRA_CENTER_X_RANGE_PX[1]
-            and RING_LOG_REPEAT_EXTRA_CENTER_Y_RANGE_PX[0]
-            <= center_y
-            <= RING_LOG_REPEAT_EXTRA_CENTER_Y_RANGE_PX[1]
-        ):
-            return RING_LOCAL_EXTRA_DESCEND_MM
+    def _target_descend_bias_mm(offsets):
+        if offsets.get("target_kind") == "ring":
+            return RING_DESCEND_BIAS_MM
         return 0.0
+
+    @staticmethod
+    def _descend_depth_for_distance_mm(offsets):
+        distance_cm = offsets.get("distance_mm", 0.0) / 10.0
+        table = GRASP_DESCEND_DEPTH_TABLE_CM_MM
+        if distance_cm <= table[0][0]:
+            return table[0][1]
+        for (left_cm, left_mm), (right_cm, right_mm) in zip(table, table[1:]):
+            if distance_cm <= right_cm:
+                ratio = (distance_cm - left_cm) / max(0.001, right_cm - left_cm)
+                return left_mm + (right_mm - left_mm) * ratio
+        return table[-1][1]
 
     def _one_shot_plan(self, target, frame_shape):
         offsets = self._estimate_target_offsets_mm(target, frame_shape)
@@ -2874,14 +2889,9 @@ class RedSquareGraspController:
         if offsets is not None:
             camera_to_target_mm = offsets["distance_mm"]
             camera_to_gripper_mm = max(0.0, self.camera_gripper_offset_mm)
-            extra_down_mm = 0.0
-            if offsets.get("target_kind") == "ring":
-                extra_down_mm = (
-                    RING_EXTRA_DESCEND_MM
-                    + self._ring_local_extra_descend_mm(offsets)
-                )
-            elif offsets.get("target_source") == "qr":
-                extra_down_mm = QR_EXTRA_DESCEND_MM
+            descend_base_mm = self._descend_depth_for_distance_mm(offsets)
+            descend_bias_mm = self._target_descend_bias_mm(offsets)
+            descend_depth_mm = descend_base_mm + descend_bias_mm
             # The camera is 50 mm behind the gripper. Once the target is
             # centered, camera-target and camera-gripper are perpendicular
             # components: move back by the fixed offset and down by the
@@ -2894,14 +2904,8 @@ class RedSquareGraspController:
                 move_x_mm = -camera_to_gripper_mm
                 move_z_mm = 0.0
             else:
-                distance_scale = camera_to_target_mm / POST_CENTER_REFERENCE_DISTANCE_MM
-                scaled_down_mm = self.post_center_down_mm * distance_scale
-                scaled_down_mm = max(
-                    POST_CENTER_MIN_DOWN_MM,
-                    min(POST_CENTER_MAX_DOWN_MM, scaled_down_mm),
-                )
                 move_x_mm = -self.post_center_retreat_mm
-                move_z_mm = -(scaled_down_mm + extra_down_mm)
+                move_z_mm = -descend_depth_mm
             target_kind = offsets.get("target_kind", "square")
             target_source = offsets.get("target_source")
             target_size_mm = offsets.get("target_size_mm", RED_CUBE_SIDE_MM)
@@ -2909,7 +2913,9 @@ class RedSquareGraspController:
             camera_to_target_mm = None
             camera_to_gripper_mm = self.camera_gripper_offset_mm
             gripper_to_target_mm = None
-            extra_down_mm = 0.0
+            descend_base_mm = self.post_center_down_mm
+            descend_bias_mm = 0.0
+            descend_depth_mm = self.post_center_down_mm
             move_x_mm = -self.post_center_retreat_mm
             move_z_mm = -self.post_center_down_mm
             target_kind = "square"
@@ -2990,8 +2996,9 @@ class RedSquareGraspController:
             "target_kind": target_kind,
             "target_source": target_source,
             "target_size_mm": target_size_mm,
-            "distance_scaled_down_mm": abs(move_z_mm),
-            "extra_down_mm": extra_down_mm,
+            "distance_scaled_down_mm": descend_depth_mm,
+            "descend_base_mm": descend_base_mm,
+            "descend_bias_mm": descend_bias_mm,
             "id1": solved_id1,
             "id2": solved_id2,
             "ik_error_mm": ik_error_mm,
@@ -3008,11 +3015,42 @@ class RedSquareGraspController:
         ) + (
             f"phase={phase} move x={planned_move_x_mm:.0f}/{move_x_mm:.0f}mm "
             f"z={planned_move_z_mm:.0f}/{move_z_mm:.0f}mm "
-            f"extra_down={extra_down_mm:.0f}mm "
+            f"depth={descend_depth_mm:.0f}mm "
+            f"base={descend_base_mm:.0f}mm bias={descend_bias_mm:.0f}mm "
             f"progress={progress_ratio * 100:.0f}%: "
             f"ID1 {self.id1}->{solved_id1} "
             f"ID2 {self.id2}->{solved_id2} err={ik_error_mm:.1f}mm"
         )
+
+    def _post_open_retreat_target(self):
+        current_x_mm, current_z_mm = gripper_position_mm(self.id1, self.id2)
+        target_x_mm = current_x_mm - POST_OPEN_RETREAT_MM
+        best_id2 = self.id2
+        best_error = float("inf")
+        lower_id2 = self.id2_limits[0]
+        upper_id2 = min(self.id2, self.id2_limits[1])
+        for candidate_id2 in range(lower_id2, upper_id2 + 1):
+            candidate_x_mm, candidate_z_mm = gripper_position_mm(self.id1, candidate_id2)
+            error = abs(candidate_x_mm - target_x_mm)
+            if error < best_error:
+                best_error = error
+                best_id2 = candidate_id2
+        target_id1, target_id2 = enforce_angle_gap(
+            self.id1,
+            best_id2,
+            self.id2_limits,
+            self.angle_gap_degrees,
+        )
+        actual_x_mm, actual_z_mm = gripper_position_mm(target_id1, target_id2)
+        actual_retreat_mm = current_x_mm - actual_x_mm
+        text = (
+            f"post-open ID2 retreat requested={POST_OPEN_RETREAT_MM:.0f}mm "
+            f"actual={actual_retreat_mm:.0f}mm "
+            f"x={current_x_mm:.0f}->{actual_x_mm:.0f}mm "
+            f"z={current_z_mm:.0f}->{actual_z_mm:.0f}mm "
+            f"ID1={self.id1}->{target_id1} ID2={self.id2}->{target_id2}"
+        )
+        return target_id1, target_id2, text
 
     def _update_locked_grasp(self, frame_shape, now, can_preview_step, live_target=None):
         can_command = now - self.last_command_time >= self.command_interval_s
@@ -3030,7 +3068,8 @@ class RedSquareGraspController:
                         self.algorithm_stage = "vertical_wait_open"
                         self.stage_deadline = time.monotonic() + self._zp_settle_s()
                     elif self.post_center_direct_descend:
-                        self.next_stage_after_open = "descend"
+                        self.next_stage_after_open = "post_open_retreat"
+                        self.next_stage_after_retreat = "descend"
                         self.algorithm_stage = "open_wait"
                         self.stage_deadline = time.monotonic() + self._zp_settle_s()
                     else:
@@ -3050,7 +3089,8 @@ class RedSquareGraspController:
                         self.algorithm_stage = "vertical_wait_open"
                         self.stage_deadline = time.monotonic() + self._zp_settle_s()
                     elif self.post_center_direct_descend:
-                        self.next_stage_after_open = "descend"
+                        self.next_stage_after_open = "post_open_retreat"
+                        self.next_stage_after_retreat = "descend"
                         self.algorithm_stage = "open_wait"
                         self.stage_deadline = time.monotonic() + self._zp_settle_s()
                     else:
@@ -3069,7 +3109,8 @@ class RedSquareGraspController:
             elif self.simple_vertical_grasp:
                 next_stage = "vertical_descend"
             elif self.post_center_direct_descend:
-                next_stage = "descend"
+                next_stage = "post_open_retreat"
+                self.next_stage_after_retreat = "descend"
             else:
                 next_stage = "post_lock_visual_confirm"
             print(
@@ -3080,6 +3121,68 @@ class RedSquareGraspController:
             )
             self.algorithm_stage = next_stage
             self.next_stage_after_open = None
+
+        if self.algorithm_stage == "post_open_retreat":
+            self.state = "post-open ID2 retreat"
+            if self.locked_plan is None:
+                plan, plan_text = self._post_center_plan(
+                    self.locked_target,
+                    frame_shape,
+                    "descend",
+                )
+                self.locked_plan = plan
+                self.arm_preview.publish_plan_marker(plan, plan_text)
+                print(
+                    "GRASP LOCK BEFORE ID2 RETREAT "
+                    f"target={json.dumps(self.locked_target, ensure_ascii=True, default=str)} "
+                    f"plan={plan_text}",
+                    flush=True,
+                )
+                if plan["ik_error_mm"] > self.post_center_ik_error_mm:
+                    self.state = "post-center unreachable"
+                    self.algorithm_stage = "fault"
+                    self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+                    return f"claw opened; locked target IK failed before ID2 retreat: {plan_text}"
+            target_id1, target_id2, retreat_text = self._post_open_retreat_target()
+            if target_id2 >= self.id2:
+                return self._abort_to_standby(
+                    f"post-open ID2 retreat blocked: {retreat_text}"
+                )
+            if not self.servo_bridge.write_enabled:
+                if can_preview_step:
+                    self.id1 = target_id1
+                    self.id2 = target_id2
+                    self.last_preview_step_time = now
+                    self.algorithm_stage = "post_open_retreat_wait"
+                    self.stage_deadline = time.monotonic() + self._arm_settle_s()
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+                return f"preview {retreat_text}"
+            if not can_command:
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+                return f"waiting {retreat_text}"
+            self.id1 = target_id1
+            self.id2 = target_id2
+            result = self._send(
+                f"{retreat_text}; keep ID7 open before IK descend",
+                require_feedback=True,
+            )
+            if self.servo_bridge.last_command_ok:
+                self.algorithm_stage = "post_open_retreat_wait"
+                self.stage_deadline = time.monotonic() + self._arm_settle_s()
+            return result
+
+        if self.algorithm_stage == "post_open_retreat_wait":
+            self.state = "post-open ID2 retreat waiting"
+            if now < self.stage_deadline:
+                return f"post-open ID2 retreat waiting {self.stage_deadline - now:.1f}s"
+            next_stage = self.next_stage_after_retreat or "descend"
+            print(
+                "GRASP STAGE post_open_retreat complete "
+                f"next={next_stage} ID1={self.id1} ID2={self.id2} ID6={self.id6}",
+                flush=True,
+            )
+            self.algorithm_stage = next_stage
+            self.next_stage_after_retreat = None
 
         if self.algorithm_stage == "post_lock_visual_confirm":
             self.state = "post-lock visual confirm"
@@ -3969,6 +4072,7 @@ class RedSquareGraspController:
             target_id2 = self._clamp_center_id2(self.id2 + delta_id2)
             if delta_id2 != 0 or delta_id6 != 0:
                 self.centered_frames = 0
+                self.center_distance_samples = []
                 self.horizontal_correction_done = False
                 target_id6 = self._clamp(self.id6 + delta_id6, ID6_SAFE_LIMITS)
                 target_id1 = self.id1
@@ -4014,15 +4118,28 @@ class RedSquareGraspController:
                 return f"waiting centering dx={error_x:.0f} dy={error_y:.0f}"
 
             self.centered_frames += 1
+            median_distance_cm = self._record_center_distance_sample(distance_cm)
             self.horizontal_correction_done = True
             if self.centered_frames < self.stable_frames_required:
                 self.state = "confirming center"
                 self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+                distance_note = (
+                    "unknown"
+                    if median_distance_cm is None
+                    else f"{median_distance_cm:.1f}cm"
+                )
                 return (
                     f"center confirm {self.centered_frames}/{self.stable_frames_required} "
-                    f"dx={error_x:.0f} dy={error_y:.0f}"
+                    f"dx={error_x:.0f} dy={error_y:.0f} d_med={distance_note}"
                 )
-            self.locked_target = self._copy_target(target)
+            locked_target = self._copy_target(target)
+            if median_distance_cm is not None:
+                locked_target["distance_cm_raw"] = distance_cm
+                locked_target["distance_cm"] = median_distance_cm
+                locked_target["distance_cm_samples"] = tuple(
+                    round(sample, 2) for sample in self.center_distance_samples
+                )
+            self.locked_target = locked_target
             self.last_visual_target = self._copy_target(target)
             self.visual_confirm_frames = 0
             self.visual_lost_frames = 0
@@ -4510,12 +4627,13 @@ class TargetDetector:
                 if det.get("source") == "qr":
                     confidence = det.get("confidence", 0)
                     label = f"{color} QR conf {confidence:.0f}%"
+                    display_distance_cm = self._display_distance_cm(det)
                     if distance_cm is None:
                         label = f"{label} fill {area_percent:.2f}%"
                     else:
                         label = (
                             f"{label} fill {area_percent:.2f}% "
-                            f"depth {distance_cm:.1f}cm"
+                            f"depth {display_distance_cm:.1f}cm"
                         )
                 elif distance_cm is None:
                     label = f"{label} fill {area_percent:.2f}%"
@@ -4600,7 +4718,19 @@ class TargetDetector:
         distance_cm = det.get("distance_cm")
         if distance_cm is None:
             return f"fill={area_percent:.2f}%"
-        return f"fill={area_percent:.2f}% dist={distance_cm:.1f}cm"
+        return (
+            f"fill={area_percent:.2f}% "
+            f"dist={TargetDetector._display_distance_cm(det):.1f}cm"
+        )
+
+    @staticmethod
+    def _display_distance_cm(det):
+        distance_cm = det.get("distance_cm")
+        if distance_cm is None:
+            return None
+        if det.get("source") == "qr" or det.get("kind") == "qr":
+            return float(distance_cm) + QR_DISPLAY_DISTANCE_OFFSET_CM
+        return float(distance_cm)
 
     def _mask(self, hsv, color):
         return MASK_BUILDERS[color](hsv)
@@ -5215,7 +5345,7 @@ def build_arg_parser():
     parser.add_argument("--grasp-id2-ready", type=int, default=READY_ID2_TICK)
     parser.add_argument("--grasp-id4-closed", type=int, default=GRIPPER_CLOSED_TICK)
     parser.add_argument("--grasp-id4-open", type=int, default=GRIPPER_OPEN_TICK)
-    parser.add_argument("--grasp-center-deadband-px", type=float, default=28.0)
+    parser.add_argument("--grasp-center-deadband-px", type=float, default=20.0)
     parser.add_argument("--grasp-stable-frames", type=int, default=5)
     parser.add_argument("--grasp-command-interval", type=float, default=1.40)
     parser.add_argument("--grasp-retrigger-cooldown", type=float, default=0.0)
