@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import getpass
+import glob
 import http.server
 import json
 import math
@@ -73,6 +74,12 @@ RED_CUBE_SIDE_MM = 30.0
 RED_RING_OUTER_DIAMETER_MM = 55.0
 RING_DISTANCE_EXTRA_CM = 6.0
 RING_EXTRA_DESCEND_MM = 30.0
+RING_LOCAL_EXTRA_DESCEND_MM = 20.0
+RING_LOCAL_EXTRA_DISTANCE_RANGE_CM = (21.8, 23.1)
+RING_LOCAL_EXTRA_CENTER_Y_RANGE_PX = (295.0, 335.0)
+RING_LOG_REPEAT_EXTRA_DISTANCE_RANGE_CM = (23.0, 24.4)
+RING_LOG_REPEAT_EXTRA_CENTER_X_RANGE_PX = (350.0, 410.0)
+RING_LOG_REPEAT_EXTRA_CENTER_Y_RANGE_PX = (260.0, 315.0)
 QR_EXTRA_DESCEND_MM = 40.0
 GRASP_ID1_CALIBRATION_TICKS = -5
 GRASP_DESCEND_ID2_BIAS_TICKS = 15
@@ -89,11 +96,18 @@ CENTERING_SLOW_ID2_GAIN = 0.08
 CENTERING_SLOW_ID6_GAIN = 0.06
 CENTERING_SLOW_ID2_MAX_STEP_TICKS = 16
 CENTERING_SLOW_ID6_MAX_STEP_TICKS = 8
+CENTERING_VECTOR_COMPONENT_DEADBAND_PX = 8.0
 SPLITTER_YELLOW_TICK = 800
 SPLITTER_OTHER_BALL_TICK = 1600
 CATCHER_HOME_TICK = 800
 CATCHER_RELEASE_READY_TICK = 1100
 POST_GRAB_ID2_RETREAT_TICK = 100
+DISC_CATCH_READY_ID1_TICK = 600
+DISC_CATCH_READY_ID2_TICK = 350
+DISC_CATCH_DESCEND_ID1_TICK = 520
+DISC_CATCH_TARGET_TIMEOUT_S = 2.0
+COLUMN_CATCH_READY_ID1_TICK = 600
+COLUMN_CATCH_READY_ID2_TICK = 350
 GRASP_DISTANCE_CALIBRATION = (
     (10.0, (551, 460), (470, 461)),
     (15.0, (551, 460), (413, 466)),
@@ -645,6 +659,205 @@ class SerialTrigger:
             self.fd = None
 
 
+class ChassisArmLink:
+    VALID_TASKS = {"DISC_CATCH", "PLATFORM_PICK", "COLUMN_CATCH"}
+
+    def __init__(self, enabled, device, baudrate, no_target_timeout_s):
+        self.enabled = bool(enabled)
+        self.device_arg = device
+        self.baudrate = int(baudrate)
+        self.no_target_timeout_s = max(0.5, float(no_target_timeout_s))
+        self.fd = None
+        self.device = None
+        self.active_task = None
+        self.station_started = 0.0
+        self.last_target_seen = 0.0
+        self.line_buffer = ""
+        self.status = "chassis link disabled"
+        self.pending_starts = []
+        self.pending_stops = []
+        self.next_retry = 0.0
+        self.last_ready_sent = 0.0
+        if self.enabled:
+            self._open()
+
+    def _candidate_devices(self):
+        if self.device_arg and self.device_arg != "auto":
+            return [self.device_arg]
+        return sorted(glob.glob("/dev/ttyACM*") + glob.glob("/dev/ttyUSB*"))
+
+    def _open(self):
+        now = time.monotonic()
+        if now < self.next_retry:
+            return False
+        self.next_retry = now + 1.0
+        for device in self._candidate_devices():
+            try:
+                subprocess.run(
+                    [
+                        "stty",
+                        "-F",
+                        device,
+                        str(self.baudrate),
+                        "cs8",
+                        "-cstopb",
+                        "-parenb",
+                        "-ixon",
+                        "-ixoff",
+                        "-crtscts",
+                        "raw",
+                        "-echo",
+                    ],
+                    check=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                self.fd = os.open(device, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+                self.device = device
+                self.status = f"CHASSIS LINK open {device}"
+                print(self.status, flush=True)
+                self.send_line("RK,ARM,READY")
+                self.last_ready_sent = time.monotonic()
+                return True
+            except (OSError, subprocess.CalledProcessError) as exc:
+                self.status = f"CHASSIS LINK open failed {device}: {exc}"
+                print(self.status, flush=True)
+        if self.device_arg == "auto":
+            self.status = "CHASSIS LINK waiting for /dev/ttyACM* or /dev/ttyUSB*"
+        return False
+
+    def _close_fd(self):
+        if self.fd is not None:
+            try:
+                os.close(self.fd)
+            except OSError:
+                pass
+        self.fd = None
+        self.device = None
+
+    def send_line(self, text):
+        if not self.enabled:
+            return False
+        if self.fd is None and not self._open():
+            return False
+        payload = (text.rstrip() + "\r\n").encode("ascii", "replace")
+        try:
+            os.write(self.fd, payload)
+            print(f"CHASSIS TX {text.rstrip()}", flush=True)
+            return True
+        except OSError as exc:
+            self.status = f"CHASSIS LINK write failed: {exc}"
+            print(self.status, flush=True)
+            self._close_fd()
+            return False
+
+    def _handle_line(self, line):
+        normalized = line.strip().upper()
+        if not normalized:
+            return
+        print(f"CHASSIS RX {line.strip()}", flush=True)
+        parts = [part.strip() for part in normalized.split(",")]
+        if len(parts) >= 3 and parts[0] == "ARM" and parts[2] == "START":
+            task = parts[1]
+            if task not in self.VALID_TASKS:
+                self.send_line(f"RK,ARM,{task},ERR,UNKNOWN_TASK")
+                return
+            if self.active_task is None:
+                now = time.monotonic()
+                self.active_task = task
+                self.station_started = now
+                self.last_target_seen = now
+                self.pending_starts.append(task)
+                self.status = f"CHASSIS station {task} active"
+                print(self.status, flush=True)
+            elif self.active_task != task:
+                self.send_line(f"RK,ARM,{task},BUSY,{self.active_task}")
+                return
+            self.send_line(f"RK,ARM,{task},ACK")
+            return
+        if len(parts) >= 3 and parts[0] == "ARM" and parts[2] == "STOP":
+            task = parts[1]
+            if self.active_task != task:
+                self.send_line(f"RK,ARM,{task},ERR,NO_ACTIVE_TASK")
+                return
+            self.pending_stops.append(task)
+            self.status = f"CHASSIS station {task} stop requested"
+            print(self.status, flush=True)
+            self.send_line(f"RK,ARM,{task},STOP_ACK")
+            return
+        if normalized in {"RUN", "START"}:
+            self.send_line("RK,ARM,READY")
+
+    def update(self):
+        if not self.enabled:
+            return []
+        if self.fd is None:
+            self._open()
+            return []
+        now = time.monotonic()
+        if self.active_task is None and now - self.last_ready_sent >= 1.0:
+            if self.send_line("RK,ARM,READY"):
+                self.last_ready_sent = now
+            if self.fd is None:
+                return []
+        try:
+            while True:
+                readable, _, _ = select.select([self.fd], [], [], 0.0)
+                if not readable:
+                    break
+                data = os.read(self.fd, 256)
+                if not data:
+                    self.status = "CHASSIS LINK disconnected"
+                    print(self.status, flush=True)
+                    self._close_fd()
+                    return []
+                self.line_buffer += data.decode("ascii", "replace")
+                while "\n" in self.line_buffer or "\r" in self.line_buffer:
+                    line, sep, rest = self.line_buffer.partition("\n")
+                    if not sep:
+                        line, _, rest = self.line_buffer.partition("\r")
+                    self.line_buffer = rest
+                    self._handle_line(line)
+        except OSError as exc:
+            self.status = f"CHASSIS LINK read failed: {exc}"
+            print(self.status, flush=True)
+            self._close_fd()
+        starts = self.pending_starts
+        self.pending_starts = []
+        return starts
+
+    def consume_stops(self):
+        stops = self.pending_stops
+        self.pending_stops = []
+        return stops
+
+    def note_target(self, target):
+        if self.active_task is not None and target is not None:
+            self.last_target_seen = time.monotonic()
+
+    def no_target_timed_out(self, now, controller_busy):
+        if self.active_task is None or controller_busy:
+            return False
+        if self.active_task == "COLUMN_CATCH":
+            return False
+        return (now - self.last_target_seen) >= self.no_target_timeout_s
+
+    def finish_active(self, reason):
+        if self.active_task is None:
+            return False
+        task = self.active_task
+        self.send_line(f"RK,ARM,{task},DONE,{reason}")
+        self.status = f"CHASSIS station {task} done: {reason}"
+        print(self.status, flush=True)
+        self.active_task = None
+        self.station_started = 0.0
+        self.last_target_seen = 0.0
+        return True
+
+    def close(self):
+        self._close_fd()
+
+
 class AbsoluteServoBridge:
     def __init__(self, device, baudrate, enabled=True, write_enabled=True):
         self.device = device
@@ -862,7 +1075,9 @@ class DirectBusServoBridge:
         zp_device=None,
         arm_time_ms=1200,
         zp_time_ms=1000,
+        splitter_time_ms=None,
         repeat=1,
+        wait_start_enabled=False,
     ):
         self.device = device
         self.arm_device = arm_device or device
@@ -872,7 +1087,9 @@ class DirectBusServoBridge:
         self.write_enabled = enabled and write_enabled
         self.arm_time_ms = int(arm_time_ms)
         self.zp_time_ms = int(zp_time_ms)
+        self.splitter_time_ms = int(splitter_time_ms) if splitter_time_ms is not None else int(zp_time_ms)
         self.repeat = max(1, min(8, int(repeat)))
+        self.wait_start_enabled = bool(wait_start_enabled)
         self.arm_fd = None
         self.zp_fd = None
         self.last_feedback = None
@@ -914,7 +1131,9 @@ class DirectBusServoBridge:
                 self.zp_fd = self._open_device(self.zp_device)
             self.status = (
                 f"direct bus servo bridge arm={self.arm_device} "
-                f"zp={self.zp_device}"
+                f"zp={self.zp_device} "
+                f"zp_time={self.zp_time_ms}ms splitter_time={self.splitter_time_ms}ms "
+                f"arm_multi={'wait-start' if self.wait_start_enabled else 'immediate'}"
             )
             print(self.status)
         except (OSError, subprocess.CalledProcessError) as exc:
@@ -963,7 +1182,7 @@ class DirectBusServoBridge:
         if id6 is not None:
             arm_targets.append((6, int(id6)))
 
-        if len(arm_targets) > 1:
+        if len(arm_targets) > 1 and self.wait_start_enabled:
             for servo_id, value in arm_targets:
                 payloads.append(
                     (
@@ -979,20 +1198,21 @@ class DirectBusServoBridge:
                 )
                 targets[servo_id] = value
             payloads.append((self.arm_fd, self.arm_device, direct_85kg_start_packet()))
-        elif id1 is not None:
-            payloads.append((self.arm_fd, self.arm_device, direct_85kg_move_packet(1, id1, self.arm_time_ms)))
-            targets[1] = int(id1)
-        elif id2 is not None:
-            payloads.append((self.arm_fd, self.arm_device, direct_85kg_move_packet(2, id2, self.arm_time_ms)))
-            targets[2] = int(id2)
-        elif id6 is not None:
-            payloads.append((self.arm_fd, self.arm_device, direct_85kg_move_packet(6, id6, self.arm_time_ms)))
-            targets[6] = int(id6)
+        else:
+            for servo_id, value in arm_targets:
+                payloads.append(
+                    (
+                        self.arm_fd,
+                        self.arm_device,
+                        direct_85kg_move_packet(servo_id, value, self.arm_time_ms),
+                    )
+                )
+                targets[servo_id] = value
         if id4 is not None:
             payloads.append((self.zp_fd, self.zp_device, direct_zp_move_packet(7, id4, self.zp_time_ms)))
             targets[7] = int(id4)
         if splitter_id4 is not None:
-            payloads.append((self.zp_fd, self.zp_device, direct_zp_move_packet(4, splitter_id4, self.zp_time_ms)))
+            payloads.append((self.zp_fd, self.zp_device, direct_zp_move_packet(4, splitter_id4, self.splitter_time_ms)))
             targets[4] = int(splitter_id4)
         if id5 is not None:
             payloads.append((self.zp_fd, self.zp_device, direct_zp_move_packet(5, id5, self.zp_time_ms)))
@@ -1008,7 +1228,7 @@ class DirectBusServoBridge:
                     f"DIRECT SERVO TX {device}={self._format_payload(payload)}",
                     flush=True,
                 )
-                time.sleep(0.02)
+                time.sleep(0.005)
             previous = self.last_feedback or (READY_ID1_TICK, READY_ID2_TICK, None)
             self.last_feedback = (
                 targets.get(1, previous[0]),
@@ -1192,6 +1412,11 @@ class RedSquareGraspController:
         self.abort_after_return = False
         self.approach_attempts = 0
         self.return_attempts = 0
+        self.active_chassis_station = None
+        self.chassis_station_done_reason = None
+        self.chassis_station_stage = None
+        self.chassis_station_deadline = 0.0
+        self.chassis_station_no_target_deadline = 0.0
         self.approach_feedback_tolerance = 10
         self.stage_deadline = 0.0
         self.next_stage_after_open = None
@@ -1213,9 +1438,14 @@ class RedSquareGraspController:
         self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
         if self.enabled and self.servo_bridge.write_enabled:
             if self.startup_sequence:
-                self.startup_stage = "wait_ready"
-                self.state = "startup_wait_ready"
-                self.status = "waiting for RCT6 ARM UART READY"
+                if getattr(self.servo_bridge, "assumed_feedback", False):
+                    self.startup_stage = "send_home"
+                    self.state = "startup_home"
+                    self.status = "RK direct startup: sending home before ready"
+                else:
+                    self.startup_stage = "wait_ready"
+                    self.state = "startup_wait_ready"
+                    self.status = "waiting for RCT6 ARM UART READY"
             else:
                 self.state = "waiting servo feedback"
                 self.status = "waiting for RCT6 position synchronization"
@@ -1342,15 +1572,13 @@ class RedSquareGraspController:
     def _visual_center_step(self, target, frame_shape, now, can_preview_step, label):
         error_x, error_y = self._target_error(target, frame_shape)
         centering_profile = self._centering_profile()
-        delta_id6 = self._id6_centering_delta(
+        delta_id2, delta_id6 = self._vector_centering_raw_deltas(
             error_x,
-            centering_profile["id6_gain"],
-            centering_profile["id6_max_step_ticks"],
-        )
-        delta_id2 = self._centering_delta(
-            -error_y,
+            error_y,
             centering_profile["id2_gain"],
+            centering_profile["id6_gain"],
             centering_profile["id2_max_step_ticks"],
+            centering_profile["id6_max_step_ticks"],
         )
         target_id2 = self._clamp_center_id2(self.id2 + delta_id2)
         id2_center_limited = self._id2_center_limit_blocks(delta_id2, target_id2)
@@ -1467,6 +1695,42 @@ class RedSquareGraspController:
         if abs(delta) < minimum_step:
             return -minimum_step if error_x_px > 0 else minimum_step
         return delta
+
+    def _component_centering_delta(self, error_px, gain, max_step_ticks, reverse=False):
+        if abs(error_px) <= CENTERING_VECTOR_COMPONENT_DEADBAND_PX:
+            return 0
+        signed_error = -error_px if reverse else error_px
+        delta = int(round(signed_error * gain))
+        delta = max(-max_step_ticks, min(max_step_ticks, delta))
+        minimum_step = min(3, max_step_ticks)
+        if abs(delta) < minimum_step:
+            return minimum_step if signed_error > 0 else -minimum_step
+        return delta
+
+    def _vector_centering_raw_deltas(
+        self,
+        error_x_px,
+        error_y_px,
+        id2_gain,
+        id6_gain,
+        id2_max_step_ticks,
+        id6_max_step_ticks,
+    ):
+        distance_px = math.hypot(float(error_x_px), float(error_y_px))
+        if distance_px <= self.center_deadband_px:
+            return 0, 0
+        delta_id2 = self._component_centering_delta(
+            -error_y_px,
+            id2_gain,
+            id2_max_step_ticks,
+        )
+        delta_id6 = self._component_centering_delta(
+            error_x_px,
+            id6_gain,
+            id6_max_step_ticks,
+            reverse=True,
+        )
+        return delta_id2, delta_id6
 
     def _vector_centering_deltas(
         self,
@@ -1761,6 +2025,13 @@ class RedSquareGraspController:
         return self._send_splitter_id4(target, reason)
 
     def _reset_cycle_for_search(self, status, start_retrigger_cooldown=False):
+        if (
+            start_retrigger_cooldown
+            and self.active_chassis_station is not None
+            and self.chassis_station_done_reason is None
+        ):
+            self.chassis_station_done_reason = "GRASP_DONE"
+            self.active_chassis_station = None
         self.locked_target = None
         self.locked_plan = None
         self.last_visual_target = None
@@ -1787,6 +2058,372 @@ class RedSquareGraspController:
         self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
         self.arm_preview.publish(status)
         return status
+
+    def startup_complete(self):
+        return self.startup_stage == "complete"
+
+    def busy_for_chassis(self):
+        return (
+            self.startup_stage != "complete"
+            or self.feedback_pending
+            or self.chassis_station_stage is not None
+            or self.locked_target is not None
+            or self.algorithm_stage != "centering"
+        )
+
+    def begin_chassis_station(self, station):
+        self._reset_cycle_for_search(f"chassis station {station} start")
+        if self.startup_stage != "complete":
+            return f"chassis station {station} queued until startup completes"
+        self.active_chassis_station = station
+        self.chassis_station_done_reason = None
+        if station == "DISC_CATCH":
+            return self._begin_disc_catch_station()
+        if station == "COLUMN_CATCH":
+            return self._begin_column_catch_station()
+        self.id1 = READY_ID1_TICK
+        self.id2 = READY_ID2_TICK
+        self.id6 = BASE_YAW_CENTER_TICK
+        self.id4 = self.id4_closed
+        self.id5 = CATCHER_HOME_TICK
+        self.splitter_id4 = SPLITTER_YELLOW_TICK
+        self._enforce_angle_gap()
+        self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+        self.arm_preview.publish(f"chassis station {station} ready")
+        if not self.servo_bridge.write_enabled:
+            return (
+                f"preview chassis station {station} ready "
+                f"ID1={self.id1} ID2={self.id2} ID6={self.id6} ID7={self.id4}"
+            )
+        status = self.servo_bridge.send_targets(
+            id1=self.id1,
+            id2=self.id2,
+            id4=self.id4,
+            id6=self.id6,
+            id5=self.id5,
+            splitter_id4=self.splitter_id4,
+        )
+        self.last_command_time = time.monotonic()
+        if not self.servo_bridge.last_command_ok:
+            self.state = "fault"
+            self.algorithm_stage = "fault"
+            self.status = f"chassis station {station} ready failed: {status}"
+            self.arm_preview.publish(self.status)
+            return self.status
+        self.status = (
+            f"chassis station {station} ready ID1={self.id1} ID2={self.id2} "
+            f"ID4={self.splitter_id4} ID5={self.id5} "
+            f"ID6={self.id6} ID7={self.id4} | {status}"
+        )
+        print(f"CHASSIS STATION {station} READY {self.status}", flush=True)
+        return self.status
+
+    def _begin_disc_catch_station(self):
+        self.id1 = DISC_CATCH_READY_ID1_TICK
+        self.id2 = DISC_CATCH_READY_ID2_TICK
+        self.id6 = BASE_YAW_CENTER_TICK
+        self.id4 = self.id4_closed
+        self.id5 = CATCHER_HOME_TICK
+        self.splitter_id4 = SPLITTER_YELLOW_TICK
+        self._enforce_angle_gap()
+        self.chassis_station_stage = "disc_ready"
+        self.chassis_station_deadline = 0.0
+        self.chassis_station_no_target_deadline = (
+            time.monotonic() + DISC_CATCH_TARGET_TIMEOUT_S
+        )
+        self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+        self.arm_preview.publish("DISC_CATCH ready")
+        if not self.servo_bridge.write_enabled:
+            self.status = (
+                f"preview DISC_CATCH ready ID1={self.id1} "
+                f"ID2={self.id2} ID6={self.id6} ID7={self.id4}"
+            )
+            return self.status
+        status = self.servo_bridge.send_targets(
+            id1=self.id1,
+            id2=self.id2,
+            id4=self.id4,
+            id6=self.id6,
+            id5=self.id5,
+            splitter_id4=self.splitter_id4,
+        )
+        self.last_command_time = time.monotonic()
+        if not self.servo_bridge.last_command_ok:
+            self.chassis_station_stage = None
+            self.state = "fault"
+            self.algorithm_stage = "fault"
+            self.status = f"DISC_CATCH ready failed: {status}"
+            self.arm_preview.publish(self.status)
+            return self.status
+        self.chassis_station_deadline = time.monotonic() + self._arm_settle_s()
+        self.status = (
+            f"DISC_CATCH ready ID1={self.id1} ID2={self.id2} "
+            f"ID4={self.splitter_id4} ID5={self.id5} "
+            f"ID6={self.id6} ID7={self.id4} | {status}"
+        )
+        print(f"CHASSIS STATION DISC_CATCH READY {self.status}", flush=True)
+        return self.status
+
+    def _begin_column_catch_station(self):
+        self.id1 = COLUMN_CATCH_READY_ID1_TICK
+        self.id2 = COLUMN_CATCH_READY_ID2_TICK
+        self.id6 = BASE_YAW_CENTER_TICK
+        self.id4 = self.id4_closed
+        self.id5 = CATCHER_HOME_TICK
+        self.splitter_id4 = SPLITTER_YELLOW_TICK
+        self._enforce_angle_gap()
+        self.chassis_station_stage = "column_ready"
+        self.chassis_station_deadline = 0.0
+        self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+        self.arm_preview.publish("COLUMN_CATCH ready")
+        if not self.servo_bridge.write_enabled:
+            self.status = (
+                f"preview COLUMN_CATCH ready ID1={self.id1} "
+                f"ID2={self.id2} ID6={self.id6} ID7={self.id4}"
+            )
+            return self.status
+        status = self.servo_bridge.send_targets(
+            id1=self.id1,
+            id2=self.id2,
+            id4=self.id4,
+            id6=self.id6,
+            id5=self.id5,
+            splitter_id4=self.splitter_id4,
+        )
+        self.last_command_time = time.monotonic()
+        if not self.servo_bridge.last_command_ok:
+            self.chassis_station_stage = None
+            self.state = "fault"
+            self.algorithm_stage = "fault"
+            self.status = f"COLUMN_CATCH ready failed: {status}"
+            self.arm_preview.publish(self.status)
+            return self.status
+        self.chassis_station_deadline = time.monotonic() + self._arm_settle_s()
+        self.status = (
+            f"COLUMN_CATCH ready ID1={self.id1} ID2={self.id2} "
+            f"ID4={self.splitter_id4} ID5={self.id5} "
+            f"ID6={self.id6} ID7={self.id4} | {status}"
+        )
+        print(f"CHASSIS STATION COLUMN_CATCH READY {self.status}", flush=True)
+        return self.status
+
+    def _disc_catch_ball_visible(self, detections):
+        for det in detections:
+            if det.get("kind") == "ball" and det.get("color") in {"yellow", "red"}:
+                return det
+        return None
+
+    def _red_ball_visible(self, detections):
+        for det in detections:
+            if det.get("kind") == "ball" and det.get("color") == "red":
+                return det
+        return None
+
+    def _finish_chassis_station_after_retract(self, reason):
+        result = self.shutdown_contract()
+        self.chassis_station_stage = None
+        self.active_chassis_station = None
+        self.chassis_station_done_reason = reason
+        return f"{reason}; {result}"
+
+    def consume_chassis_station_done(self):
+        reason = self.chassis_station_done_reason
+        self.chassis_station_done_reason = None
+        return reason
+
+    def stop_chassis_station(self, station):
+        if self.active_chassis_station != station:
+            return f"chassis station {station} stop ignored; active={self.active_chassis_station}"
+        return self._finish_chassis_station_after_retract("STOPPED_BY_CHASSIS")
+
+    def update_chassis_station(self, station, detections, frame_shape):
+        if station == "COLUMN_CATCH" and self.chassis_station_stage is not None:
+            return self._update_column_catch_station(detections)
+        if station != "DISC_CATCH" or self.chassis_station_stage is None:
+            return None
+        now = time.monotonic()
+        ball = self._disc_catch_ball_visible(detections)
+        if ball is not None:
+            self.chassis_station_no_target_deadline = (
+                now + DISC_CATCH_TARGET_TIMEOUT_S
+            )
+        if now >= self.chassis_station_no_target_deadline and ball is None:
+            self.state = "DISC_CATCH no target"
+            return self._finish_chassis_station_after_retract("NO_RED_YELLOW_BALL_2S")
+
+        if self.chassis_station_stage == "disc_ready":
+            self.state = "DISC_CATCH ready"
+            if now < self.chassis_station_deadline:
+                return f"DISC_CATCH ready settling {self.chassis_station_deadline - now:.1f}s"
+            self.id1 = DISC_CATCH_DESCEND_ID1_TICK
+            self.id2 = DISC_CATCH_READY_ID2_TICK
+            self.id6 = BASE_YAW_CENTER_TICK
+            self._enforce_angle_gap()
+            if not self.servo_bridge.write_enabled:
+                self.chassis_station_stage = "disc_detect"
+                self.chassis_station_no_target_deadline = (
+                    now + DISC_CATCH_TARGET_TIMEOUT_S
+                )
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+                return (
+                    f"preview DISC_CATCH descend ID1={self.id1} "
+                    f"ID2={self.id2}"
+                )
+            status = self.servo_bridge.send_targets(
+                id1=self.id1,
+                id2=self.id2,
+                id6=self.id6,
+            )
+            self.last_command_time = now
+            if not self.servo_bridge.last_command_ok:
+                self.chassis_station_stage = None
+                self.state = "fault"
+                self.algorithm_stage = "fault"
+                self.status = f"DISC_CATCH descend failed: {status}"
+                self.arm_preview.publish(self.status)
+                return self.status
+            self.chassis_station_stage = "disc_detect"
+            self.chassis_station_deadline = time.monotonic() + self._arm_settle_s()
+            self.chassis_station_no_target_deadline = (
+                self.chassis_station_deadline + DISC_CATCH_TARGET_TIMEOUT_S
+            )
+            self.status = (
+                f"DISC_CATCH descend ID1={self.id1} ID2={self.id2} "
+                f"ID6={self.id6} | {status}"
+            )
+            print(f"CHASSIS STATION DISC_CATCH DESCEND {self.status}", flush=True)
+            return self.status
+
+        if self.chassis_station_stage == "disc_detect":
+            self.state = "DISC_CATCH detect ball"
+            if now < self.chassis_station_deadline:
+                return f"DISC_CATCH descend settling {self.chassis_station_deadline - now:.1f}s"
+            if ball is None:
+                remaining = max(0.0, self.chassis_station_no_target_deadline - now)
+                return f"DISC_CATCH waiting red/yellow ball {remaining:.1f}s"
+            self.chassis_station_stage = "disc_open"
+            self.status = (
+                f"DISC_CATCH {ball.get('color')} ball detected; pulse ID7"
+            )
+            print(f"CHASSIS STATION {self.status}", flush=True)
+
+        if self.chassis_station_stage == "disc_open":
+            self.state = "DISC_CATCH open claw"
+            if not self.servo_bridge.write_enabled:
+                self.id4 = self.id4_open
+                self.chassis_station_stage = "disc_open_wait"
+                self.chassis_station_deadline = now + self._zp_settle_s()
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+                return "preview DISC_CATCH open ID7 pulse"
+            status = self._send_id4(self.id4_open, "DISC_CATCH open ID7 pulse")
+            if self.servo_bridge.last_command_ok:
+                self.chassis_station_stage = "disc_open_wait"
+                self.chassis_station_deadline = time.monotonic() + self._zp_settle_s()
+            return status
+
+        if self.chassis_station_stage == "disc_open_wait":
+            self.state = "DISC_CATCH open wait"
+            if now < self.chassis_station_deadline:
+                return f"DISC_CATCH open wait {self.chassis_station_deadline - now:.1f}s"
+            self.chassis_station_stage = "disc_close"
+
+        if self.chassis_station_stage == "disc_close":
+            self.state = "DISC_CATCH close claw"
+            if not self.servo_bridge.write_enabled:
+                self.id4 = self.id4_closed
+                self.chassis_station_stage = "disc_close_wait"
+                self.chassis_station_deadline = now + self._zp_settle_s()
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+                return "preview DISC_CATCH close ID7 pulse"
+            status = self._send_id4(self.id4_closed, "DISC_CATCH close ID7 pulse")
+            if self.servo_bridge.last_command_ok:
+                self.chassis_station_stage = "disc_close_wait"
+                self.chassis_station_deadline = time.monotonic() + self._zp_settle_s()
+            return status
+
+        if self.chassis_station_stage == "disc_close_wait":
+            self.state = "DISC_CATCH close wait"
+            if now < self.chassis_station_deadline:
+                return f"DISC_CATCH close wait {self.chassis_station_deadline - now:.1f}s"
+            self.chassis_station_stage = "disc_detect"
+            self.chassis_station_deadline = 0.0
+            self.chassis_station_no_target_deadline = (
+                time.monotonic() + DISC_CATCH_TARGET_TIMEOUT_S
+            )
+            return "DISC_CATCH pulse complete; resume red/yellow detection"
+
+        return "DISC_CATCH station idle"
+
+    def _update_column_catch_station(self, detections):
+        now = time.monotonic()
+        ball = self._red_ball_visible(detections)
+
+        if self.chassis_station_stage == "column_ready":
+            self.state = "COLUMN_CATCH ready"
+            if now < self.chassis_station_deadline:
+                return f"COLUMN_CATCH ready settling {self.chassis_station_deadline - now:.1f}s"
+            self.chassis_station_stage = "column_detect"
+            return "COLUMN_CATCH detecting red ball during orbit"
+
+        if self.chassis_station_stage == "column_detect":
+            self.state = "COLUMN_CATCH detect red ball"
+            if ball is None:
+                return "COLUMN_CATCH orbit detect; no red ball"
+            self.chassis_station_stage = "column_open"
+            self.status = "COLUMN_CATCH red ball detected; pulse ID7"
+            print(f"CHASSIS STATION {self.status}", flush=True)
+
+        if self.chassis_station_stage == "column_open":
+            self.state = "COLUMN_CATCH open claw"
+            if not self.servo_bridge.write_enabled:
+                self.id4 = self.id4_open
+                self.chassis_station_stage = "column_open_wait"
+                self.chassis_station_deadline = now + self._zp_settle_s()
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+                return "preview COLUMN_CATCH open ID7 pulse"
+            status = self._send_id4(self.id4_open, "COLUMN_CATCH open ID7 pulse")
+            if self.servo_bridge.last_command_ok:
+                self.chassis_station_stage = "column_open_wait"
+                self.chassis_station_deadline = time.monotonic() + self._zp_settle_s()
+            return status
+
+        if self.chassis_station_stage == "column_open_wait":
+            self.state = "COLUMN_CATCH open wait"
+            if now < self.chassis_station_deadline:
+                return f"COLUMN_CATCH open wait {self.chassis_station_deadline - now:.1f}s"
+            self.chassis_station_stage = "column_close"
+
+        if self.chassis_station_stage == "column_close":
+            self.state = "COLUMN_CATCH close claw"
+            if not self.servo_bridge.write_enabled:
+                self.id4 = self.id4_closed
+                self.chassis_station_stage = "column_close_wait"
+                self.chassis_station_deadline = now + self._zp_settle_s()
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+                return "preview COLUMN_CATCH close ID7 pulse"
+            status = self._send_id4(self.id4_closed, "COLUMN_CATCH close ID7 pulse")
+            if self.servo_bridge.last_command_ok:
+                self.chassis_station_stage = "column_close_wait"
+                self.chassis_station_deadline = time.monotonic() + self._zp_settle_s()
+            return status
+
+        if self.chassis_station_stage == "column_close_wait":
+            self.state = "COLUMN_CATCH close wait"
+            if now < self.chassis_station_deadline:
+                return f"COLUMN_CATCH close wait {self.chassis_station_deadline - now:.1f}s"
+            self.chassis_station_stage = "column_detect"
+            return "COLUMN_CATCH pulse complete; resume red ball detection"
+
+        return "COLUMN_CATCH station idle"
+
+    def retract_for_chassis_timeout(self, station):
+        result = self.shutdown_contract()
+        self.chassis_station_stage = None
+        self.active_chassis_station = None
+        self._reset_cycle_for_search(
+            f"chassis station {station} no target timeout; arm retracted"
+        )
+        return result
 
     def shutdown_contract(self):
         if not self.enabled or not self.servo_bridge.write_enabled:
@@ -1944,7 +2581,7 @@ class RedSquareGraspController:
             )
             if self.startup_stage == "fault":
                 return result
-            self.startup_deadline = now + 1.5
+            self.startup_deadline = now + max(0.8, self._arm_settle_s())
             self.startup_stage = "home_settle"
             return result
 
@@ -1952,7 +2589,8 @@ class RedSquareGraspController:
             self.state = "startup_home"
             if now < self.startup_deadline:
                 return f"startup_home settling {self.startup_deadline - now:.1f}s"
-            self.startup_deadline = now + 5.0
+            hold_s = 0.4 if getattr(self.servo_bridge, "assumed_feedback", False) else 5.0
+            self.startup_deadline = now + hold_s
             self.startup_stage = "home_hold"
 
         if self.startup_stage == "home_hold":
@@ -1971,8 +2609,8 @@ class RedSquareGraspController:
             )
             if self.startup_stage == "fault":
                 return result
-            self.startup_deadline = now + 0.8
-            self.startup_verify_deadline = now + 6.0
+            self.startup_deadline = now + max(0.8, self._arm_settle_s())
+            self.startup_verify_deadline = now + max(2.0, self._arm_settle_s() + 0.8)
             self.startup_next_feedback = self.startup_deadline
             self.startup_ready_resends = 0
             self.startup_stage = "ready_settle"
@@ -2095,10 +2733,42 @@ class RedSquareGraspController:
             "focal_px": focal_px,
             "lateral_mm": lateral_mm,
             "vertical_mm": vertical_mm,
+            "center_x_px": float(cx),
+            "center_y_px": float(cy),
             "target_kind": target.get("kind", "square"),
             "target_source": target.get("source"),
             "target_size_mm": target_size_mm,
         }
+
+    @staticmethod
+    def _ring_local_extra_descend_mm(offsets):
+        if offsets.get("target_kind") != "ring":
+            return 0.0
+        distance_cm = offsets.get("distance_mm", 0.0) / 10.0
+        center_x = offsets.get("center_x_px", 0.0)
+        center_y = offsets.get("center_y_px", 0.0)
+        if (
+            RING_LOCAL_EXTRA_DISTANCE_RANGE_CM[0]
+            <= distance_cm
+            <= RING_LOCAL_EXTRA_DISTANCE_RANGE_CM[1]
+            and RING_LOCAL_EXTRA_CENTER_Y_RANGE_PX[0]
+            <= center_y
+            <= RING_LOCAL_EXTRA_CENTER_Y_RANGE_PX[1]
+        ):
+            return RING_LOCAL_EXTRA_DESCEND_MM
+        if (
+            RING_LOG_REPEAT_EXTRA_DISTANCE_RANGE_CM[0]
+            <= distance_cm
+            <= RING_LOG_REPEAT_EXTRA_DISTANCE_RANGE_CM[1]
+            and RING_LOG_REPEAT_EXTRA_CENTER_X_RANGE_PX[0]
+            <= center_x
+            <= RING_LOG_REPEAT_EXTRA_CENTER_X_RANGE_PX[1]
+            and RING_LOG_REPEAT_EXTRA_CENTER_Y_RANGE_PX[0]
+            <= center_y
+            <= RING_LOG_REPEAT_EXTRA_CENTER_Y_RANGE_PX[1]
+        ):
+            return RING_LOCAL_EXTRA_DESCEND_MM
+        return 0.0
 
     def _one_shot_plan(self, target, frame_shape):
         offsets = self._estimate_target_offsets_mm(target, frame_shape)
@@ -2206,7 +2876,10 @@ class RedSquareGraspController:
             camera_to_gripper_mm = max(0.0, self.camera_gripper_offset_mm)
             extra_down_mm = 0.0
             if offsets.get("target_kind") == "ring":
-                extra_down_mm = RING_EXTRA_DESCEND_MM
+                extra_down_mm = (
+                    RING_EXTRA_DESCEND_MM
+                    + self._ring_local_extra_descend_mm(offsets)
+                )
             elif offsets.get("target_source") == "qr":
                 extra_down_mm = QR_EXTRA_DESCEND_MM
             # The camera is 50 mm behind the gripper. Once the target is
@@ -4516,6 +5189,7 @@ def build_arg_parser():
     )
     parser.add_argument("--direct-arm-time-ms", type=int, default=int(os.environ.get("DIRECT_ARM_TIME_MS", "1200")))
     parser.add_argument("--direct-zp-time-ms", type=int, default=int(os.environ.get("DIRECT_ZP_TIME_MS", "1000")))
+    parser.add_argument("--direct-splitter-time-ms", type=int, default=int(os.environ.get("DIRECT_SPLITTER_TIME_MS", "900")))
     parser.add_argument("--direct-repeat", type=int, default=int(os.environ.get("DIRECT_SERVO_REPEAT", "1")))
     parser.add_argument("--direct-arm-uart", default=os.environ.get("DIRECT_ARM_UART", os.environ.get("SERVO_ARM_UART", "/dev/ttyS9")))
     parser.add_argument("--direct-zp-uart", default=os.environ.get("DIRECT_ZP_UART", os.environ.get("SERVO_ZP_UART", "/dev/ttyS0")))
@@ -4568,6 +5242,34 @@ def build_arg_parser():
     parser.add_argument("--post-center-retreat-mm", type=float, default=50.0)
     parser.add_argument("--post-center-down-mm", type=float, default=30.0)
     parser.add_argument("--post-center-ik-error-mm", type=float, default=18.0)
+    parser.add_argument(
+        "--chassis-link",
+        action="store_true",
+        default=os.environ.get("CHASSIS_LINK", "").lower() in {"1", "true", "yes"},
+        help="listen for H7 USB CDC ARM,<station>,START and reply ACK/DONE",
+    )
+    parser.add_argument(
+        "--chassis-home-on-start",
+        action="store_true",
+        default=os.environ.get("CHASSIS_HOME_ON_START", "").lower() in {"1", "true", "yes"},
+        help="start in arm home pose for chassis linkage; stations expand the arm on demand",
+    )
+    parser.add_argument(
+        "--chassis-uart",
+        default=os.environ.get("CHASSIS_UART", "auto"),
+        help="H7 USB CDC tty, or auto for /dev/ttyACM* and /dev/ttyUSB*",
+    )
+    parser.add_argument(
+        "--chassis-baud",
+        type=int,
+        default=int(os.environ.get("CHASSIS_BAUD", "115200")),
+    )
+    parser.add_argument(
+        "--station-no-target-timeout",
+        type=float,
+        default=float(os.environ.get("STATION_NO_TARGET_TIMEOUT", "5.0")),
+        help="finish the active chassis station after this many seconds with no target",
+    )
     parser.add_argument(
         "--use-calibrated-grasp-table",
         action="store_true",
@@ -4655,6 +5357,7 @@ def main(argv=None):
             zp_device=args.direct_zp_uart,
             arm_time_ms=args.direct_arm_time_ms,
             zp_time_ms=args.direct_zp_time_ms,
+            splitter_time_ms=args.direct_splitter_time_ms,
             repeat=args.direct_repeat,
         )
     else:
@@ -4706,6 +5409,17 @@ def main(argv=None):
         id2_center_min=args.grasp_id2_center_min,
         id2_center_max=args.grasp_id2_center_max,
     )
+    chassis_link = ChassisArmLink(
+        args.chassis_link,
+        args.chassis_uart,
+        args.chassis_baud,
+        args.station_no_target_timeout,
+    )
+    if args.chassis_home_on_start and execute_auto_grasp:
+        print(
+            f"CHASSIS LINK startup home requested: {grasp_controller.shutdown_contract()}",
+            flush=True,
+        )
     server = None
     if not args.no_web:
         server = ThreadedHTTPServer(("0.0.0.0", args.web_port), StreamHandler, state)
@@ -4764,6 +5478,21 @@ def main(argv=None):
     perf_display_s = 0.0
     try:
         while True:
+            for station in chassis_link.update():
+                station_status = grasp_controller.begin_chassis_station(station)
+                print(
+                    f"CHASSIS STATION {station} STARTED | {station_status}",
+                    flush=True,
+                )
+            for station in chassis_link.consume_stops():
+                station_status = grasp_controller.stop_chassis_station(station)
+                print(
+                    f"CHASSIS STATION {station} STOPPED | {station_status}",
+                    flush=True,
+                )
+                done_reason = grasp_controller.consume_chassis_station_done()
+                if done_reason:
+                    chassis_link.finish_active(done_reason)
             read_started = time.perf_counter()
             ok, frame = cap.read()
             read_elapsed = time.perf_counter() - read_started
@@ -4795,8 +5524,10 @@ def main(argv=None):
                 det for det in detections
                 if det.get("color") == args.trigger_color
                 and (
-                    args.trigger_kind == "any"
-                    and det.get("kind") in {"square", "ring"}
+                    (
+                        args.trigger_kind == "any"
+                        and det.get("kind") in {"square", "ring", "qr"}
+                    )
                     or det.get("kind") == args.trigger_kind
                 )
             ]
@@ -4811,8 +5542,10 @@ def main(argv=None):
                 if not (
                     det.get("color") == args.trigger_color
                     and (
-                        args.trigger_kind == "any"
-                        and det.get("kind") in {"square", "ring"}
+                        (
+                            args.trigger_kind == "any"
+                            and det.get("kind") in {"square", "ring", "qr"}
+                        )
                         or det.get("kind") == args.trigger_kind
                     )
                 )
@@ -4823,9 +5556,52 @@ def main(argv=None):
             output, info = detector.draw(frame, display_detections)
             aux_info = ""
             if auto_grasp_enabled:
-                if preview_target is None and grasp_controller.locked_target is None:
-                    aux_info = grasp_controller.update_auxiliary(detections)
-                grasp_info = grasp_controller.update(preview_target, frame.shape)
+                chassis_active = (
+                    not chassis_link.enabled
+                    or chassis_link.active_task is not None
+                )
+                if chassis_link.enabled:
+                    chassis_link.note_target(preview_target)
+                if chassis_active:
+                    station_info = grasp_controller.update_chassis_station(
+                        chassis_link.active_task,
+                        detections,
+                        frame.shape,
+                    )
+                    if station_info is not None:
+                        grasp_info = station_info
+                    else:
+                        if preview_target is None and grasp_controller.locked_target is None:
+                            aux_info = grasp_controller.update_auxiliary(detections)
+                        grasp_info = grasp_controller.update(preview_target, frame.shape)
+                    done_reason = grasp_controller.consume_chassis_station_done()
+                    if chassis_link.enabled and done_reason:
+                        chassis_link.finish_active(done_reason)
+                        grasp_info = f"chassis station done: {done_reason}"
+                elif not grasp_controller.startup_complete():
+                    grasp_info = grasp_controller.update(None, frame.shape)
+                else:
+                    grasp_info = (
+                        "waiting chassis ARM START"
+                        if chassis_link.fd is not None
+                        else chassis_link.status
+                    )
+                    arm_preview.publish(grasp_info, preview_target, "WAIT_CHASSIS")
+                now = time.monotonic()
+                if (
+                    chassis_link.enabled
+                    and chassis_link.no_target_timed_out(
+                        now,
+                        grasp_controller.busy_for_chassis(),
+                    )
+                ):
+                    station = chassis_link.active_task
+                    timeout_status = grasp_controller.retract_for_chassis_timeout(station)
+                    chassis_link.finish_active("NO_TARGET_TIMEOUT")
+                    grasp_info = (
+                        f"chassis station {station} timeout; "
+                        f"{timeout_status}"
+                    )
                 arm_preview.publish(
                     grasp_info,
                     preview_target,
@@ -4911,6 +5687,7 @@ def main(argv=None):
                 print(f"shutdown contract error: {exc}", flush=True)
         servo_trigger.close()
         servo_bridge.close()
+        chassis_link.close()
         arm_preview.close()
         if server is not None:
             server.shutdown()

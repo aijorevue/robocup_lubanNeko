@@ -1,0 +1,2581 @@
+==== 2026-07-31 22:17:49 start chassis arm link rk direct ====
+camera=/dev/video20 display=:0
+rk direct ports: arm85=/dev/ttyS9 zp=/dev/ttyS0 arm_time_ms=600 zp_time_ms=350
+target color=red kind=any execute=true
+[INFO] [launch]: All log files can be found below /home/cat/.ros/log/2026-07-31-22-17-51-356107-lubancat-40072
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [bash-1]: process started with pid [40097]
+[INFO] [robot_state_publisher-2]: process started with pid [40099]
+[INFO] [bash-1]: process has finished cleanly [pid 40097]
+[robot_state_publisher-2] [INFO] [1785507471.512882712] [robot_state_publisher]: got segment base_link
+[robot_state_publisher-2] [INFO] [1785507471.513053041] [robot_state_publisher]: got segment base_mount
+[robot_state_publisher-2] [INFO] [1785507471.513066749] [robot_state_publisher]: got segment blue_active_bar
+[robot_state_publisher-2] [INFO] [1785507471.513076083] [robot_state_publisher]: got segment blue_upper_bar
+[robot_state_publisher-2] [INFO] [1785507471.513083957] [robot_state_publisher]: got segment end_effector
+[robot_state_publisher-2] [INFO] [1785507471.513091540] [robot_state_publisher]: got segment extension_bar
+[robot_state_publisher-2] [INFO] [1785507471.513100582] [robot_state_publisher]: got segment extension_tip
+[robot_state_publisher-2] [INFO] [1785507471.513108457] [robot_state_publisher]: got segment gripper_finger_left
+[robot_state_publisher-2] [INFO] [1785507471.513116915] [robot_state_publisher]: got segment gripper_finger_right
+[robot_state_publisher-2] [INFO] [1785507471.513125665] [robot_state_publisher]: got segment orange_active_bar
+[robot_state_publisher-2] [INFO] [1785507471.513133831] [robot_state_publisher]: got segment orange_upper_bar
+[robot_state_publisher-2] [INFO] [1785507471.513141998] [robot_state_publisher]: got segment square_platform
+[INFO] [target_vision-3]: process started with pid [40113]
+[INFO] [rviz2-4]: process started with pid [40115]
+[rviz2-4] [INFO] [1785507473.324306562] [rviz2]: Stereo is NOT SUPPORTED
+[rviz2-4] [INFO] [1785507473.324471641] [rviz2]: OpenGl version: 3.3 (GLSL 3.3)
+[rviz2-4] [INFO] [1785507473.350741977] [rviz2]: Stereo is NOT SUPPORTED
+[target_vision-3] arm preview publishing /joint_states, /arm/grasp_status, and target markers
+[target_vision-3] direct bus servo bridge arm=/dev/ttyS9 zp=/dev/ttyS0 zp_time=350ms splitter_time=1500ms arm_multi=immediate
+[target_vision-3] CHASSIS LINK open /dev/ttyACM0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] SHUTDOWN CONTRACT ID1=480 ID2=10 ID4=800 ID5=800 ID6=500 ID7=1120
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 01 07 01 E0 01 58 02 BB
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 02 07 01 0A 00 58 02 91
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 06 07 01 F4 01 58 02 A2
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#004P0800T1500!
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#005P0800T0350!
+[target_vision-3] CHASSIS LINK startup home requested: shutdown contracted: direct TX ID1=480,ID2=10,ID6=500,ID7=1120,ID4=800,ID5=800
+[target_vision-3] Camera: /dev/video20 800x600 reported_fps=30.0
+[target_vision-3] Press q or Esc in the preview window to quit.
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS RX H7,ARM,PLATFORM_PICK,BYPASS_NO_RK
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS RX H7,ARM,COLUMN_CATCH,WAIT_RK
+[target_vision-3] CHASSIS RX ARM,COLUMN_CATCH,START
+[target_vision-3] CHASSIS station COLUMN_CATCH active
+[target_vision-3] CHASSIS TX RK,ARM,COLUMN_CATCH,ACK
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 01 07 01 26 02 58 02 74
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 02 07 01 2C 01 58 02 6E
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 06 07 01 F4 01 58 02 A2
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#004P0800T1500!
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#005P0800T0350!
+[target_vision-3] CHASSIS STATION COLUMN_CATCH READY chassis station COLUMN_CATCH ready ID1=550 ID2=300 ID4=800 ID5=800 ID6=500 ID7=1120 | direct TX ID1=550,ID2=300,ID6=500,ID7=1120,ID4=800,ID5=800
+[target_vision-3] CHASSIS STATION COLUMN_CATCH STARTED | chassis station COLUMN_CATCH ready ID1=550 ID2=300 ID4=800 ID5=800 ID6=500 ID7=1120 | direct TX ID1=550,ID2=300,ID6=500,ID7=1120,ID4=800,ID5=800
+[target_vision-3] CHASSIS RX H7,ARM,COLUMN_CATCH,ACK
+[target_vision-3] VISION PERF read=19.6ms detect=124.8ms/detect post=2.3ms display=10.3ms
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] CENTER COMMAND reason=centering target dx=105 dy=16 axis=ID6 dID2=0 dID6=-12 centerStep=1 decay=1.00 ID2=300 ID6=488
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 06 07 01 E8 01 58 02 AE
+[target_vision-3] CENTER COMMAND reason=centering target dx=100 dy=131 axis=ID2+ID6 vector r=165px dID2=-18 dID6=-11 centerStep=2 decay=0.84 ID2=282 ID6=477
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 02 07 01 1A 01 58 02 80
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 06 07 01 DD 01 58 02 B9
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] VISION PERF read=19.6ms detect=149.9ms/detect post=3.0ms display=10.4ms
+[target_vision-3] VISION PERF read=18.3ms detect=160.6ms/detect post=3.0ms display=11.8ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=17.6ms detect=165.6ms/detect post=2.9ms display=12.5ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] VISION PERF read=16.9ms detect=164.4ms/detect post=3.0ms display=13.3ms
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] VISION PERF read=16.3ms detect=172.5ms/detect post=2.8ms display=14.0ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=16.3ms detect=174.1ms/detect post=2.8ms display=14.0ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS RX H7,ARM,COLUMN_CATCH,TIMEOUT
+[target_vision-3] CHASSIS RX LOG,BEGIN,slot=2,seq=33,count=105,state=7,fault=8,period_ms=250
+[target_vision-3] CHASSIS RX index,time_ms,state,fault,gyro_mrad_s,yaw_mrad,speed_mm_s,correction_mrad_s,distance_mm,temp_mC,fl_mrad_s,fr_mrad_s,rl_mrad_s,rr_mrad_s,can_tx_errors,can_bus_offs
+[target_vision-3] CHASSIS RX 0,2708,4,0,-3,0,14,1,0,46000,-51,51,-51,51,0,0
+[target_vision-3] CHASSIS RX 1,2958,4,0,-7,0,364,2,44,46000,-7067,7067,6965,-6965,0,0
+[target_vision-3] CHASSIS RX 2,3208,4,0,-1,-1,714,3,179,46000,-14387,14387,14184,-14184,0,0
+[target_vision-3] CHASSIS RX 3,3458,4,0,-4,-1,992,4,404,46000,-21301,21301,21200,-21200,0,0
+[target_vision-3] CHASSIS RX 4,3708,4,0,-3,-1,642,3,622,46000,-13981,13981,13879,-13879,0,0
+[target_vision-3] CHASSIS RX 5,4078,8,0,7,-1,14,-1,746,46000,-4321,4321,4220,-5135,0,0
+[target_vision-3] CHASSIS RX 6,4328,8,0,-4,-1,364,0,790,46000,-6965,-6965,-7067,-6965,0,0
+[target_vision-3] CHASSIS RX 7,4578,8,0,-12,0,714,0,925,46000,-14286,-14286,-14286,-14286,0,0
+[target_vision-3] CHASSIS RX 8,4828,8,0,-4,0,1064,-2,1151,45875,-21606,-21505,-21606,-21505,0,0
+[target_vision-3] CHASSIS RX 9,5078,8,0,-16,0,1414,-1,1468,45875,-28927,-28825,-28927,-28825,0,0
+[target_vision-3] CHASSIS RX 10,5328,8,0,1,1,1764,-5,1876,45875,-36146,-36146,-36146,-36146,0,0
+[target_vision-3] CHASSIS RX 11,5578,8,0,10,0,2114,-4,2375,45875,-43365,-43365,-43467,-43365,0,0
+[target_vision-3] CHASSIS RX 12,5828,8,0,17,-1,2200,-3,2943,45875,-45805,-45805,-45805,-45805,0,0
+[target_vision-3] CHASSIS RX 13,6078,8,0,-6,-2,1909,3,3489,45875,-40416,-40213,-40416,-40213,0,0
+[target_vision-3] CHASSIS RX 14,6328,8,0,17,-2,1559,0,3945,45875,-33096,-32994,-33096,-32994,0,0
+[target_vision-3] CHASSIS RX 15,6578,8,0,9,-2,1209,1,4311,45875,-25775,-25673,-25775,-25673,0,0
+[target_vision-3] CHASSIS RX 16,6828,8,0,-17,-2,859,4,4585,45875,-18556,-18454,-18556,-18353,0,0
+[target_vision-3] CHASSIS RX 17,7168,9,0,0,-2,0,28,4746,45875,-9710,-9608,-9812,-10422,0,0
+[target_vision-3] CHASSIS RX 18,7418,9,0,2,96,0,728,4746,45875,-4830,4830,-4830,4830,0,0
+[target_vision-3] CHASSIS RX 19,7668,9,0,12,369,0,1428,4746,45875,-9710,9710,-9812,9812,0,0
+[target_vision-3] CHASSIS RX 20,7918,9,0,-13,796,0,1772,4746,45875,-12760,12760,-12760,12760,0,0
+[target_vision-3] CHASSIS RX 21,8168,9,0,0,1148,0,1072,4746,45875,-8083,8083,-7982,7982,0,0
+[target_vision-3] CHASSIS RX 22,8418,9,0,7,1336,0,542,4746,45875,-4118,4118,-4118,4016,0,0
+[target_vision-3] CHASSIS RX 23,8668,9,0,0,1439,0,311,4746,45875,-2389,2389,-2389,2288,0,0
+[target_vision-3] CHASSIS RX 24,8918,9,0,-1,1498,0,179,4746,45875,-1373,1373,-1373,1373,0,0
+[target_vision-3] CHASSIS RX 25,9168,9,0,4,1532,0,102,4746,45875,-763,763,-763,763,0,0
+[target_vision-3] CHASSIS RX 26,9418,9,0,4,1552,0,58,4746,45875,-458,458,-458,458,0,0
+[target_vision-3] CHASSIS RX 27,9668,9,0,1,1563,0,33,4746,45875,-254,254,-356,356,0,0
+[target_vision-3] CHASSIS RX 28,10321,10,0,-6,1563,0,28,4746,45750,-51,51,-51,51,0,0
+[target_vision-3] CHASSIS RX 29,10571,10,0,-2,1661,0,728,4746,45750,-4830,4830,-4830,4830,0,0
+[target_vision-3] CHASSIS RX 30,10821,10,0,2,1934,0,1428,4746,45750,-9710,9812,-9710,9812,0,0
+[target_vision-3] CHASSIS RX 31,11071,10,0,-2,2361,0,1800,4746,45750,-12760,12760,-12760,12760,0,0
+[target_vision-3] CHASSIS RX 32,11321,10,0,2,2811,0,1800,4746,45750,-12760,12760,-12760,12760,0,0
+[target_vision-3] CHASSIS RX 33,11571,10,0,-1,3261,0,1800,4746,45750,-12760,12760,-12760,12760,0,0
+[target_vision-3] CHASSIS RX 34,11821,10,0,-3,3711,0,1800,4746,45750,-12760,12760,-12760,12760,0,0
+[target_vision-3] CHASSIS RX 35,12071,10,0,11,4134,0,1423,4746,45750,-10524,10524,-10524,10524,0,0
+[target_vision-3] CHASSIS RX 36,12321,10,0,-16,4399,0,730,4746,45750,-5541,5541,-5541,5541,0,0
+[target_vision-3] CHASSIS RX 37,12571,10,0,-4,4537,0,418,4746,45875,-3101,3101,-3101,3101,0,0
+[target_vision-3] CHASSIS RX 38,12821,10,0,6,4616,0,238,4746,45875,-1779,1779,-1881,1881,0,0
+[target_vision-3] CHASSIS RX 39,13071,10,0,1,4661,0,137,4746,45875,-1068,1068,-1068,1068,0,0
+[target_vision-3] CHASSIS RX 40,13321,10,0,-6,4687,0,80,4746,45875,-661,661,-661,661,0,0
+[target_vision-3] CHASSIS RX 41,13571,10,0,1,4702,0,45,4746,45875,-356,356,-356,356,0,0
+[target_vision-3] CHASSIS RX 42,13841,11,0,-3,4707,14,1,4746,45875,-51,51,-51,51,0,0
+[target_vision-3] CHASSIS RX 43,14091,11,0,-1,4708,364,-1,4789,45875,-7067,-6965,-7067,-6965,0,0
+[target_vision-3] CHASSIS RX 44,14341,11,0,-14,4708,714,1,4924,45875,-14286,-14286,-14286,-14286,0,0
+[target_vision-3] CHASSIS RX 45,14591,11,0,-10,4708,1064,0,5150,45875,-21606,-21505,-21606,-21505,0,0
+[target_vision-3] CHASSIS RX 46,14841,11,0,-2,4708,1414,-2,5467,45875,-28927,-28825,-28927,-28825,0,0
+[target_vision-3] CHASSIS RX 47,15091,11,0,1,4708,1140,-3,5812,45875,-24352,-24352,-24352,-24352,0,0
+[target_vision-3] CHASSIS RX 48,15341,11,0,10,4709,790,-5,6069,45875,-17031,-17031,-17031,-17031,0,0
+[target_vision-3] CHASSIS RX 49,15591,11,0,-6,4709,440,-2,6235,45875,-9812,-9710,-9812,-9710,0,0
+[target_vision-3] CHASSIS RX 50,15741,12,0,10,4708,0,-28,6244,45875,-6456,-6558,-6558,-7372,0,0
+[target_vision-3] CHASSIS RX 51,15991,12,0,1,4610,0,-728,6244,45875,4728,-4728,4728,-4728,0,0
+[target_vision-3] CHASSIS RX 52,16241,12,0,1,4337,0,-1428,6244,45875,9608,-9608,9710,-9608,0,0
+[target_vision-3] CHASSIS RX 53,16491,12,0,-2,3911,0,-1769,6244,45875,12659,-12760,12659,-12659,0,0
+[target_vision-3] CHASSIS RX 54,16741,12,0,-2,3559,0,-1069,6244,45875,7982,-7880,7880,-7982,0,0
+[target_vision-3] CHASSIS RX 55,16991,12,0,3,3372,0,-546,6244,45875,3915,-4016,4016,-4016,0,0
+[target_vision-3] CHASSIS RX 56,17241,12,0,-7,3268,0,-311,6244,45875,2288,-2288,2288,-2288,0,0
+[target_vision-3] CHASSIS RX 57,17491,12,0,-9,3209,0,-177,6244,45875,1271,-1271,1271,-1271,0,0
+[target_vision-3] CHASSIS RX 58,17741,12,0,-6,3175,0,-101,6244,45875,661,-661,661,-661,0,0
+[target_vision-3] CHASSIS RX 59,17991,12,0,1,3155,0,-59,6244,45875,356,-356,356,-356,0,0
+[target_vision-3] CHASSIS RX 60,18241,12,0,9,3144,0,-35,6244,45875,153,-153,153,-153,0,0
+[target_vision-3] CHASSIS RX 61,18371,13,0,7,3144,14,-1,6244,45875,-51,51,-51,51,0,0
+[target_vision-3] CHASSIS RX 62,18621,13,0,-1,3144,364,0,6288,45875,-7067,-6965,-7067,-6965,0,0
+[target_vision-3] CHASSIS RX 63,18871,13,0,-6,3144,714,0,6422,45750,-14286,-14286,-14286,-14286,0,0
+[target_vision-3] CHASSIS RX 64,19121,13,0,-1,3144,1064,0,6648,45750,-21606,-21505,-21606,-21505,0,0
+[target_vision-3] CHASSIS RX 65,19371,13,0,-13,3144,1414,3,6965,45750,-28927,-28825,-28927,-28825,0,0
+[target_vision-3] CHASSIS RX 66,19621,13,0,13,3143,1764,0,7373,45750,-36146,-36044,-36146,-36044,0,0
+[target_vision-3] CHASSIS RX 67,19871,13,0,4,3143,1474,3,7806,45750,-31367,-31164,-31367,-31164,0,0
+[target_vision-3] CHASSIS RX 68,20121,13,0,-20,3142,1124,8,8149,45750,-24047,-23843,-24047,-23843,0,0
+[target_vision-3] CHASSIS RX 69,20371,13,0,8,3142,774,5,8402,45750,-16827,-16624,-16726,-16624,0,0
+[target_vision-3] CHASSIS RX 70,20711,14,0,-6,3142,0,28,8544,45750,-7880,-7778,-7982,-8693,0,0
+[target_vision-3] CHASSIS RX 71,20961,14,0,12,3240,0,728,8544,45750,-4830,4830,-4830,4830,0,0
+[target_vision-3] CHASSIS RX 72,21211,14,0,-3,3513,0,1428,8544,45750,-9812,9710,-9710,9812,0,0
+[target_vision-3] CHASSIS RX 73,21461,14,0,-8,3940,0,1771,8544,45750,-12760,12760,-12760,12760,0,0
+[target_vision-3] CHASSIS RX 74,21711,14,0,4,4292,0,1071,8544,45750,-7982,8083,-7982,7982,0,0
+[target_vision-3] CHASSIS RX 75,21961,14,0,-5,4479,0,545,8544,45750,-4016,4118,-4118,4016,0,0
+[target_vision-3] CHASSIS RX 76,22211,14,0,10,4583,0,310,8544,45750,-2389,2389,-2389,2389,0,0
+[target_vision-3] CHASSIS RX 77,22461,14,0,-5,4642,0,180,8544,45750,-1373,1373,-1373,1373,0,0
+[target_vision-3] CHASSIS RX 78,22711,14,0,-3,4676,0,103,8544,45625,-763,763,-864,864,0,0
+[target_vision-3] CHASSIS RX 79,22961,14,0,-10,4695,0,61,8544,45625,-458,458,-458,458,0,0
+[target_vision-3] CHASSIS RX 80,23211,14,0,-6,4706,0,35,8544,45625,-254,254,-254,254,0,0
+[target_vision-3] CHASSIS RX 81,23854,16,0,-3,4707,14,1,8544,45625,-51,51,-51,51,0,0
+[target_vision-3] CHASSIS RX 82,24104,16,0,4,4707,364,-1,8587,45750,-7067,7067,6965,-6965,0,0
+[target_vision-3] CHASSIS RX 83,24354,16,0,-5,4706,714,2,8722,45750,-14387,14387,14184,-14184,0,0
+[target_vision-3] CHASSIS RX 84,24604,16,0,-3,4706,1064,3,8948,45750,-21606,21708,21505,-21505,0,0
+[target_vision-3] CHASSIS RX 85,24854,16,0,9,4706,900,2,9223,45750,-19369,19369,19268,-19268,0,0
+[target_vision-3] CHASSIS RX 86,25104,16,0,6,4706,550,0,9417,45750,-12049,12049,11947,-11947,0,0
+[target_vision-3] CHASSIS RX 87,25384,17,0,2,4706,14,0,9490,45750,-4931,4931,4931,-5846,0,0
+[target_vision-3] CHASSIS RX 88,25634,17,0,-13,4707,364,1,9534,45750,9812,51,-51,9913,0,0
+[target_vision-3] CHASSIS RX 89,25884,17,0,-7,4707,714,-1,9668,45750,20183,51,-51,20183,0,0
+[target_vision-3] CHASSIS RX 90,26134,17,0,-7,4707,1064,0,9894,45750,30452,51,-51,30554,0,0
+[target_vision-3] CHASSIS RX 91,26384,17,0,9,4707,959,-2,10180,45750,29029,51,-51,29130,0,0
+[target_vision-3] CHASSIS RX 92,26634,17,0,1,4706,609,0,10389,45750,18658,51,-51,18861,0,0
+[target_vision-3] CHASSIS RX 93,26954,18,0,1,4706,0,28,10488,45750,7982,51,-51,9100,0,0
+[target_vision-3] CHASSIS RX 94,27204,18,0,8,4804,0,728,10488,45750,-4830,4830,-4830,4830,0,0
+[target_vision-3] VISION PERF read=16.9ms detect=169.6ms/detect post=2.7ms display=13.5ms
+[target_vision-3] CHASSIS RX 95,27454,18,0,6,5077,0,1428,10488,45750,-9710,9812,-9710,9710,0,0
+[target_vision-3] CHASSIS RX 96,27704,18,0,1,5504,0,1768,10488,45875,-12760,12760,-12760,12760,0,0
+[target_vision-3] CHASSIS RX 97,27954,18,0,10,5855,0,1068,10488,45875,-7982,7982,-7982,7982,0,0
+[target_vision-3] CHASSIS RX 98,28204,18,0,-2,6043,0,546,10488,45875,-4118,4118,-4118,4118,0,0
+[target_vision-3] CHASSIS RX 99,28454,18,0,-2,6147,0,313,10488,45875,-2389,2389,-2389,2389,0,0
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS RX 100,28704,18,0,-9,6206,0,181,10488,45875,-1373,1373,-1373,1373,0,0
+[target_vision-3] CHASSIS RX 101,28954,18,0,1,6240,0,103,10488,45750,-763,763,-763,763,0,0
+[target_vision-3] CHASSIS RX 102,29204,18,0,2,6260,0,58,10488,45750,-458,458,-458,458,0,0
+[target_vision-3] CHASSIS RX 103,29454,18,0,4,6271,0,33,10488,45750,-356,356,-356,356,0,0
+[target_vision-3] CHASSIS RX 104,64625,7,8,3,6271,0,32,10488,45750,0,0,0,0,0,0
+[target_vision-3] CHASSIS RX LOG,END
+[target_vision-3] VISION PERF read=16.8ms detect=166.2ms/detect post=2.8ms display=13.5ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] VISION PERF read=16.3ms detect=169.1ms/detect post=2.8ms display=14.1ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=15.5ms detect=172.0ms/detect post=2.8ms display=15.0ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] VISION PERF read=15.0ms detect=183.0ms/detect post=3.0ms display=15.1ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=15.3ms detect=181.2ms/detect post=2.8ms display=14.9ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=14.7ms detect=186.9ms/detect post=2.6ms display=15.9ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=14.9ms detect=189.0ms/detect post=2.8ms display=15.4ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=15.2ms detect=192.1ms/detect post=3.0ms display=15.1ms
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] VISION PERF read=14.8ms detect=187.5ms/detect post=2.7ms display=15.7ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=14.4ms detect=193.5ms/detect post=2.6ms display=16.1ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=14.0ms detect=190.3ms/detect post=2.9ms display=16.3ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=13.8ms detect=198.9ms/detect post=2.9ms display=16.3ms
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] Shutdown signal 2 received.
+[target_vision-3] SHUTDOWN CONTRACT ID1=480 ID2=10 ID4=800 ID5=800 ID6=500 ID7=1120
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 01 07 01 E0 01 58 02 BB
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 02 07 01 0A 00 58 02 91
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 06 07 01 F4 01 58 02 A2
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#004P0800T1500!
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#005P0800T0350!
+[INFO] [target_vision-3]: process has finished cleanly [pid 40113]
+[INFO] [launch]: process[target_vision-3] was required: shutting down launched system
+[INFO] [rviz2-4]: sending signal 'SIGINT' to process[rviz2-4]
+[INFO] [robot_state_publisher-2]: sending signal 'SIGINT' to process[robot_state_publisher-2]
+[rviz2-4] [INFO] [1785507578.729411244] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[robot_state_publisher-2] [INFO] [1785507578.732837075] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[INFO] [robot_state_publisher-2]: process has finished cleanly [pid 40099]
+[INFO] [rviz2-4]: process has finished cleanly [pid 40115]
+==== 2026-07-31 22:20:59 start chassis arm link rk direct ====
+camera=/dev/video20 display=:0
+rk direct ports: arm85=/dev/ttyS9 zp=/dev/ttyS0 arm_time_ms=600 zp_time_ms=350
+target color=red kind=any execute=true
+[INFO] [launch]: All log files can be found below /home/cat/.ros/log/2026-07-31-22-21-01-356253-lubancat-41279
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [bash-1]: process started with pid [41304]
+[INFO] [robot_state_publisher-2]: process started with pid [41306]
+[INFO] [bash-1]: process has finished cleanly [pid 41304]
+[robot_state_publisher-2] [INFO] [1785507661.515556648] [robot_state_publisher]: got segment base_link
+[robot_state_publisher-2] [INFO] [1785507661.515732518] [robot_state_publisher]: got segment base_mount
+[robot_state_publisher-2] [INFO] [1785507661.515747393] [robot_state_publisher]: got segment blue_active_bar
+[robot_state_publisher-2] [INFO] [1785507661.515756726] [robot_state_publisher]: got segment blue_upper_bar
+[robot_state_publisher-2] [INFO] [1785507661.515765184] [robot_state_publisher]: got segment end_effector
+[robot_state_publisher-2] [INFO] [1785507661.515772767] [robot_state_publisher]: got segment extension_bar
+[robot_state_publisher-2] [INFO] [1785507661.515780351] [robot_state_publisher]: got segment extension_tip
+[robot_state_publisher-2] [INFO] [1785507661.515787934] [robot_state_publisher]: got segment gripper_finger_left
+[robot_state_publisher-2] [INFO] [1785507661.515795517] [robot_state_publisher]: got segment gripper_finger_right
+[robot_state_publisher-2] [INFO] [1785507661.515803100] [robot_state_publisher]: got segment orange_active_bar
+[robot_state_publisher-2] [INFO] [1785507661.515810683] [robot_state_publisher]: got segment orange_upper_bar
+[robot_state_publisher-2] [INFO] [1785507661.515817975] [robot_state_publisher]: got segment square_platform
+[INFO] [target_vision-3]: process started with pid [41320]
+[INFO] [rviz2-4]: process started with pid [41322]
+[rviz2-4] [INFO] [1785507663.331228807] [rviz2]: Stereo is NOT SUPPORTED
+[rviz2-4] [INFO] [1785507663.331459218] [rviz2]: OpenGl version: 3.3 (GLSL 3.3)
+[rviz2-4] [INFO] [1785507663.364518227] [rviz2]: Stereo is NOT SUPPORTED
+[target_vision-3] arm preview publishing /joint_states, /arm/grasp_status, and target markers
+[target_vision-3] direct bus servo bridge arm=/dev/ttyS9 zp=/dev/ttyS0 zp_time=350ms splitter_time=1500ms arm_multi=immediate
+[target_vision-3] CHASSIS LINK open /dev/ttyACM0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] SHUTDOWN CONTRACT ID1=480 ID2=10 ID4=800 ID5=800 ID6=500 ID7=1120
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 01 07 01 E0 01 58 02 BB
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 02 07 01 0A 00 58 02 91
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 06 07 01 F4 01 58 02 A2
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#004P0800T1500!
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#005P0800T0350!
+[target_vision-3] CHASSIS LINK startup home requested: shutdown contracted: direct TX ID1=480,ID2=10,ID6=500,ID7=1120,ID4=800,ID5=800
+[target_vision-3] Camera: /dev/video20 800x600 reported_fps=30.0
+[target_vision-3] Press q or Esc in the preview window to quit.
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=19.7ms detect=119.6ms/detect post=2.4ms display=10.5ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=19.4ms detect=122.9ms/detect post=2.7ms display=11.1ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS LINK write failed: [Errno 5] 输入/输出错误
+[target_vision-3] SHUTDOWN CONTRACT ID1=480 ID2=10 ID4=800 ID5=800 ID6=500 ID7=1120
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 01 07 01 E0 01 58 02 BB
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 02 07 01 0A 00 58 02 91
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 06 07 01 F4 01 58 02 A2
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#004P0800T1500!
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#005P0800T0350!
+[target_vision-3] Traceback (most recent call last):
+[target_vision-3]   File "/home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1/target_vision", line 33, in <module>
+[target_vision-3]     sys.exit(load_entry_point('ros2-test1', 'console_scripts', 'target_vision')())
+[target_vision-3]   File "/home/cat/ros2_ws/build/ros2_test1/ros2_test1/target_vision.py", line 5300, in main
+[target_vision-3]     for station in chassis_link.update():
+[target_vision-3]   File "/home/cat/ros2_ws/build/ros2_test1/ros2_test1/target_vision.py", line 790, in update
+[target_vision-3]     readable, _, _ = select.select([self.fd], [], [], 0.0)
+[target_vision-3] TypeError: argument must be an int, or have a fileno() method.
+[ERROR] [target_vision-3]: process has died [pid 41320, exit code 1, cmd '/home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1/target_vision --enable-red-square-grasp --enable-arm-preview --no-web --width 800 --height 600 --fps 30 --detect-every-n-frames 1 --detection-scale 0.75 --window-x 0 --window-y 60 --window-width 620 --window-height 520 --preview-id1 550 --preview-id2 300 --grasp-id1-ready 550 --grasp-id2-ready 300 --grasp-center-deadband-px 30 --trigger-kind any --trigger-color red --preview-id4 1120 --preview-id6 500 --grasp-id4-closed 1120 --grasp-id4-open 1700 --servo-angle-gap-deg 20 --grasp-command-interval 0.18 --grasp-stable-frames 4 --grasp-id2-pixel-gain 0.13 --grasp-id6-pixel-gain 0.11 --grasp-id6-max-step-ticks 18 --grasp-id1-pixel-gain-y 0 --grasp-max-step-ticks 28 --post-center-retreat-mm 52 --post-center-down-mm 150 --direct-servo-bus --direct-arm-uart /dev/ttyS9 --direct-zp-uart /dev/ttyS0 --direct-arm-time-ms 600 --direct-zp-time-ms 350 --direct-splitter-time-ms 1500 --post-center-direct-descend --qr-template-every 1 --grasp-retrigger-cooldown 1.2 --detection-smoothing-alpha 1.0 --detection-smoothing-match-px 90 --fresh-detection-on-lock --grasp-id2-center-max 464 --skip-grasp-startup-sequence --chassis-home-on-start --chassis-link --chassis-uart auto --station-no-target-timeout 2.0 --ros-args -r __node:=red_square_chassis_rk_direct_vision'].
+[INFO] [launch]: process[target_vision-3] was required: shutting down launched system
+[INFO] [rviz2-4]: sending signal 'SIGINT' to process[rviz2-4]
+[INFO] [robot_state_publisher-2]: sending signal 'SIGINT' to process[robot_state_publisher-2]
+[rviz2-4] [INFO] [1785507678.650411834] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[robot_state_publisher-2] [INFO] [1785507678.651367602] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[INFO] [robot_state_publisher-2]: process has finished cleanly [pid 41306]
+[INFO] [rviz2-4]: process has finished cleanly [pid 41322]
+==== 2026-07-31 22:22:57 start chassis arm link rk direct ====
+camera=/dev/video20 display=:0
+rk direct ports: arm85=/dev/ttyS9 zp=/dev/ttyS0 arm_time_ms=600 zp_time_ms=350
+target color=red kind=any execute=true
+[INFO] [launch]: All log files can be found below /home/cat/.ros/log/2026-07-31-22-22-59-524613-lubancat-41831
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [bash-1]: process started with pid [41856]
+[INFO] [robot_state_publisher-2]: process started with pid [41858]
+[INFO] [bash-1]: process has finished cleanly [pid 41856]
+[robot_state_publisher-2] [INFO] [1785507779.686753821] [robot_state_publisher]: got segment base_link
+[robot_state_publisher-2] [INFO] [1785507779.686932608] [robot_state_publisher]: got segment base_mount
+[robot_state_publisher-2] [INFO] [1785507779.686948358] [robot_state_publisher]: got segment blue_active_bar
+[robot_state_publisher-2] [INFO] [1785507779.686958274] [robot_state_publisher]: got segment blue_upper_bar
+[robot_state_publisher-2] [INFO] [1785507779.686965858] [robot_state_publisher]: got segment end_effector
+[robot_state_publisher-2] [INFO] [1785507779.686972566] [robot_state_publisher]: got segment extension_bar
+[robot_state_publisher-2] [INFO] [1785507779.686979857] [robot_state_publisher]: got segment extension_tip
+[robot_state_publisher-2] [INFO] [1785507779.686986565] [robot_state_publisher]: got segment gripper_finger_left
+[robot_state_publisher-2] [INFO] [1785507779.686993565] [robot_state_publisher]: got segment gripper_finger_right
+[robot_state_publisher-2] [INFO] [1785507779.687000857] [robot_state_publisher]: got segment orange_active_bar
+[robot_state_publisher-2] [INFO] [1785507779.687007565] [robot_state_publisher]: got segment orange_upper_bar
+[robot_state_publisher-2] [INFO] [1785507779.687014273] [robot_state_publisher]: got segment square_platform
+[INFO] [target_vision-3]: process started with pid [41872]
+[INFO] [rviz2-4]: process started with pid [41874]
+[rviz2-4] [INFO] [1785507781.518565515] [rviz2]: Stereo is NOT SUPPORTED
+[rviz2-4] [INFO] [1785507781.518791842] [rviz2]: OpenGl version: 3.3 (GLSL 3.3)
+[rviz2-4] [INFO] [1785507781.552664294] [rviz2]: Stereo is NOT SUPPORTED
+[target_vision-3] arm preview publishing /joint_states, /arm/grasp_status, and target markers
+[target_vision-3] direct bus servo bridge arm=/dev/ttyS9 zp=/dev/ttyS0 zp_time=350ms splitter_time=1500ms arm_multi=immediate
+[target_vision-3] CHASSIS LINK open /dev/ttyACM0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] SHUTDOWN CONTRACT ID1=480 ID2=10 ID4=800 ID5=800 ID6=500 ID7=1120
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 01 07 01 E0 01 58 02 BB
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 02 07 01 0A 00 58 02 91
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 06 07 01 F4 01 58 02 A2
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#004P0800T1500!
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#005P0800T0350!
+[target_vision-3] CHASSIS LINK startup home requested: shutdown contracted: direct TX ID1=480,ID2=10,ID6=500,ID7=1120,ID4=800,ID5=800
+[target_vision-3] Camera: /dev/video20 800x600 reported_fps=30.0
+[target_vision-3] Press q or Esc in the preview window to quit.
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=19.4ms detect=119.8ms/detect post=2.7ms display=10.4ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS LINK disconnected
+[target_vision-3] VISION PERF read=19.4ms detect=119.9ms/detect post=2.8ms display=10.9ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] CHASSIS LINK open /dev/ttyACM0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=18.3ms detect=126.7ms/detect post=3.0ms display=11.6ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS RX H7,ARM,DISC_CATCH,WAIT_RK
+[target_vision-3] CHASSIS RX ARM,DISC_CATCH,START
+[target_vision-3] CHASSIS station DISC_CATCH active
+[target_vision-3] CHASSIS TX RK,ARM,DISC_CATCH,ACK
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 01 07 01 58 02 58 02 42
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 02 07 01 5E 01 58 02 3C
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 06 07 01 F4 01 58 02 A2
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#004P0800T1500!
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#005P0800T0350!
+[target_vision-3] CHASSIS STATION DISC_CATCH READY DISC_CATCH ready ID1=600 ID2=350 ID4=800 ID5=800 ID6=500 ID7=1120 | direct TX ID1=600,ID2=350,ID6=500,ID7=1120,ID4=800,ID5=800
+[target_vision-3] CHASSIS STATION DISC_CATCH STARTED | DISC_CATCH ready ID1=600 ID2=350 ID4=800 ID5=800 ID6=500 ID7=1120 | direct TX ID1=600,ID2=350,ID6=500,ID7=1120,ID4=800,ID5=800
+[target_vision-3] CHASSIS RX H7,ARM,DISC_CATCH,ACK
+[target_vision-3] VISION PERF read=17.8ms detect=129.8ms/detect post=3.0ms display=12.1ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 01 07 01 08 02 58 02 92
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 02 07 01 5E 01 58 02 3C
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 06 07 01 F4 01 58 02 A2
+[target_vision-3] CHASSIS STATION DISC_CATCH DESCEND DISC_CATCH descend ID1=520 ID2=350 ID6=500 | direct TX ID1=520,ID2=350,ID6=500
+[target_vision-3] CHASSIS STATION DISC_CATCH red ball detected; open ID7 once
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH open ID7 once ID1=520 ID2=350 ID6=500 ID7=1120->1700
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1700T0350!
+[target_vision-3] SHUTDOWN CONTRACT ID1=480 ID2=10 ID4=800 ID5=800 ID6=500 ID7=1120
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 01 07 01 E0 01 58 02 BB
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 02 07 01 0A 00 58 02 91
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 06 07 01 F4 01 58 02 A2
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#004P0800T1500!
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#005P0800T0350!
+[target_vision-3] CHASSIS TX RK,ARM,DISC_CATCH,DONE,DISC_CATCH_DONE
+[target_vision-3] CHASSIS station DISC_CATCH done: DISC_CATCH_DONE
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS RX H7,ARM,DISC_CATCH,DONE
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=17.1ms detect=138.7ms/detect post=8.9ms display=12.2ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=17.7ms detect=131.1ms/detect post=3.3ms display=12.1ms
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=17.2ms detect=134.4ms/detect post=3.0ms display=13.0ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS RX H7,ARM,PLATFORM_PICK,WAIT_RK
+[target_vision-3] CHASSIS RX ARM,PLATFORM_PICK,START
+[target_vision-3] CHASSIS station PLATFORM_PICK active
+[target_vision-3] CHASSIS TX RK,ARM,PLATFORM_PICK,ACK
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 01 07 01 26 02 58 02 74
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 02 07 01 2C 01 58 02 6E
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 06 07 01 F4 01 58 02 A2
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#004P0800T1500!
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#005P0800T0350!
+[target_vision-3] CHASSIS STATION PLATFORM_PICK READY chassis station PLATFORM_PICK ready ID1=550 ID2=300 ID4=800 ID5=800 ID6=500 ID7=1120 | direct TX ID1=550,ID2=300,ID6=500,ID7=1120,ID4=800,ID5=800
+[target_vision-3] CHASSIS STATION PLATFORM_PICK STARTED | chassis station PLATFORM_PICK ready ID1=550 ID2=300 ID4=800 ID5=800 ID6=500 ID7=1120 | direct TX ID1=550,ID2=300,ID6=500,ID7=1120,ID4=800,ID5=800
+[target_vision-3] CHASSIS RX H7,ARM,PLATFORM_PICK,ACK
+[target_vision-3] CENTER COMMAND reason=centering target dx=-283 dy=3 axis=ID6 dID2=0 dID6=18 centerStep=1 decay=1.00 ID2=300 ID6=518
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 06 07 01 06 02 58 02 8F
+[target_vision-3] GRASP COMMAND reason=searching red target; slow expand ID1=550 ID2=300 ID6=500 ID7=1120 gap=122.9deg
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 01 07 01 26 02 58 02 74
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 02 07 01 2C 01 58 02 6E
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 06 07 01 F4 01 58 02 A2
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] CENTER COMMAND reason=centering target dx=-216 dy=84 axis=ID2+ID6 vector r=232px dID2=-12 dID6=18 centerStep=1 decay=1.00 ID2=288 ID6=518
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 02 07 01 20 01 58 02 7A
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 06 07 01 06 02 58 02 8F
+[target_vision-3] CENTER COMMAND reason=centering target dx=95 dy=63 axis=ID2+ID6 vector r=114px dID2=-8 dID6=-11 centerStep=2 decay=0.84 ID2=280 ID6=507
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 02 07 01 18 01 58 02 82
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 06 07 01 FB 01 58 02 9B
+[target_vision-3] CENTER COMMAND reason=centering target dx=97 dy=95 axis=ID2+ID6 vector r=136px dID2=-12 dID6=-11 centerStep=3 decay=0.71 ID2=268 ID6=496
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 02 07 01 0C 01 58 02 8E
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 06 07 01 F0 01 58 02 A6
+[target_vision-3] VISION PERF read=13.9ms detect=178.6ms/detect post=3.8ms display=15.1ms
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] VISION PERF read=15.4ms detect=179.8ms/detect post=3.1ms display=14.6ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=14.1ms detect=187.7ms/detect post=3.4ms display=15.5ms
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] VISION PERF read=14.2ms detect=191.2ms/detect post=3.4ms display=15.4ms
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] VISION PERF read=13.9ms detect=188.3ms/detect post=3.8ms display=15.3ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=13.8ms detect=191.8ms/detect post=3.4ms display=15.9ms
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] VISION PERF read=13.7ms detect=191.3ms/detect post=3.4ms display=16.0ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS RX H7,ARM,PLATFORM_PICK,TIMEOUT
+[target_vision-3] CHASSIS RX LOG,BEGIN,slot=2,seq=36,count=82,state=7,fault=8,period_ms=250
+[target_vision-3] CHASSIS RX index,time_ms,state,fault,gyro_mrad_s,yaw_mrad,speed_mm_s,correction_mrad_s,distance_mm,temp_mC,fl_mrad_s,fr_mrad_s,rl_mrad_s,rr_mrad_s,can_tx_errors,can_bus_offs
+[target_vision-3] CHASSIS RX 0,2708,4,0,4,0,14,-1,0,47125,-51,51,-51,51,0,0
+[target_vision-3] CHASSIS RX 1,2958,4,0,-7,0,364,2,44,47125,-7067,7067,6965,-6965,0,0
+[target_vision-3] CHASSIS RX 2,3208,4,0,5,0,714,1,178,47125,-14286,14387,14286,-14184,0,0
+[target_vision-3] CHASSIS RX 3,3458,4,0,3,-1,992,2,404,47125,-21301,21301,21200,-21200,0,0
+[target_vision-3] CHASSIS RX 4,3708,4,0,-6,-1,642,3,622,47250,-13981,13981,13879,-13879,0,0
+[target_vision-3] CHASSIS RX 5,4078,8,0,17,-1,14,-3,746,47250,-4321,4423,4118,-4931,0,0
+[target_vision-3] CHASSIS RX 6,4328,8,0,3,-1,364,-1,790,47250,-7067,-6965,-7067,-6965,0,0
+[target_vision-3] CHASSIS RX 7,4578,8,0,5,0,714,-3,925,47250,-14286,-14286,-14286,-14286,0,0
+[target_vision-3] CHASSIS RX 8,4828,8,0,-1,0,1064,-3,1150,47250,-21606,-21505,-21606,-21606,0,0
+[target_vision-3] CHASSIS RX 9,5078,8,0,20,1,1414,-8,1467,47250,-28927,-28825,-28927,-28825,0,0
+[target_vision-3] CHASSIS RX 10,5328,8,0,5,1,1764,-5,1875,47250,-36146,-36146,-36146,-36146,0,0
+[target_vision-3] CHASSIS RX 11,5578,8,0,21,1,2114,-8,2375,47250,-43467,-43467,-43467,-43467,0,0
+[target_vision-3] CHASSIS RX 12,5828,8,0,4,1,2200,-6,2943,47250,-45805,-45805,-45805,-45805,0,0
+[target_vision-3] CHASSIS RX 13,6078,8,0,6,0,1909,-4,3488,47250,-40416,-40315,-40315,-40315,0,0
+[target_vision-3] CHASSIS RX 14,6328,8,0,8,-2,1559,1,3945,47250,-33096,-32994,-33096,-32994,0,0
+[target_vision-3] CHASSIS RX 15,6578,8,0,16,-1,1209,-1,4311,47250,-25775,-25673,-25775,-25673,0,0
+[target_vision-3] CHASSIS RX 16,6828,8,0,5,-2,859,1,4585,47250,-18556,-18454,-18556,-18454,0,0
+[target_vision-3] CHASSIS RX 17,7168,9,0,-3,-2,0,28,4746,47250,-9710,-9608,-9710,-10422,0,0
+[target_vision-3] CHASSIS RX 18,7418,9,0,-4,96,0,728,4746,47250,-4830,4830,-4830,4830,0,0
+[target_vision-3] CHASSIS RX 19,7668,9,0,4,369,0,1428,4746,47250,-9710,9710,-9812,9812,0,0
+[target_vision-3] CHASSIS RX 20,7918,9,0,-20,796,0,1770,4746,47250,-12760,12760,-12760,12760,0,0
+[target_vision-3] CHASSIS RX 21,8168,9,0,10,1148,0,1070,4746,47250,-8083,8083,-7982,7982,0,0
+[target_vision-3] CHASSIS RX 22,8418,9,0,5,1335,0,544,4746,47250,-4118,4016,-4118,4016,0,0
+[target_vision-3] CHASSIS RX 23,8668,9,0,7,1439,0,311,4746,47125,-2389,2389,-2389,2389,0,0
+[target_vision-3] CHASSIS RX 24,8918,9,0,3,1498,0,179,4746,47125,-1373,1373,-1373,1373,0,0
+[target_vision-3] CHASSIS RX 25,9168,9,0,17,1532,0,99,4746,47125,-763,763,-763,763,0,0
+[target_vision-3] CHASSIS RX 26,9418,9,0,0,1551,0,59,4746,47125,-458,458,-458,458,0,0
+[target_vision-3] CHASSIS RX 27,9668,9,0,7,1563,0,32,4746,47125,-254,254,-254,254,0,0
+[target_vision-3] CHASSIS RX 28,12595,10,0,3,1563,0,28,4746,47125,-51,51,-51,51,0,0
+[target_vision-3] CHASSIS RX 29,12845,10,0,10,1661,0,728,4746,47125,-4830,4830,-4830,4830,0,0
+[target_vision-3] CHASSIS RX 30,13095,10,0,4,1934,0,1428,4746,47125,-9710,9812,-9710,9812,0,0
+[target_vision-3] CHASSIS RX 31,13345,10,0,4,2361,0,1800,4746,47125,-12760,12760,-12760,12760,0,0
+[target_vision-3] CHASSIS RX 32,13595,10,0,-5,2811,0,1800,4746,47125,-12862,12760,-12760,12760,0,0
+[target_vision-3] CHASSIS RX 33,13845,10,0,0,3261,0,1800,4746,47125,-12760,12760,-12760,12760,0,0
+[target_vision-3] CHASSIS RX 34,14095,10,0,-3,3711,0,1800,4746,47125,-12760,12760,-12760,12760,0,0
+[target_vision-3] CHASSIS RX 35,14345,10,0,6,4134,0,1423,4746,47125,-10524,10524,-10524,10524,0,0
+[target_vision-3] CHASSIS RX 36,14595,10,0,-5,4399,0,728,4746,47125,-5541,5541,-5541,5643,0,0
+[target_vision-3] CHASSIS RX 37,14845,10,0,-3,4537,0,418,4746,47125,-3101,3101,-3101,3203,0,0
+[target_vision-3] CHASSIS RX 38,15095,10,0,12,4616,0,237,4746,47125,-1779,1779,-1779,1779,0,0
+[target_vision-3] CHASSIS RX 39,15345,10,0,0,4661,0,137,4746,47125,-1068,1068,-1068,1068,0,0
+[target_vision-3] CHASSIS RX 40,15595,10,0,-4,4687,0,80,4746,47125,-661,661,-661,661,0,0
+[target_vision-3] CHASSIS RX 41,15845,10,0,-4,4702,0,46,4746,47125,-356,356,-356,356,0,0
+[target_vision-3] CHASSIS RX 42,16115,11,0,-5,4707,14,1,4746,47125,-51,51,-51,51,0,0
+[target_vision-3] CHASSIS RX 43,16365,11,0,-15,4708,364,1,4789,47250,-7067,-6965,-7067,-6965,0,0
+[target_vision-3] CHASSIS RX 44,16615,11,0,-6,4708,714,-1,4924,47250,-14286,-14286,-14286,-14286,0,0
+[target_vision-3] CHASSIS RX 45,16865,11,0,-2,4708,1064,-2,5150,47250,-21606,-21505,-21606,-21505,0,0
+[target_vision-3] CHASSIS RX 46,17115,11,0,7,4708,1414,-3,5467,47250,-28927,-28825,-28927,-28825,0,0
+[target_vision-3] CHASSIS RX 47,17365,11,0,-3,4707,1140,1,5812,47250,-24352,-24250,-24352,-24250,0,0
+[target_vision-3] CHASSIS RX 48,17615,11,0,-2,4707,790,1,6069,47250,-17133,-16929,-17133,-17031,0,0
+[target_vision-3] CHASSIS RX 49,17865,11,0,-7,4707,440,4,6235,47250,-9812,-9608,-9812,-9710,0,0
+[target_vision-3] CHASSIS RX 50,18015,12,0,14,4706,0,-28,6244,47250,-6558,-6456,-6558,-7270,0,0
+[target_vision-3] CHASSIS RX 51,18265,12,0,1,4608,0,-728,6244,47250,4728,-4728,4728,-4728,0,0
+[target_vision-3] CHASSIS RX 52,18515,12,0,-1,4335,0,-1428,6244,47250,9710,-9608,9710,-9710,0,0
+[target_vision-3] CHASSIS RX 53,18765,12,0,5,3909,0,-1769,6244,47250,12659,-12659,12659,-12659,0,0
+[target_vision-3] CHASSIS RX 54,19015,12,0,0,3557,0,-1069,6244,47125,7982,-7880,7982,-7880,0,0
+[target_vision-3] CHASSIS RX 55,19265,12,0,13,3370,0,-548,6244,47125,4016,-4016,4016,-4016,0,0
+[target_vision-3] CHASSIS RX 56,19515,12,0,1,3266,0,-313,6244,47125,2288,-2288,2288,-2186,0,0
+[target_vision-3] CHASSIS RX 57,19765,12,0,3,3207,0,-180,6244,47125,1271,-1271,1271,-1271,0,0
+[target_vision-3] CHASSIS RX 58,20015,12,0,-11,3173,0,-101,6244,47125,763,-763,763,-763,0,0
+[target_vision-3] CHASSIS RX 59,20265,12,0,-6,3153,0,-58,6244,47125,356,-356,356,-356,0,0
+[target_vision-3] CHASSIS RX 60,20515,12,0,1,3142,0,-34,6244,47125,153,-153,153,-153,0,0
+[target_vision-3] CHASSIS RX 61,20655,13,0,-3,3142,14,0,6244,47125,-51,51,-51,51,0,0
+[target_vision-3] CHASSIS RX 62,20905,13,0,0,3142,364,-1,6288,47125,-7067,-6965,-7067,-6965,0,0
+[target_vision-3] CHASSIS RX 63,21155,13,0,4,3142,714,-1,6422,47125,-14286,-14184,-14387,-14286,0,0
+[target_vision-3] CHASSIS RX 64,21405,13,0,12,3142,1064,-2,6648,47250,-21606,-21505,-21606,-21505,0,0
+[target_vision-3] CHASSIS RX 65,21655,13,0,-7,3141,1414,2,6965,47250,-28927,-28825,-28927,-28825,0,0
+[target_vision-3] CHASSIS RX 66,21905,13,0,17,3142,1764,-3,7373,47250,-36248,-36146,-36146,-36146,0,0
+[target_vision-3] CHASSIS RX 67,22155,13,0,11,3142,1474,-3,7806,47250,-31367,-31164,-31367,-31164,0,0
+[target_vision-3] CHASSIS RX 68,22405,13,0,-1,3141,1124,1,8149,47250,-24047,-23945,-24047,-23945,0,0
+[target_vision-3] CHASSIS RX 69,22655,13,0,1,3141,774,1,8402,47250,-16827,-16624,-16827,-16624,0,0
+[target_vision-3] CHASSIS RX 70,22995,14,0,10,3141,0,28,8544,47250,-7880,-7880,-7880,-8592,0,0
+[target_vision-3] CHASSIS RX 71,23245,14,0,-2,3239,0,728,8544,47250,-4830,4830,-4830,4728,0,0
+[target_vision-3] CHASSIS RX 72,23495,14,0,4,3512,0,1428,8544,47250,-9710,9710,-9710,9812,0,0
+[target_vision-3] CHASSIS RX 73,23745,14,0,4,3939,0,1771,8544,47250,-12862,12760,-12760,12760,0,0
+[target_vision-3] CHASSIS RX 74,23995,14,0,-2,4291,0,1071,8544,47125,-8083,8083,-8083,7982,0,0
+[target_vision-3] CHASSIS RX 75,24245,14,0,6,4479,0,543,8544,47125,-4118,4118,-4118,4118,0,0
+[target_vision-3] CHASSIS RX 76,24495,14,0,-11,4582,0,314,8544,47125,-2389,2389,-2389,2389,0,0
+[target_vision-3] CHASSIS RX 77,24745,14,0,9,4641,0,177,8544,47125,-1373,1373,-1373,1373,0,0
+[target_vision-3] CHASSIS RX 78,24995,14,0,3,4675,0,102,8544,47125,-763,763,-763,763,0,0
+[target_vision-3] CHASSIS RX 79,25245,14,0,6,4695,0,58,8544,47125,-458,458,-458,458,0,0
+[target_vision-3] CHASSIS RX 80,25495,14,0,5,4706,0,33,8544,47125,-356,356,-356,356,0,0
+[target_vision-3] CHASSIS RX 81,60666,7,8,-3,4706,0,34,8544,47125,0,0,0,0,0,0
+[target_vision-3] CHASSIS RX LOG,END
+[target_vision-3] VISION PERF read=13.3ms detect=194.2ms/detect post=3.3ms display=16.3ms
+[target_vision-3] VISION FPS=29.7
+[target_vision-3] VISION PERF read=12.7ms detect=196.7ms/detect post=3.8ms display=16.8ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] VISION PERF read=12.9ms detect=200.3ms/detect post=3.3ms display=16.7ms
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] VISION PERF read=12.4ms detect=200.2ms/detect post=3.6ms display=17.1ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] VISION PERF read=12.1ms detect=209.0ms/detect post=3.6ms display=17.4ms
+[target_vision-3] VISION FPS=29.5
+[target_vision-3] VISION PERF read=11.0ms detect=212.4ms/detect post=4.2ms display=17.9ms
+[target_vision-3] VISION FPS=29.8
+[target_vision-3] VISION PERF read=11.0ms detect=217.5ms/detect post=3.9ms display=18.1ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] VISION PERF read=11.9ms detect=215.5ms/detect post=3.4ms display=17.8ms
+[target_vision-3] VISION FPS=29.7
+[target_vision-3] VISION PERF read=12.5ms detect=210.2ms/detect post=3.5ms display=17.1ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=11.2ms detect=224.0ms/detect post=3.6ms display=18.2ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] VISION PERF read=9.3ms detect=225.0ms/detect post=4.2ms display=19.7ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=10.1ms detect=223.9ms/detect post=3.7ms display=19.2ms
+[target_vision-3] VISION FPS=31.0
+[target_vision-3] VISION PERF read=10.2ms detect=225.1ms/detect post=3.6ms display=19.3ms
+[target_vision-3] VISION FPS=29.5
+[target_vision-3] VISION PERF read=9.9ms detect=227.9ms/detect post=3.9ms display=19.1ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=10.8ms detect=222.2ms/detect post=3.9ms display=18.3ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=10.4ms detect=236.8ms/detect post=3.8ms display=19.0ms
+[target_vision-3] VISION FPS=29.7
+[target_vision-3] VISION PERF read=9.4ms detect=227.0ms/detect post=4.0ms display=19.5ms
+[target_vision-3] VISION FPS=28.9
+[target_vision-3] VISION PERF read=8.9ms detect=233.2ms/detect post=3.5ms display=20.7ms
+[target_vision-3] VISION FPS=29.7
+[target_vision-3] VISION PERF read=9.1ms detect=231.4ms/detect post=3.8ms display=20.0ms
+[target_vision-3] VISION FPS=29.2
+[target_vision-3] VISION PERF read=9.0ms detect=228.6ms/detect post=3.7ms display=20.4ms
+[target_vision-3] VISION FPS=29.4
+[target_vision-3] VISION PERF read=9.0ms detect=233.5ms/detect post=3.8ms display=20.3ms
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] VISION PERF read=8.3ms detect=231.7ms/detect post=4.0ms display=20.9ms
+[target_vision-3] VISION FPS=30.4
+[target_vision-3] VISION PERF read=8.1ms detect=237.5ms/detect post=4.1ms display=21.1ms
+[target_vision-3] VISION FPS=29.8
+[target_vision-3] VISION PERF read=8.4ms detect=236.5ms/detect post=4.1ms display=20.4ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] VISION PERF read=8.9ms detect=234.3ms/detect post=4.0ms display=20.2ms
+[target_vision-3] VISION FPS=30.3
+[target_vision-3] VISION PERF read=8.5ms detect=233.7ms/detect post=3.5ms display=21.3ms
+[target_vision-3] VISION FPS=29.5
+[target_vision-3] VISION PERF read=8.2ms detect=236.6ms/detect post=3.7ms display=21.0ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=8.2ms detect=247.5ms/detect post=3.9ms display=22.4ms
+[target_vision-3] VISION FPS=27.9
+[target_vision-3] VISION PERF read=8.3ms detect=253.8ms/detect post=4.1ms display=22.6ms
+[target_vision-3] VISION FPS=28.7
+[target_vision-3] VISION PERF read=8.2ms detect=269.7ms/detect post=3.8ms display=21.7ms
+[target_vision-3] VISION FPS=31.4
+[target_vision-3] VISION PERF read=8.9ms detect=233.7ms/detect post=3.8ms display=20.4ms
+[target_vision-3] VISION FPS=29.8
+[target_vision-3] VISION PERF read=8.5ms detect=231.9ms/detect post=4.1ms display=20.6ms
+[target_vision-3] VISION FPS=30.5
+[target_vision-3] VISION PERF read=8.6ms detect=243.8ms/detect post=3.9ms display=20.7ms
+[target_vision-3] VISION FPS=29.1
+[target_vision-3] VISION PERF read=8.6ms detect=240.1ms/detect post=3.9ms display=20.4ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=8.5ms detect=241.1ms/detect post=3.8ms display=21.0ms
+[target_vision-3] VISION FPS=29.5
+[target_vision-3] VISION PERF read=8.3ms detect=240.1ms/detect post=3.8ms display=21.0ms
+[target_vision-3] VISION FPS=29.0
+[target_vision-3] VISION PERF read=8.0ms detect=238.1ms/detect post=3.9ms display=21.1ms
+[target_vision-3] VISION FPS=30.3
+[target_vision-3] VISION PERF read=8.3ms detect=254.6ms/detect post=3.6ms display=22.9ms
+[target_vision-3] VISION FPS=27.4
+[target_vision-3] VISION PERF read=8.7ms detect=269.1ms/detect post=4.3ms display=24.2ms
+[target_vision-3] VISION FPS=26.3
+[target_vision-3] VISION PERF read=8.4ms detect=259.1ms/detect post=4.4ms display=22.9ms
+[target_vision-3] VISION FPS=28.3
+[target_vision-3] VISION PERF read=10.2ms detect=230.0ms/detect post=3.9ms display=19.7ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=14.7ms detect=193.1ms/detect post=3.0ms display=15.3ms
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] VISION PERF read=15.1ms detect=193.5ms/detect post=3.1ms display=15.0ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] VISION PERF read=14.9ms detect=189.8ms/detect post=3.1ms display=15.1ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] VISION PERF read=14.6ms detect=191.0ms/detect post=3.2ms display=15.4ms
+[target_vision-3] VISION FPS=29.8
+[target_vision-3] VISION PERF read=13.4ms detect=198.3ms/detect post=3.5ms display=16.3ms
+[target_vision-3] VISION FPS=30.4
+[target_vision-3] VISION PERF read=13.9ms detect=196.5ms/detect post=3.5ms display=15.8ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] VISION PERF read=13.3ms detect=200.5ms/detect post=3.5ms display=16.4ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] VISION PERF read=12.8ms detect=204.8ms/detect post=3.3ms display=17.0ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] VISION PERF read=11.8ms detect=212.2ms/detect post=3.5ms display=17.8ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] VISION PERF read=11.6ms detect=213.0ms/detect post=3.8ms display=17.8ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] VISION PERF read=12.4ms detect=210.9ms/detect post=3.5ms display=17.1ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] VISION PERF read=14.4ms detect=192.5ms/detect post=3.5ms display=15.3ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=14.4ms detect=194.1ms/detect post=3.3ms display=15.3ms
+[target_vision-3] VISION FPS=29.8
+[target_vision-3] VISION PERF read=14.5ms detect=193.4ms/detect post=3.3ms display=15.3ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=14.8ms detect=190.2ms/detect post=3.1ms display=15.2ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] VISION PERF read=14.3ms detect=195.0ms/detect post=3.3ms display=15.5ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=14.2ms detect=193.9ms/detect post=3.2ms display=15.6ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] VISION PERF read=14.3ms detect=195.4ms/detect post=3.2ms display=15.6ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] VISION PERF read=13.9ms detect=194.7ms/detect post=3.3ms display=15.9ms
+[target_vision-3] VISION FPS=29.8
+[target_vision-3] VISION PERF read=12.1ms detect=209.5ms/detect post=3.4ms display=17.5ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] VISION PERF read=11.8ms detect=221.2ms/detect post=3.8ms display=18.1ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] Shutdown signal 2 received.
+==== 2026-07-31 22:37:36 start chassis arm link rk direct ====
+camera=/dev/video20 display=:0
+rk direct ports: arm85=/dev/ttyS9 zp=/dev/ttyS0 arm_time_ms=600 zp_time_ms=350
+target color=red kind=any execute=true
+[INFO] [launch]: All log files can be found below /home/cat/.ros/log/2026-07-31-22-37-37-934101-lubancat-45582
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [bash-1]: process started with pid [45606]
+[INFO] [robot_state_publisher-2]: process started with pid [45608]
+[INFO] [bash-1]: process has finished cleanly [pid 45606]
+[robot_state_publisher-2] [INFO] [1785508658.092929424] [robot_state_publisher]: got segment base_link
+[robot_state_publisher-2] [INFO] [1785508658.093104128] [robot_state_publisher]: got segment base_mount
+[robot_state_publisher-2] [INFO] [1785508658.093117545] [robot_state_publisher]: got segment blue_active_bar
+[robot_state_publisher-2] [INFO] [1785508658.093126295] [robot_state_publisher]: got segment blue_upper_bar
+[robot_state_publisher-2] [INFO] [1785508658.093133586] [robot_state_publisher]: got segment end_effector
+[robot_state_publisher-2] [INFO] [1785508658.093140878] [robot_state_publisher]: got segment extension_bar
+[robot_state_publisher-2] [INFO] [1785508658.093147878] [robot_state_publisher]: got segment extension_tip
+[robot_state_publisher-2] [INFO] [1785508658.093154877] [robot_state_publisher]: got segment gripper_finger_left
+[robot_state_publisher-2] [INFO] [1785508658.093161877] [robot_state_publisher]: got segment gripper_finger_right
+[robot_state_publisher-2] [INFO] [1785508658.093168877] [robot_state_publisher]: got segment orange_active_bar
+[robot_state_publisher-2] [INFO] [1785508658.093175877] [robot_state_publisher]: got segment orange_upper_bar
+[robot_state_publisher-2] [INFO] [1785508658.093182585] [robot_state_publisher]: got segment square_platform
+[INFO] [target_vision-3]: process started with pid [45622]
+[INFO] [rviz2-4]: process started with pid [45624]
+[rviz2-4] [INFO] [1785508659.907932195] [rviz2]: Stereo is NOT SUPPORTED
+[rviz2-4] [INFO] [1785508659.908093775] [rviz2]: OpenGl version: 3.3 (GLSL 3.3)
+[rviz2-4] [INFO] [1785508659.936097873] [rviz2]: Stereo is NOT SUPPORTED
+[target_vision-3] arm preview publishing /joint_states, /arm/grasp_status, and target markers
+[target_vision-3] direct bus servo bridge arm=/dev/ttyS9 zp=/dev/ttyS0 zp_time=350ms splitter_time=1500ms arm_multi=immediate
+[target_vision-3] CHASSIS LINK open /dev/ttyACM0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] SHUTDOWN CONTRACT ID1=480 ID2=10 ID4=800 ID5=800 ID6=500 ID7=1120
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 01 07 01 E0 01 58 02 BB
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 02 07 01 0A 00 58 02 91
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 06 07 01 F4 01 58 02 A2
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#004P0800T1500!
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#005P0800T0350!
+[target_vision-3] CHASSIS LINK startup home requested: shutdown contracted: direct TX ID1=480,ID2=10,ID6=500,ID7=1120,ID4=800,ID5=800
+[target_vision-3] Camera: /dev/video20 800x600 reported_fps=30.0
+[target_vision-3] Press q or Esc in the preview window to quit.
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] VISION PERF read=19.4ms detect=162.9ms/detect post=2.6ms display=10.6ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=17.8ms detect=162.9ms/detect post=3.1ms display=12.2ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=16.4ms detect=161.8ms/detect post=3.2ms display=13.5ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] VISION PERF read=16.1ms detect=197.7ms/detect post=3.0ms display=14.0ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] VISION PERF read=15.7ms detect=168.0ms/detect post=3.2ms display=14.2ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=15.7ms detect=211.0ms/detect post=3.2ms display=14.2ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=15.4ms detect=181.3ms/detect post=3.4ms display=14.3ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=14.8ms detect=174.4ms/detect post=3.3ms display=15.0ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=13.5ms detect=194.0ms/detect post=3.3ms display=16.3ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=13.7ms detect=180.7ms/detect post=3.4ms display=16.0ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=14.0ms detect=186.5ms/detect post=3.3ms display=15.8ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] VISION PERF read=13.1ms detect=176.8ms/detect post=3.5ms display=16.5ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=13.1ms detect=197.7ms/detect post=3.4ms display=16.7ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=11.8ms detect=202.4ms/detect post=3.7ms display=17.7ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=29.8
+[target_vision-3] VISION PERF read=13.3ms detect=187.1ms/detect post=3.7ms display=16.0ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.4
+[target_vision-3] VISION PERF read=12.9ms detect=178.7ms/detect post=3.7ms display=16.6ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=29.8
+[target_vision-3] VISION PERF read=12.9ms detect=180.9ms/detect post=3.7ms display=16.4ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=29.6
+[target_vision-3] VISION PERF read=12.6ms detect=186.4ms/detect post=3.7ms display=16.7ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=12.5ms detect=192.3ms/detect post=3.8ms display=17.0ms
+[target_vision-3] VISION FPS=29.8
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=12.4ms detect=185.0ms/detect post=3.9ms display=16.8ms
+[target_vision-3] VISION FPS=29.8
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+[robot_state_publisher-2] [INFO] [1785508763.938497887] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[target_vision-3] Shutdown signal 2 received.
+[rviz2-4] [INFO] [1785508763.943958064] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[INFO] [robot_state_publisher-2]: process has finished cleanly [pid 45608]
+[target_vision-3] SHUTDOWN CONTRACT ID1=480 ID2=10 ID4=800 ID5=800 ID6=500 ID7=1120
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 01 07 01 E0 01 58 02 BB
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 02 07 01 0A 00 58 02 91
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 06 07 01 F4 01 58 02 A2
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#004P0800T1500!
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#005P0800T0350!
+[INFO] [rviz2-4]: process has finished cleanly [pid 45624]
+[INFO] [target_vision-3]: process has finished cleanly [pid 45622]
+[INFO] [launch]: process[target_vision-3] was required: shutting down launched system
+==== 2026-07-31 22:50:58 start chassis arm link rk direct ====
+camera=/dev/video20 display=:0
+rk direct ports: arm85=/dev/ttyS9 zp=/dev/ttyS0 arm_time_ms=600 zp_time_ms=350
+target color=red kind=any execute=true
+[INFO] [launch]: All log files can be found below /home/cat/.ros/log/2026-07-31-22-51-00-034217-lubancat-47297
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [bash-1]: process started with pid [47322]
+[INFO] [robot_state_publisher-2]: process started with pid [47324]
+[INFO] [bash-1]: process has finished cleanly [pid 47322]
+[robot_state_publisher-2] [INFO] [1785509460.196982274] [robot_state_publisher]: got segment base_link
+[robot_state_publisher-2] [INFO] [1785509460.197167186] [robot_state_publisher]: got segment base_mount
+[robot_state_publisher-2] [INFO] [1785509460.197184103] [robot_state_publisher]: got segment blue_active_bar
+[robot_state_publisher-2] [INFO] [1785509460.197193436] [robot_state_publisher]: got segment blue_upper_bar
+[robot_state_publisher-2] [INFO] [1785509460.197203060] [robot_state_publisher]: got segment end_effector
+[robot_state_publisher-2] [INFO] [1785509460.197211810] [robot_state_publisher]: got segment extension_bar
+[robot_state_publisher-2] [INFO] [1785509460.197220560] [robot_state_publisher]: got segment extension_tip
+[robot_state_publisher-2] [INFO] [1785509460.197229310] [robot_state_publisher]: got segment gripper_finger_left
+[robot_state_publisher-2] [INFO] [1785509460.197238060] [robot_state_publisher]: got segment gripper_finger_right
+[robot_state_publisher-2] [INFO] [1785509460.197246809] [robot_state_publisher]: got segment orange_active_bar
+[robot_state_publisher-2] [INFO] [1785509460.197255268] [robot_state_publisher]: got segment orange_upper_bar
+[robot_state_publisher-2] [INFO] [1785509460.197263434] [robot_state_publisher]: got segment square_platform
+[INFO] [target_vision-3]: process started with pid [47338]
+[INFO] [rviz2-4]: process started with pid [47346]
+[rviz2-4] [INFO] [1785509461.985862371] [rviz2]: Stereo is NOT SUPPORTED
+[rviz2-4] [INFO] [1785509461.985988368] [rviz2]: OpenGl version: 3.3 (GLSL 3.3)
+[rviz2-4] [INFO] [1785509462.011904690] [rviz2]: Stereo is NOT SUPPORTED
+[target_vision-3] arm preview publishing /joint_states, /arm/grasp_status, and target markers
+[target_vision-3] direct bus servo bridge arm=/dev/ttyS9 zp=/dev/ttyS0 zp_time=350ms splitter_time=1500ms arm_multi=immediate
+[target_vision-3] CHASSIS LINK open /dev/ttyACM0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] SHUTDOWN CONTRACT ID1=480 ID2=10 ID4=800 ID5=800 ID6=500 ID7=1120
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 01 07 01 E0 01 58 02 BB
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 02 07 01 0A 00 58 02 91
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 06 07 01 F4 01 58 02 A2
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#004P0800T1500!
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#005P0800T0350!
+[target_vision-3] CHASSIS LINK startup home requested: shutdown contracted: direct TX ID1=480,ID2=10,ID6=500,ID7=1120,ID4=800,ID5=800
+[target_vision-3] Camera: /dev/video20 800x600 reported_fps=30.0
+[target_vision-3] Press q or Esc in the preview window to quit.
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=20.1ms detect=134.9ms/detect post=2.6ms display=9.8ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=19.3ms detect=135.7ms/detect post=3.1ms display=10.7ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=19.8ms detect=130.2ms/detect post=2.8ms display=10.5ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS LINK write failed: [Errno 5] 输入/输出错误
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] VISION PERF read=19.7ms detect=138.5ms/detect post=2.9ms display=10.6ms
+[target_vision-3] CHASSIS LINK open /dev/ttyACM0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] VISION PERF read=19.6ms detect=137.6ms/detect post=3.0ms display=10.5ms
+[target_vision-3] CHASSIS RX index,time_ms,state,fault,gyro_mrad_s,yaw_mrad,speed_mm_s,correction_mrad_s,distance_mm,temp_mC,fl_mrad_s,fr_mrad_s,rl_mrad_s,rr_mrad_s,can_tx_errors,can_bus_offs
+[target_vision-3] CHASSIS RX 0,2409,7,2,0,0,0,0,0,47500,0,0,0,0,0,0
+[target_vision-3] CHASSIS RX LOG,END
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] VISION PERF read=18.6ms detect=133.4ms/detect post=3.1ms display=10.8ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=18.5ms detect=143.2ms/detect post=3.1ms display=11.5ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=18.6ms detect=139.7ms/detect post=2.9ms display=11.6ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] VISION PERF read=18.4ms detect=150.9ms/detect post=2.7ms display=12.0ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] VISION PERF read=17.7ms detect=146.7ms/detect post=3.3ms display=12.2ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS LINK disconnected
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] VISION PERF read=17.3ms detect=151.5ms/detect post=3.3ms display=12.6ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=17.1ms detect=154.2ms/detect post=3.3ms display=12.8ms
+[target_vision-3] CHASSIS LINK open /dev/ttyACM0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=29.8
+[target_vision-3] VISION PERF read=16.4ms detect=163.9ms/detect post=3.4ms display=13.1ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS RX H7,WARN,CAN_STARTUP_BYPASS
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS RX H7,WARN,MOTOR_ENABLE_BYPASS
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS RX H7,WARN,MOTOR_FEEDBACK_BYPASS
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=16.3ms detect=156.2ms/detect post=3.4ms display=13.5ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=16.0ms detect=157.8ms/detect post=3.3ms display=13.7ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS RX H7,ARM,DISC_CATCH,WAIT_RK
+[target_vision-3] CHASSIS RX ARM,DISC_CATCH,START
+[target_vision-3] CHASSIS station DISC_CATCH active
+[target_vision-3] CHASSIS TX RK,ARM,DISC_CATCH,ACK
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 01 07 01 58 02 58 02 42
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 02 07 01 5E 01 58 02 3C
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 06 07 01 F4 01 58 02 A2
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#004P0800T1500!
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#005P0800T0350!
+[target_vision-3] CHASSIS STATION DISC_CATCH READY DISC_CATCH ready ID1=600 ID2=350 ID4=800 ID5=800 ID6=500 ID7=1120 | direct TX ID1=600,ID2=350,ID6=500,ID7=1120,ID4=800,ID5=800
+[target_vision-3] CHASSIS STATION DISC_CATCH STARTED | DISC_CATCH ready ID1=600 ID2=350 ID4=800 ID5=800 ID6=500 ID7=1120 | direct TX ID1=600,ID2=350,ID6=500,ID7=1120,ID4=800,ID5=800
+[target_vision-3] CHASSIS RX H7,ARM,DISC_CATCH,ACK
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 01 07 01 08 02 58 02 92
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 02 07 01 5E 01 58 02 3C
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 06 07 01 F4 01 58 02 A2
+[target_vision-3] CHASSIS STATION DISC_CATCH DESCEND DISC_CATCH descend ID1=520 ID2=350 ID6=500 | direct TX ID1=520,ID2=350,ID6=500
+[target_vision-3] CHASSIS STATION DISC_CATCH red ball detected; pulse ID7
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH open ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1120->1700
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1700T0350!
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH close ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1700->1120
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] CHASSIS STATION DISC_CATCH red ball detected; pulse ID7
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH open ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1120->1700
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1700T0350!
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH close ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1700->1120
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] CHASSIS STATION DISC_CATCH red ball detected; pulse ID7
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH open ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1120->1700
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1700T0350!
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] VISION PERF read=16.1ms detect=161.3ms/detect post=3.1ms display=13.8ms
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH close ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1700->1120
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] CHASSIS STATION DISC_CATCH red ball detected; pulse ID7
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH open ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1120->1700
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1700T0350!
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH close ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1700->1120
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] CHASSIS STATION DISC_CATCH red ball detected; pulse ID7
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH open ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1120->1700
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1700T0350!
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH close ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1700->1120
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] CHASSIS STATION DISC_CATCH red ball detected; pulse ID7
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH open ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1120->1700
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1700T0350!
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH close ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1700->1120
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] CHASSIS STATION DISC_CATCH red ball detected; pulse ID7
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH open ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1120->1700
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1700T0350!
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH close ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1700->1120
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] CHASSIS STATION DISC_CATCH red ball detected; pulse ID7
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH open ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1120->1700
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1700T0350!
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=15.8ms detect=157.4ms/detect post=3.0ms display=14.3ms
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH close ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1700->1120
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] CHASSIS STATION DISC_CATCH red ball detected; pulse ID7
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH open ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1120->1700
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1700T0350!
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH close ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1700->1120
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] CHASSIS STATION DISC_CATCH red ball detected; pulse ID7
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH open ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1120->1700
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1700T0350!
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH close ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1700->1120
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] CHASSIS STATION DISC_CATCH red ball detected; pulse ID7
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH open ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1120->1700
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1700T0350!
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH close ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1700->1120
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] CHASSIS STATION DISC_CATCH red ball detected; pulse ID7
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH open ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1120->1700
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1700T0350!
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=16.1ms detect=157.3ms/detect post=3.1ms display=14.0ms
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH close ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1700->1120
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] CHASSIS STATION DISC_CATCH red ball detected; pulse ID7
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH open ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1120->1700
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1700T0350!
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH close ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1700->1120
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] CHASSIS STATION DISC_CATCH red ball detected; pulse ID7
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH open ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1120->1700
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1700T0350!
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH close ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1700->1120
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] CHASSIS STATION DISC_CATCH red ball detected; pulse ID7
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH open ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1120->1700
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1700T0350!
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH close ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1700->1120
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] CHASSIS STATION DISC_CATCH red ball detected; pulse ID7
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH open ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1120->1700
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1700T0350!
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH close ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1700->1120
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] CHASSIS STATION DISC_CATCH red ball detected; pulse ID7
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH open ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1120->1700
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1700T0350!
+[target_vision-3] VISION FPS=28.1
+[target_vision-3] VISION PERF read=15.4ms detect=157.8ms/detect post=3.4ms display=14.3ms
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH close ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1700->1120
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] CHASSIS STATION DISC_CATCH red ball detected; pulse ID7
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH open ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1120->1700
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1700T0350!
+[target_vision-3] GRASP COMMAND reason=DISC_CATCH close ID7 pulse ID1=520 ID2=350 ID6=500 ID7=1700->1120
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=16.1ms detect=163.4ms/detect post=2.7ms display=14.3ms
+[target_vision-3] SHUTDOWN CONTRACT ID1=480 ID2=10 ID4=800 ID5=800 ID6=500 ID7=1120
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 01 07 01 E0 01 58 02 BB
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 02 07 01 0A 00 58 02 91
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 06 07 01 F4 01 58 02 A2
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#004P0800T1500!
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#005P0800T0350!
+[target_vision-3] CHASSIS TX RK,ARM,DISC_CATCH,DONE,NO_RED_YELLOW_BALL_2S
+[target_vision-3] CHASSIS station DISC_CATCH done: NO_RED_YELLOW_BALL_2S
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS RX H7,ARM,DISC_CATCH,DONE
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=15.2ms detect=155.7ms/detect post=8.9ms display=14.1ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] VISION PERF read=15.6ms detect=168.3ms/detect post=2.8ms display=14.6ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS RX H7,ARM,PLATFORM_PICK,WAIT_RK
+[target_vision-3] CHASSIS RX ARM,PLATFORM_PICK,START
+[target_vision-3] CHASSIS station PLATFORM_PICK active
+[target_vision-3] CHASSIS TX RK,ARM,PLATFORM_PICK,ACK
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 01 07 01 26 02 58 02 74
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 02 07 01 2C 01 58 02 6E
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 06 07 01 F4 01 58 02 A2
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#004P0800T1500!
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#005P0800T0350!
+[target_vision-3] CHASSIS STATION PLATFORM_PICK READY chassis station PLATFORM_PICK ready ID1=550 ID2=300 ID4=800 ID5=800 ID6=500 ID7=1120 | direct TX ID1=550,ID2=300,ID6=500,ID7=1120,ID4=800,ID5=800
+[target_vision-3] CHASSIS STATION PLATFORM_PICK STARTED | chassis station PLATFORM_PICK ready ID1=550 ID2=300 ID4=800 ID5=800 ID6=500 ID7=1120 | direct TX ID1=550,ID2=300,ID6=500,ID7=1120,ID4=800,ID5=800
+[target_vision-3] CHASSIS RX H7,ARM,PLATFORM_PICK,ACK
+[target_vision-3] CENTER COMMAND reason=centering target dx=319 dy=-155 axis=ID2+ID6 vector r=355px dID2=22 dID6=-18 centerStep=1 decay=1.00 ID2=322 ID6=482
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 02 07 01 42 01 58 02 58
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 06 07 01 E2 01 58 02 B4
+[target_vision-3] CENTER COMMAND reason=centering target dx=61 dy=-100 axis=ID2+ID6 vector r=117px dID2=13 dID6=-7 centerStep=2 decay=0.84 ID2=335 ID6=475
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 02 07 01 4F 01 58 02 4B
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 06 07 01 DB 01 58 02 BB
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] VISION PERF read=15.3ms detect=158.9ms/detect post=3.2ms display=14.4ms
+[target_vision-3] CENTER COMMAND reason=centering target dx=55 dy=13 axis=ID6 dID2=0 dID6=-4 centerStep=3 decay=0.71 ID2=335 ID6=471
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 06 07 01 D7 01 58 02 BF
+[target_vision-3] GRASP COMMAND reason=searching red target; slow expand ID1=550 ID2=307 ID6=499 ID7=1120 gap=124.5deg
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 01 07 01 26 02 58 02 74
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 02 07 01 33 01 58 02 67
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 06 07 01 F3 01 58 02 A3
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] AUX COMMAND reason=non-yellow ball detected; splitter extend ID4=800->1600
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#004P1600T1500!
+[target_vision-3] GRASP COMMAND reason=searching red target; slow expand ID1=550 ID2=300 ID6=500 ID7=1120 gap=122.9deg
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 01 07 01 26 02 58 02 74
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 02 07 01 2C 01 58 02 6E
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 06 07 01 F4 01 58 02 A2
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] SHUTDOWN CONTRACT ID1=480 ID2=10 ID4=800 ID5=800 ID6=500 ID7=1120
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 01 07 01 E0 01 58 02 BB
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 02 07 01 0A 00 58 02 91
+[target_vision-3] DIRECT SERVO TX /dev/ttyS9=55 55 06 07 01 F4 01 58 02 A2
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#007P1120T0350!
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#004P0800T1500!
+[target_vision-3] DIRECT SERVO TX /dev/ttyS0=#005P0800T0350!
+[target_vision-3] CHASSIS TX RK,ARM,PLATFORM_PICK,DONE,NO_TARGET_TIMEOUT
+[target_vision-3] CHASSIS station PLATFORM_PICK done: NO_TARGET_TIMEOUT
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS RX H7,ARM,PLATFORM_PICK,DONE
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=32.7
+[target_vision-3] VISION PERF read=14.5ms detect=169.4ms/detect post=9.2ms display=14.6ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=15.2ms detect=162.9ms/detect post=3.2ms display=14.6ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] VISION PERF read=15.3ms detect=167.4ms/detect post=3.1ms display=14.7ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS RX LOG,BEGIN,slot=1,seq=41,count=128,state=6,fault=0,period_ms=250
+[target_vision-3] CHASSIS RX index,time_ms,state,fault,gyro_mrad_s,yaw_mrad,speed_mm_s,correction_mrad_s,distance_mm,temp_mC,fl_mrad_s,fr_mrad_s,rl_mrad_s,rr_mrad_s,can_tx_errors,can_bus_offs
+[target_vision-3] CHASSIS RX 0,8858,4,0,1,0,14,0,0,46875,0,0,0,0,141,340654
+[target_vision-3] CHASSIS RX 1,9108,4,0,3,0,364,-1,0,46875,0,0,0,0,166,340679
+[target_vision-3] CHASSIS RX 2,9358,4,0,4,0,714,-1,0,46875,0,0,0,0,191,340704
+[target_vision-3] CHASSIS RX 3,9608,4,0,5,0,992,-1,0,46875,0,0,0,0,216,340729
+[target_vision-3] CHASSIS RX 4,9858,4,0,0,0,642,-1,0,46875,0,0,0,0,241,340754
+[target_vision-3] CHASSIS RX 5,10108,4,0,2,0,292,-2,0,46875,0,0,0,0,266,340779
+[target_vision-3] CHASSIS RX 6,10328,8,0,5,1,14,-1,0,46875,0,0,0,0,290,340803
+[target_vision-3] CHASSIS RX 7,10578,8,0,-2,1,364,-2,0,46875,0,0,0,0,315,340828
+[target_vision-3] CHASSIS RX 8,10828,8,0,1,2,714,-5,0,46875,0,0,0,0,340,340853
+[target_vision-3] CHASSIS RX 9,11078,8,0,-12,1,1064,1,0,46750,0,0,0,0,365,340878
+[target_vision-3] CHASSIS RX 10,11328,8,0,-10,1,1414,1,0,46750,0,0,0,0,390,340903
+[target_vision-3] CHASSIS RX 11,11578,8,0,3,0,1764,0,0,46750,0,0,0,0,415,340928
+[target_vision-3] CHASSIS RX 12,11828,8,0,2,1,2114,-1,0,46750,0,0,0,0,440,340953
+[target_vision-3] CHASSIS RX 13,12078,8,0,-4,1,2200,0,0,46750,0,0,0,0,465,340978
+[target_vision-3] CHASSIS RX 14,12328,8,0,-8,0,1938,1,0,46875,0,0,0,0,490,341003
+[target_vision-3] CHASSIS RX 15,12578,8,0,-1,0,1588,1,0,46875,0,0,0,0,515,341028
+[target_vision-3] CHASSIS RX 16,12828,8,0,-5,0,1238,2,0,46875,0,0,0,0,540,341053
+[target_vision-3] CHASSIS RX 17,13078,8,0,-2,0,888,2,0,46875,0,0,0,0,565,341078
+[target_vision-3] CHASSIS RX 18,13328,8,0,0,0,538,2,0,46875,0,0,0,0,590,341103
+[target_vision-3] CHASSIS RX 19,13698,9,0,-2,0,0,28,0,46750,0,0,0,0,628,341141
+[target_vision-3] CHASSIS RX 20,13948,9,0,2,98,0,728,0,46750,0,0,0,0,653,341166
+[target_vision-3] CHASSIS RX 21,14198,9,0,5,371,0,1428,0,46750,0,0,0,0,678,341191
+[target_vision-3] CHASSIS RX 22,14448,9,0,3,798,0,1770,0,46750,0,0,0,0,703,341216
+[target_vision-3] CHASSIS RX 23,14698,9,0,4,1149,0,1070,0,46875,0,0,0,0,728,341241
+[target_vision-3] CHASSIS RX 24,14948,9,0,-3,1337,0,545,0,46875,0,0,0,0,753,341266
+[target_vision-3] CHASSIS RX 25,15198,9,0,-3,1440,0,313,0,46875,0,0,0,0,778,341291
+[target_vision-3] CHASSIS RX 26,15448,9,0,2,1500,0,179,0,46875,0,0,0,0,803,341316
+[target_vision-3] CHASSIS RX 27,15698,9,0,-1,1534,0,103,0,46875,0,0,0,0,828,341341
+[target_vision-3] CHASSIS RX 28,15948,9,0,-4,1553,0,60,0,46750,0,0,0,0,853,341366
+[target_vision-3] CHASSIS RX 29,16198,9,0,5,1564,0,33,0,46750,0,0,0,0,878,341391
+[target_vision-3] CHASSIS RX 30,40964,10,0,-4,1565,0,28,0,47000,0,0,0,0,3353,343866
+[target_vision-3] CHASSIS RX 31,41214,10,0,1,1663,0,728,0,47000,0,0,0,0,3378,343891
+[target_vision-3] CHASSIS RX 32,41464,10,0,-3,1936,0,1428,0,47000,0,0,0,0,3403,343916
+[target_vision-3] CHASSIS RX 33,41714,10,0,8,2363,0,1800,0,47000,0,0,0,0,3428,343941
+[target_vision-3] CHASSIS RX 34,41964,10,0,-7,2813,0,1800,0,47000,0,0,0,0,3453,343966
+[target_vision-3] CHASSIS RX 35,42214,10,0,7,3263,0,1800,0,47000,0,0,0,0,3478,343991
+[target_vision-3] CHASSIS RX 36,42464,10,0,-2,3713,0,1800,0,47000,0,0,0,0,3503,344016
+[target_vision-3] CHASSIS RX 37,42714,10,0,3,4136,0,1423,0,46875,0,0,0,0,3528,344041
+[target_vision-3] CHASSIS RX 38,42964,10,0,-3,4400,0,728,0,46875,0,0,0,0,3553,344066
+[target_vision-3] CHASSIS RX 39,43214,10,0,-4,4538,0,418,0,46875,0,0,0,0,3578,344091
+[target_vision-3] CHASSIS RX 40,43464,10,0,-9,4617,0,241,0,46875,0,0,0,0,3603,344116
+[target_vision-3] CHASSIS RX 41,43714,10,0,0,4663,0,137,0,46875,0,0,0,0,3628,344141
+[target_vision-3] CHASSIS RX 42,43964,10,0,3,4689,0,78,0,46875,0,0,0,0,3653,344166
+[target_vision-3] CHASSIS RX 43,44214,10,0,-1,4704,0,45,0,46875,0,0,0,0,3678,344191
+[target_vision-3] CHASSIS RX 44,44474,11,0,1,4709,14,0,0,46875,0,0,0,0,3705,344218
+[target_vision-3] CHASSIS RX 45,44724,11,0,-3,4709,364,0,0,46875,0,0,0,0,3730,344243
+[target_vision-3] CHASSIS RX 46,44974,11,0,7,4709,714,-2,0,46875,0,0,0,0,3755,344268
+[target_vision-3] CHASSIS RX 47,45224,11,0,-1,4709,1064,-1,0,47000,0,0,0,0,3780,344293
+[target_vision-3] CHASSIS RX 48,45474,11,0,2,4709,1414,-1,0,47000,0,0,0,0,3805,344318
+[target_vision-3] CHASSIS RX 49,45724,11,0,8,4710,1141,-3,0,47000,0,0,0,0,3830,344343
+[target_vision-3] CHASSIS RX 50,45974,11,0,-3,4709,791,-1,0,47000,0,0,0,0,3855,344368
+[target_vision-3] CHASSIS RX 51,46224,11,0,8,4709,441,-3,0,47000,0,0,0,0,3880,344393
+[target_vision-3] CHASSIS RX 52,46544,12,0,-2,4709,0,-28,0,47000,0,0,0,0,3913,344426
+[target_vision-3] CHASSIS RX 53,46794,12,0,-3,4611,0,-728,0,47000,0,0,0,0,3938,344451
+[target_vision-3] CHASSIS RX 54,47044,12,0,-5,4338,0,-1428,0,47000,0,0,0,0,3963,344476
+[target_vision-3] CHASSIS RX 55,47294,12,0,2,3911,0,-1769,0,47000,0,0,0,0,3988,344501
+[target_vision-3] CHASSIS RX 56,47544,12,0,-3,3560,0,-1069,0,47000,0,0,0,0,4013,344526
+[target_vision-3] CHASSIS RX 57,47794,12,0,-4,3372,0,-544,0,47000,0,0,0,0,4038,344551
+[target_vision-3] CHASSIS RX 58,48044,12,0,0,3269,0,-313,0,47000,0,0,0,0,4063,344576
+[target_vision-3] CHASSIS RX 59,48294,12,0,2,3210,0,-180,0,47000,0,0,0,0,4088,344601
+[target_vision-3] CHASSIS RX 60,48544,12,0,-2,3176,0,-102,0,47000,0,0,0,0,4113,344626
+[target_vision-3] CHASSIS RX 61,48794,12,0,0,3156,0,-59,0,47000,0,0,0,0,4138,344651
+[target_vision-3] CHASSIS RX 62,49044,12,0,2,3145,0,-34,0,47000,0,0,0,0,4163,344676
+[target_vision-3] CHASSIS RX 63,49184,13,0,1,3145,14,0,0,47000,0,0,0,0,4179,344692
+[target_vision-3] CHASSIS RX 64,49434,13,0,1,3145,364,-1,0,47000,0,0,0,0,4204,344717
+[target_vision-3] CHASSIS RX 65,49684,13,0,-3,3145,714,1,0,47000,0,0,0,0,4229,344742
+[target_vision-3] CHASSIS RX 66,49934,13,0,1,3145,1064,0,0,47000,0,0,0,0,4254,344767
+[target_vision-3] CHASSIS RX 67,50184,13,0,-8,3145,1414,1,0,47000,0,0,0,0,4279,344792
+[target_vision-3] CHASSIS RX 68,50434,13,0,-1,3145,1764,-1,0,47000,0,0,0,0,4304,344817
+[target_vision-3] CHASSIS RX 69,50684,13,0,2,3145,1482,-2,0,47000,0,0,0,0,4329,344842
+[target_vision-3] CHASSIS RX 70,50934,13,0,7,3145,1132,-2,0,47000,0,0,0,0,4354,344867
+[target_vision-3] CHASSIS RX 71,51184,13,0,3,3145,782,-2,0,47000,0,0,0,0,4379,344892
+[target_vision-3] CHASSIS RX 72,51434,13,0,-7,3145,432,-1,0,47000,0,0,0,0,4404,344917
+[target_vision-3] CHASSIS RX 73,51734,14,0,-4,3146,0,28,0,47125,0,0,0,0,4435,344948
+[target_vision-3] CHASSIS RX 74,51984,14,0,-1,3244,0,728,0,47125,0,0,0,0,4460,344973
+[target_vision-3] CHASSIS RX 75,52234,14,0,-4,3517,0,1428,0,47125,0,0,0,0,4485,344998
+[target_vision-3] CHASSIS RX 76,52484,14,0,5,3944,0,1769,0,47125,0,0,0,0,4510,345023
+[target_vision-3] CHASSIS RX 77,52734,14,0,2,4295,0,1069,0,47125,0,0,0,0,4535,345048
+[target_vision-3] CHASSIS RX 78,52984,14,0,0,4483,0,546,0,47000,0,0,0,0,4560,345073
+[target_vision-3] CHASSIS RX 79,53234,14,0,4,4586,0,312,0,47000,0,0,0,0,4585,345098
+[target_vision-3] CHASSIS RX 80,53484,14,0,-1,4645,0,179,0,47000,0,0,0,0,4610,345123
+[target_vision-3] CHASSIS RX 81,53734,14,0,-5,4679,0,104,0,47000,0,0,0,0,4635,345148
+[target_vision-3] CHASSIS RX 82,53984,14,0,-2,4699,0,59,0,47000,0,0,0,0,4660,345173
+[target_vision-3] CHASSIS RX 83,54234,14,0,8,4710,0,32,0,47000,0,0,0,0,4685,345198
+[target_vision-3] CHASSIS RX 84,58524,16,0,0,4710,14,0,0,47000,0,0,0,0,5113,345626
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS RX 85,58774,16,0,-2,4711,364,0,0,47000,0,0,0,0,5138,345651
+[target_vision-3] CHASSIS RX 86,59024,16,0,4,4710,714,-1,0,47000,0,0,0,0,5163,345676
+[target_vision-3] CHASSIS RX 87,59274,16,0,-8,4710,1064,2,0,47000,0,0,0,0,5188,345701
+[target_vision-3] CHASSIS RX 88,59524,16,0,-3,4710,900,1,0,47000,0,0,0,0,5213,345726
+[target_vision-3] CHASSIS RX 89,59774,16,0,-2,4710,550,1,0,47000,0,0,0,0,5238,345751
+[target_vision-3] CHASSIS RX 90,60024,16,0,1,4710,200,0,0,47000,0,0,0,0,5263,345776
+[target_vision-3] CHASSIS RX 91,60174,17,0,-2,4710,14,0,0,47000,0,0,0,0,5280,345793
+[target_vision-3] CHASSIS RX 92,60424,17,0,3,4710,364,-1,0,47000,0,0,0,0,5305,345818
+[target_vision-3] CHASSIS RX 93,60674,17,0,-2,4710,714,0,0,47000,0,0,0,0,5330,345843
+[target_vision-3] CHASSIS RX 94,60924,17,0,-2,4710,1064,0,0,47000,0,0,0,0,5355,345868
+[target_vision-3] CHASSIS RX 95,61174,17,0,-1,4711,959,-1,0,47000,0,0,0,0,5380,345893
+[target_vision-3] CHASSIS RX 96,61424,17,0,-1,4711,609,-1,0,47000,0,0,0,0,5405,345918
+[target_vision-3] CHASSIS RX 97,61674,17,0,-1,4711,259,-1,0,47000,0,0,0,0,5430,345943
+[target_vision-3] CHASSIS RX 98,61874,18,0,1,4711,0,28,0,47000,0,0,0,0,5452,345965
+[target_vision-3] CHASSIS RX 99,62124,18,0,-4,4809,0,728,0,47000,0,0,0,0,5477,345990
+[target_vision-3] CHASSIS RX 100,62374,18,0,3,5082,0,1428,0,47000,0,0,0,0,5502,346015
+[target_vision-3] CHASSIS RX 101,62624,18,0,1,5509,0,1770,0,47000,0,0,0,0,5527,346040
+[target_vision-3] CHASSIS RX 102,62874,18,0,3,5860,0,1070,0,47000,0,0,0,0,5552,346065
+[target_vision-3] CHASSIS RX 103,63124,18,0,-3,6048,0,546,0,47000,0,0,0,0,5577,346090
+[target_vision-3] CHASSIS RX 104,63374,18,0,-6,6152,0,314,0,47000,0,0,0,0,5602,346115
+[target_vision-3] CHASSIS RX 105,63624,18,0,4,6211,0,178,0,47000,0,0,0,0,5627,346140
+[target_vision-3] CHASSIS RX 106,63874,18,0,1,6245,0,103,0,47000,0,0,0,0,5652,346165
+[target_vision-3] CHASSIS RX 107,64124,18,0,10,6264,0,57,0,47000,0,0,0,0,5677,346190
+[target_vision-3] CHASSIS RX 108,64374,18,0,-4,6276,0,35,0,47125,0,0,0,0,5702,346215
+[target_vision-3] CHASSIS RX 109,64514,19,0,-2,6276,8,28,0,47125,0,0,0,0,5717,346230
+[target_vision-3] CHASSIS RX 110,64764,19,0,-4,6374,218,728,29,47125,0,0,0,0,5742,346255
+[target_vision-3] CHASSIS RX 111,65014,19,0,15,6647,428,1428,111,47125,0,0,0,0,5767,346280
+[target_vision-3] CHASSIS RX 112,65264,19,0,1,7074,540,1800,240,47125,0,0,0,0,5792,346305
+[target_vision-3] CHASSIS RX 113,65514,19,0,-1,7524,540,1800,375,47000,0,0,0,0,5817,346330
+[target_vision-3] CHASSIS RX 114,65764,19,0,-3,7974,540,1800,510,47000,0,0,0,0,5842,346355
+[target_vision-3] CHASSIS RX 115,66014,19,0,-5,8424,540,1800,645,47000,0,0,0,0,5867,346380
+[target_vision-3] CHASSIS RX 116,66264,19,0,4,8874,540,1800,780,47000,0,0,0,0,5892,346405
+[target_vision-3] CHASSIS RX 117,66514,19,0,10,9324,540,1800,915,47000,0,0,0,0,5917,346430
+[target_vision-3] CHASSIS RX 118,66764,19,0,4,9774,540,1800,1050,47125,0,0,0,0,5942,346455
+[target_vision-3] CHASSIS RX 119,67014,19,0,-3,10224,534,1779,1184,47125,0,0,0,0,5967,346480
+[target_vision-3] CHASSIS RX 120,67264,19,0,-6,10578,324,1079,1291,47125,0,0,0,0,5992,346505
+[target_vision-3] CHASSIS RX 121,67514,19,0,7,10768,166,553,1348,47125,0,0,0,0,6017,346530
+[target_vision-3] CHASSIS RX 122,67764,19,0,-6,10873,96,319,1379,47125,0,0,0,0,6042,346555
+[target_vision-3] CHASSIS RX 123,68014,19,0,9,10934,54,181,1397,47000,0,0,0,0,6067,346580
+[target_vision-3] CHASSIS RX 124,68264,19,0,-4,10968,32,105,1408,47000,0,0,0,0,6092,346605
+[target_vision-3] CHASSIS RX 125,68514,19,0,5,10988,18,59,1414,47000,0,0,0,0,6117,346630
+[target_vision-3] CHASSIS RX 126,68764,19,0,-7,10999,11,36,1417,47000,0,0,0,0,6142,346655
+[target_vision-3] CHASSIS RX 127,71296,6,0,2,11000,0,0,1417,47000,0,0,0,0,6258,346771
+[target_vision-3] CHASSIS RX LOG,END
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.3
+[target_vision-3] VISION PERF read=14.5ms detect=174.1ms/detect post=3.1ms display=15.5ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] VISION PERF read=14.4ms detect=168.2ms/detect post=3.2ms display=15.5ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=14.8ms detect=203.6ms/detect post=2.9ms display=15.4ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] VISION PERF read=15.1ms detect=157.3ms/detect post=3.1ms display=15.0ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.4
+[target_vision-3] VISION PERF read=14.6ms detect=180.3ms/detect post=3.1ms display=15.5ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.4
+[target_vision-3] VISION PERF read=14.1ms detect=176.9ms/detect post=3.2ms display=15.8ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] VISION PERF read=13.5ms detect=190.9ms/detect post=3.3ms display=16.3ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.5
+[target_vision-3] VISION PERF read=13.6ms detect=174.3ms/detect post=3.5ms display=15.9ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.3
+[target_vision-3] VISION PERF read=13.9ms detect=171.8ms/detect post=3.2ms display=16.1ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=13.8ms detect=166.9ms/detect post=3.4ms display=15.9ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=14.1ms detect=165.5ms/detect post=3.4ms display=15.6ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] VISION PERF read=13.8ms detect=167.0ms/detect post=3.3ms display=16.0ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=13.4ms detect=175.5ms/detect post=3.1ms display=16.6ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] VISION PERF read=13.8ms detect=187.1ms/detect post=3.0ms display=16.3ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] VISION PERF read=13.5ms detect=174.0ms/detect post=3.1ms display=16.3ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=13.3ms detect=180.8ms/detect post=3.4ms display=16.5ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] VISION PERF read=13.6ms detect=183.6ms/detect post=3.2ms display=16.3ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.3
+[target_vision-3] VISION PERF read=13.5ms detect=184.4ms/detect post=3.3ms display=16.3ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] VISION PERF read=13.5ms detect=195.9ms/detect post=3.3ms display=16.3ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] VISION PERF read=13.2ms detect=183.5ms/detect post=3.3ms display=16.7ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] VISION PERF read=13.0ms detect=175.6ms/detect post=3.1ms display=16.9ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] VISION PERF read=13.4ms detect=206.3ms/detect post=3.0ms display=16.6ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] VISION PERF read=13.6ms detect=201.0ms/detect post=3.0ms display=16.6ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] VISION PERF read=13.1ms detect=203.3ms/detect post=3.2ms display=16.9ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] VISION PERF read=12.7ms detect=175.4ms/detect post=3.5ms display=17.0ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] VISION PERF read=12.8ms detect=186.9ms/detect post=3.3ms display=17.0ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=13.1ms detect=176.3ms/detect post=3.2ms display=16.9ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS LINK disconnected
+[target_vision-3] CHASSIS LINK open /dev/ttyACM0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=11.7ms detect=203.1ms/detect post=3.4ms display=17.9ms
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS RX LOG,BEGIN,slot=2,seq=42,count=1,state=7,fault=3,period_ms=250
+[target_vision-3] CHASSIS RX index,time_ms,state,fault,gyro_mrad_s,yaw_mrad,speed_mm_s,correction_mrad_s,distance_mm,temp_mC,fl_mrad_s,fr_mrad_s,rl_mrad_s,rr_mrad_s,can_tx_errors,can_bus_offs
+[target_vision-3] CHASSIS RX 0,7018,7,3,0,0,0,0,0,0,0,0,0,0,116,115
+[target_vision-3] CHASSIS RX LOG,END
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=10.6ms detect=193.7ms/detect post=3.7ms display=18.7ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=11.5ms detect=205.6ms/detect post=3.7ms display=17.8ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=10.3ms detect=192.8ms/detect post=3.7ms display=19.1ms
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS LINK write failed: [Errno 19] 没有那个设备
+[target_vision-3] VISION PERF read=12.3ms detect=200.2ms/detect post=3.3ms display=17.6ms
+[target_vision-3] VISION FPS=29.7
+[target_vision-3] VISION PERF read=10.4ms detect=189.2ms/detect post=3.8ms display=18.8ms
+[target_vision-3] VISION FPS=30.4
+[target_vision-3] CHASSIS LINK open /dev/ttyACM0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=10.3ms detect=211.6ms/detect post=3.9ms display=18.7ms
+[target_vision-3] VISION FPS=30.5
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS RX LOG,BEGIN,slot=0,seq=43,count=42,state=7,fault=7,period_ms=250
+[target_vision-3] CHASSIS RX index,time_ms,state,fault,gyro_mrad_s,yaw_mrad,speed_mm_s,correction_mrad_s,distance_mm,temp_mC,fl_mrad_s,fr_mrad_s,rl_mrad_s,rr_mrad_s,can_tx_errors,can_bus_offs
+[target_vision-3] CHASSIS RX 0,2708,4,0,1,0,14,0,0,46875,-51,51,-51,51,0,0
+[target_vision-3] CHASSIS RX 1,2958,4,0,-10,-1,364,4,44,46875,-7067,7067,6965,-6965,0,0
+[target_vision-3] CHASSIS RX 2,3208,4,0,-7,-2,714,8,179,46875,-14387,14387,14184,-14184,0,0
+[target_vision-3] CHASSIS RX 3,3458,4,0,-10,-4,992,12,404,46875,-21403,21403,21098,-21098,0,0
+[target_vision-3] CHASSIS RX 4,3708,4,0,4,-2,642,6,622,47000,-14082,14082,13879,-13879,0,0
+[target_vision-3] CHASSIS RX 5,4078,8,0,-2,-1,14,0,746,47000,-4321,4423,4118,-4931,0,0
+[target_vision-3] CHASSIS RX 6,4328,8,0,-1,-2,364,1,790,47000,-7067,-6965,-7067,-6965,0,0
+[target_vision-3] CHASSIS RX 7,4578,8,0,12,-4,714,7,925,47000,-14387,-14184,-14387,-14184,0,0
+[target_vision-3] CHASSIS RX 8,4828,8,0,-2,-4,1064,9,1151,47000,-21708,-21403,-21708,-21403,0,0
+[target_vision-3] CHASSIS RX 9,5078,8,0,-8,-4,1414,9,1468,47000,-28927,-28724,-28927,-28724,0,0
+[target_vision-3] CHASSIS RX 10,5328,8,0,36,-2,1764,-3,1876,47000,-36248,-36044,-36248,-36044,0,0
+[target_vision-3] CHASSIS RX 11,5578,8,0,-3,-3,2114,5,2375,47000,-43568,-43365,-43568,-43365,0,0
+[target_vision-3] CHASSIS RX 12,5828,8,0,-21,-5,2200,14,2943,47000,-46009,-45602,-46009,-45704,0,0
+[target_vision-3] CHASSIS RX 13,6078,8,0,-14,-5,1909,11,3488,47000,-40416,-40213,-40416,-40213,0,0
+[target_vision-3] CHASSIS RX 14,6328,8,0,-10,-9,1559,22,3945,47000,-33299,-32892,-33197,-32892,0,0
+[target_vision-3] CHASSIS RX 15,6578,8,0,17,-6,1209,9,4311,47000,-25978,-25470,-25978,-25470,0,0
+[target_vision-3] CHASSIS RX 16,6828,8,0,41,-28,859,67,4585,47000,-19471,-17438,-19573,-17438,0,0
+[target_vision-3] CHASSIS RX 17,7168,9,0,-4,-17,0,28,4746,47000,-9913,-9405,-9913,-10117,0,0
+[target_vision-3] CHASSIS RX 18,7418,9,0,8,-15,0,728,4746,47000,-4830,4830,-4830,4830,0,0
+[target_vision-3] CHASSIS RX 19,7668,9,0,-9,-15,0,1428,4746,47000,-9710,9812,-9710,9710,0,0
+[target_vision-3] CHASSIS RX 20,7918,9,0,-12,-14,0,1800,4746,47000,-12760,12760,-12760,12760,0,0
+[target_vision-3] CHASSIS RX 21,8168,9,0,-6,-14,0,1800,4746,47000,-12760,12760,-12760,12760,0,0
+[target_vision-3] CHASSIS RX 22,8418,9,0,8,-14,0,1800,4746,47000,-12862,12760,-12760,12760,0,0
+[target_vision-3] CHASSIS RX 23,8668,9,0,8,-14,0,1800,4746,46875,-12760,12760,-12760,12760,0,0
+[target_vision-3] CHASSIS RX 24,8918,9,0,-1,-14,0,1800,4746,46875,-12760,12760,-12760,12760,0,0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS RX 25,9168,9,0,4,-14,0,1800,4746,46875,-12760,12760,-12760,12760,0,0
+[target_vision-3] CHASSIS RX 26,9418,9,0,-10,-14,0,1800,4746,46875,-12760,12760,-12862,12760,0,0
+[target_vision-3] CHASSIS RX 27,9668,9,0,4,-14,0,1800,4746,46875,-12760,12862,-12760,12760,0,0
+[target_vision-3] CHASSIS RX 28,9918,9,0,7,-14,0,1800,4746,47000,-12760,12760,-12760,12760,0,0
+[target_vision-3] CHASSIS RX 29,10168,9,0,2,-13,0,1800,4746,47000,-12760,12760,-12760,12760,0,0
+[target_vision-3] CHASSIS RX 30,10418,9,0,-3,-13,0,1800,4746,47000,-12760,12760,-12760,12760,0,0
+[target_vision-3] CHASSIS RX 31,10668,9,0,-7,-13,0,1800,4746,47000,-12760,12760,-12760,12760,0,0
+[target_vision-3] CHASSIS RX 32,10918,9,0,-1,-12,0,1800,4746,47000,-12760,12760,-12760,12760,0,0
+[target_vision-3] CHASSIS RX 33,11168,9,0,10,-12,0,1800,4746,47000,-12760,12760,-12760,12862,0,0
+[target_vision-3] CHASSIS RX 34,11418,9,0,14,-12,0,1800,4746,47000,-12760,12760,-12760,12760,0,0
+[target_vision-3] CHASSIS RX 35,11668,9,0,9,-12,0,1800,4746,47000,-12862,12760,-12760,12760,0,0
+[target_vision-3] CHASSIS RX 36,11918,9,0,5,-12,0,1800,4746,47000,-12760,12760,-12760,12760,0,0
+[target_vision-3] CHASSIS RX 37,12168,9,0,-7,-12,0,1800,4746,47000,-12760,12760,-12760,12760,0,0
+[target_vision-3] CHASSIS RX 38,12418,9,0,2,-12,0,1800,4746,47000,-12760,12760,-12760,12760,0,0
+[target_vision-3] CHASSIS RX 39,12668,9,0,2,-12,0,1800,4746,47000,-12760,12760,-12760,12760,0,0
+[target_vision-3] CHASSIS RX 40,12918,9,0,-5,-12,0,1800,4746,47000,-12760,12760,-12760,12760,0,0
+[target_vision-3] CHASSIS RX 41,13197,7,7,-2,-12,0,1800,4746,47000,0,0,0,0,0,0
+[target_vision-3] CHASSIS RX LOG,END
+[target_vision-3] VISION PERF read=11.3ms detect=211.7ms/detect post=3.5ms display=18.3ms
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=11.1ms detect=198.5ms/detect post=3.7ms display=18.3ms
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS LINK disconnected
+[target_vision-3] VISION PERF read=10.4ms detect=204.9ms/detect post=3.8ms display=18.9ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] VISION PERF read=12.2ms detect=198.3ms/detect post=3.5ms display=17.5ms
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] VISION PERF read=15.3ms detect=192.4ms/detect post=3.1ms display=14.7ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] VISION PERF read=14.6ms detect=197.4ms/detect post=3.1ms display=15.5ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=15.3ms detect=187.9ms/detect post=3.2ms display=14.6ms
+[target_vision-3] VISION FPS=29.8
+[target_vision-3] VISION PERF read=14.9ms detect=181.9ms/detect post=3.5ms display=14.8ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=15.0ms detect=200.0ms/detect post=3.2ms display=14.9ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=15.4ms detect=205.8ms/detect post=3.0ms display=14.7ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=15.4ms detect=181.3ms/detect post=3.1ms display=14.6ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=16.3ms detect=188.6ms/detect post=3.2ms display=13.7ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=15.8ms detect=188.1ms/detect post=3.1ms display=14.4ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=14.8ms detect=172.6ms/detect post=3.2ms display=15.1ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] VISION PERF read=14.6ms detect=175.7ms/detect post=3.3ms display=15.1ms
+[target_vision-3] VISION FPS=29.8
+[target_vision-3] VISION PERF read=15.0ms detect=172.8ms/detect post=3.2ms display=15.0ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=15.3ms detect=164.7ms/detect post=3.2ms display=14.6ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] VISION PERF read=15.0ms detect=180.6ms/detect post=3.5ms display=14.6ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] VISION PERF read=15.1ms detect=172.8ms/detect post=3.6ms display=14.5ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=15.0ms detect=189.3ms/detect post=3.4ms display=14.6ms
+[target_vision-3] VISION PERF read=15.0ms detect=190.6ms/detect post=3.5ms display=14.6ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=15.1ms detect=173.4ms/detect post=3.4ms display=14.7ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=16.3ms detect=180.6ms/detect post=3.1ms display=13.8ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] VISION PERF read=15.3ms detect=177.1ms/detect post=3.5ms display=14.3ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=16.2ms detect=175.4ms/detect post=3.3ms display=13.7ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] VISION PERF read=16.1ms detect=165.1ms/detect post=3.3ms display=13.7ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] VISION PERF read=15.7ms detect=161.6ms/detect post=3.3ms display=14.1ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] VISION PERF read=14.9ms detect=188.3ms/detect post=3.2ms display=14.9ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] VISION PERF read=15.7ms detect=171.0ms/detect post=3.5ms display=13.9ms
+[target_vision-3] VISION FPS=29.7
+[target_vision-3] VISION PERF read=16.2ms detect=183.1ms/detect post=3.3ms display=13.6ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] CHASSIS LINK open /dev/ttyACM0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=14.7ms detect=175.4ms/detect post=3.5ms display=14.6ms
+[target_vision-3] VISION FPS=30.3
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS RX LOG,BEGIN,slot=1,seq=44,count=1,state=7,fault=3,period_ms=250
+[target_vision-3] CHASSIS RX index,time_ms,state,fault,gyro_mrad_s,yaw_mrad,speed_mm_s,correction_mrad_s,distance_mm,temp_mC,fl_mrad_s,fr_mrad_s,rl_mrad_s,rr_mrad_s,can_tx_errors,can_bus_offs
+[target_vision-3] CHASSIS RX 0,7018,7,3,0,0,0,0,0,0,0,0,0,0,116,115
+[target_vision-3] CHASSIS RX LOG,END
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=16.1ms detect=186.6ms/detect post=3.2ms display=13.8ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=16.2ms detect=169.7ms/detect post=3.4ms display=13.6ms
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.6ms detect=189.6ms/detect post=3.2ms display=14.4ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.4ms detect=169.9ms/detect post=3.5ms display=14.2ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=16.4ms detect=182.4ms/detect post=3.3ms display=13.4ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=16.3ms detect=174.9ms/detect post=3.2ms display=13.5ms
+[target_vision-3] VISION FPS=29.8
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=16.1ms detect=200.3ms/detect post=3.1ms display=13.9ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.5ms detect=168.7ms/detect post=3.3ms display=14.3ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.6ms detect=185.7ms/detect post=3.1ms display=14.4ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.7ms detect=174.3ms/detect post=3.2ms display=14.2ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=16.4ms detect=181.7ms/detect post=3.3ms display=13.4ms
+[target_vision-3] VISION FPS=30.3
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.6ms detect=194.1ms/detect post=3.3ms display=14.2ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=16.6ms detect=212.3ms/detect post=3.0ms display=13.6ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=16.4ms detect=166.6ms/detect post=3.2ms display=13.5ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.8ms detect=172.5ms/detect post=3.3ms display=14.0ms
+[target_vision-3] VISION FPS=29.8
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=14.7ms detect=164.9ms/detect post=3.3ms display=15.1ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.1ms detect=172.1ms/detect post=3.3ms display=14.6ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.3ms detect=166.0ms/detect post=3.6ms display=14.2ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.1ms detect=169.3ms/detect post=3.3ms display=14.7ms
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.6ms detect=173.0ms/detect post=3.3ms display=14.3ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.6ms detect=164.0ms/detect post=3.2ms display=14.2ms
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.7ms detect=166.8ms/detect post=3.2ms display=14.2ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.5ms detect=166.7ms/detect post=3.5ms display=14.1ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.6ms detect=167.9ms/detect post=3.3ms display=14.1ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.1ms detect=171.5ms/detect post=3.5ms display=14.5ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.6ms detect=166.9ms/detect post=3.4ms display=14.1ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=16.1ms detect=172.5ms/detect post=3.4ms display=13.7ms
+[target_vision-3] VISION FPS=29.8
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.1ms detect=172.5ms/detect post=3.5ms display=14.4ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.4ms detect=165.9ms/detect post=3.4ms display=14.4ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.4ms detect=167.6ms/detect post=3.2ms display=14.5ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.3ms detect=164.5ms/detect post=3.4ms display=14.5ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.6ms detect=165.5ms/detect post=3.4ms display=14.1ms
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.7ms detect=173.1ms/detect post=3.5ms display=13.9ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.9ms detect=162.2ms/detect post=3.4ms display=13.8ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.7ms detect=159.9ms/detect post=3.6ms display=13.8ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.3ms detect=165.6ms/detect post=3.6ms display=14.2ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=16.1ms detect=180.1ms/detect post=3.1ms display=13.8ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.4ms detect=161.0ms/detect post=3.4ms display=14.3ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.1ms detect=159.5ms/detect post=3.5ms display=14.5ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.1ms detect=163.2ms/detect post=3.4ms display=14.6ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.7ms detect=172.7ms/detect post=3.3ms display=14.1ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.1ms detect=161.4ms/detect post=3.3ms display=14.7ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.8ms detect=167.8ms/detect post=3.3ms display=14.0ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.6ms detect=165.8ms/detect post=3.3ms display=14.2ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.5ms detect=176.0ms/detect post=3.2ms display=14.5ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.2ms detect=167.1ms/detect post=3.5ms display=14.4ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.4ms detect=165.1ms/detect post=3.5ms display=14.1ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=16.1ms detect=163.2ms/detect post=3.4ms display=13.6ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.7ms detect=171.6ms/detect post=3.4ms display=14.0ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.3ms detect=163.5ms/detect post=3.4ms display=14.4ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=14.7ms detect=169.2ms/detect post=3.6ms display=14.8ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.2ms detect=169.7ms/detect post=3.5ms display=14.3ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.0ms detect=162.4ms/detect post=3.3ms display=14.8ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.1ms detect=170.5ms/detect post=3.3ms display=14.8ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.2ms detect=171.7ms/detect post=3.5ms display=14.5ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.2ms detect=166.3ms/detect post=3.5ms display=14.4ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=14.8ms detect=172.5ms/detect post=3.4ms display=15.0ms
+[target_vision-3] VISION FPS=29.8
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.4ms detect=176.5ms/detect post=3.6ms display=14.1ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.6ms detect=166.3ms/detect post=3.3ms display=14.1ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.4ms detect=185.4ms/detect post=3.2ms display=14.4ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.5ms detect=163.7ms/detect post=3.6ms display=14.2ms
+[target_vision-3] VISION FPS=29.7
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=14.8ms detect=163.6ms/detect post=3.6ms display=14.6ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.3ms detect=162.8ms/detect post=3.6ms display=14.3ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=14.4ms detect=160.5ms/detect post=3.9ms display=14.7ms
+[target_vision-3] VISION FPS=30.3
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.2ms detect=163.0ms/detect post=3.4ms display=14.5ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.0ms detect=165.6ms/detect post=3.4ms display=14.6ms
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.0ms detect=159.9ms/detect post=3.6ms display=14.5ms
+[target_vision-3] VISION FPS=29.7
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=14.8ms detect=165.7ms/detect post=3.4ms display=14.8ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=14.7ms detect=160.1ms/detect post=3.6ms display=14.7ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=14.9ms detect=163.1ms/detect post=3.4ms display=14.7ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.4ms detect=161.7ms/detect post=3.3ms display=14.4ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.6ms detect=163.7ms/detect post=3.2ms display=14.2ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=14.7ms detect=161.2ms/detect post=3.4ms display=15.0ms
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.1ms detect=168.8ms/detect post=3.3ms display=14.7ms
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.0ms detect=161.9ms/detect post=3.6ms display=14.5ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.1ms detect=164.9ms/detect post=3.6ms display=14.5ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.1ms detect=166.5ms/detect post=3.4ms display=14.7ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.2ms detect=163.3ms/detect post=3.6ms display=14.3ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.8ms detect=163.3ms/detect post=3.1ms display=14.2ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=14.9ms detect=162.7ms/detect post=3.6ms display=14.6ms
+[target_vision-3] VISION FPS=29.8
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.6ms detect=158.1ms/detect post=3.5ms display=13.9ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=29.8
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.1ms detect=160.5ms/detect post=3.3ms display=14.6ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.6ms detect=157.4ms/detect post=3.5ms display=14.0ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.6ms detect=155.2ms/detect post=3.4ms display=14.1ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.1ms detect=165.5ms/detect post=3.4ms display=14.6ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.3ms detect=160.6ms/detect post=3.4ms display=14.4ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.5ms detect=162.2ms/detect post=3.5ms display=14.1ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.9ms detect=156.3ms/detect post=3.4ms display=13.8ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.5ms detect=161.8ms/detect post=3.3ms display=14.3ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.1ms detect=159.9ms/detect post=3.4ms display=14.5ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=16.1ms detect=162.4ms/detect post=3.4ms display=13.7ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.2ms detect=185.2ms/detect post=3.5ms display=14.5ms
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.4ms detect=176.9ms/detect post=3.5ms display=14.1ms
+[target_vision-3] VISION FPS=29.8
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=16.4ms detect=170.2ms/detect post=3.3ms display=13.5ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.6ms detect=168.3ms/detect post=3.3ms display=14.2ms
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.4ms detect=163.9ms/detect post=3.6ms display=14.1ms
+[target_vision-3] VISION FPS=30.3
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.6ms detect=163.1ms/detect post=3.4ms display=14.0ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=14.9ms detect=168.1ms/detect post=3.3ms display=14.9ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.4ms detect=176.9ms/detect post=3.3ms display=14.4ms
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.1ms detect=166.1ms/detect post=3.4ms display=14.6ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=16.0ms detect=168.2ms/detect post=3.3ms display=13.8ms
+[target_vision-3] VISION FPS=30.1
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.8ms detect=162.7ms/detect post=3.5ms display=13.8ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=14.9ms detect=161.2ms/detect post=3.2ms display=15.0ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=14.9ms detect=167.7ms/detect post=3.4ms display=14.7ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.4ms detect=164.0ms/detect post=3.5ms display=14.2ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.0ms detect=163.1ms/detect post=3.3ms display=14.8ms
+[target_vision-3] VISION FPS=30.3
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.4ms detect=171.7ms/detect post=3.3ms display=14.4ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=14.9ms detect=160.3ms/detect post=3.4ms display=14.7ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.3ms detect=162.2ms/detect post=3.2ms display=14.7ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.5ms detect=161.8ms/detect post=3.4ms display=14.2ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.7ms detect=170.9ms/detect post=3.4ms display=14.0ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.7ms detect=160.9ms/detect post=3.0ms display=14.4ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.2ms detect=169.1ms/detect post=3.3ms display=14.5ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.4ms detect=171.3ms/detect post=3.4ms display=14.3ms
+[target_vision-3] VISION FPS=29.9
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=16.2ms detect=168.0ms/detect post=3.2ms display=13.7ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.3ms detect=166.2ms/detect post=3.8ms display=14.3ms
+[target_vision-3] VISION FPS=29.6
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=14.2ms detect=173.0ms/detect post=3.6ms display=15.1ms
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=14.7ms detect=188.1ms/detect post=3.4ms display=14.9ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.5ms detect=173.3ms/detect post=3.4ms display=14.3ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.4ms detect=169.3ms/detect post=3.3ms display=14.4ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.2
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.0ms detect=162.8ms/detect post=3.7ms display=14.4ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.3
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=15.0ms detect=168.8ms/detect post=3.6ms display=14.5ms
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=14.7ms detect=162.2ms/detect post=3.4ms display=14.9ms
+[target_vision-3] VISION FPS=30.0
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] VISION PERF read=14.2ms detect=177.6ms/detect post=3.6ms display=15.4ms
+[target_vision-3] VISION FPS=29.8
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY
+[target_vision-3] CHASSIS TX RK,ARM,READY

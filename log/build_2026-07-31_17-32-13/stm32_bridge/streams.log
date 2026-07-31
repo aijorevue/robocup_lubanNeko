@@ -1,0 +1,20 @@
+[1.756s] Invoking command in '/home/cat/ros2_ws/build/stm32_bridge': PYTHONPATH=/home/cat/ros2_ws/build/stm32_bridge/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/cat/ros2_ws/install/stm32_bridge/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/cat/ros2_ws/build/stm32_bridge/build --no-deps symlink_data --force
+[2.111s] running develop
+[2.306s] running egg_info
+[2.306s] writing stm32_bridge.egg-info/PKG-INFO
+[2.306s] writing dependency_links to stm32_bridge.egg-info/dependency_links.txt
+[2.307s] writing entry points to stm32_bridge.egg-info/entry_points.txt
+[2.307s] writing requirements to stm32_bridge.egg-info/requires.txt
+[2.307s] writing top-level names to stm32_bridge.egg-info/top_level.txt
+[2.310s] reading manifest file 'stm32_bridge.egg-info/SOURCES.txt'
+[2.311s] writing manifest file 'stm32_bridge.egg-info/SOURCES.txt'
+[2.312s] running build_ext
+[2.313s] Creating /home/cat/ros2_ws/install/stm32_bridge/lib/python3.10/site-packages/stm32-bridge.egg-link (link to .)
+[2.314s] Installing stm32_bridge_node script to /home/cat/ros2_ws/install/stm32_bridge/lib/stm32_bridge
+[2.314s] 
+[2.314s] Installed /home/cat/ros2_ws/build/stm32_bridge
+[2.314s] running symlink_data
+[2.314s] symbolically linking /home/cat/ros2_ws/build/stm32_bridge/resource/stm32_bridge -> /home/cat/ros2_ws/install/stm32_bridge/share/ament_index/resource_index/packages
+[2.315s] symbolically linking /home/cat/ros2_ws/build/stm32_bridge/package.xml -> /home/cat/ros2_ws/install/stm32_bridge/share/stm32_bridge
+[2.315s] symbolically linking /home/cat/ros2_ws/build/stm32_bridge/launch/bridge.launch.py -> /home/cat/ros2_ws/install/stm32_bridge/share/stm32_bridge/launch
+[2.418s] Invoked command in '/home/cat/ros2_ws/build/stm32_bridge' returned '0': PYTHONPATH=/home/cat/ros2_ws/build/stm32_bridge/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/cat/ros2_ws/install/stm32_bridge/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/cat/ros2_ws/build/stm32_bridge/build --no-deps symlink_data --force

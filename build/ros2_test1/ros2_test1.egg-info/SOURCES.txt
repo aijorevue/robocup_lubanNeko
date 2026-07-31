@@ -4,6 +4,7 @@ setup.py
 config/red_square_grasp_calibration.json
 hooks/ament_prefix_path.dsv
 hooks/ament_prefix_path.sh
+launch/red_square_chassis_rk_direct.launch.py
 launch/red_square_grasp_rc.launch.py
 launch/red_square_grasp_rk_direct.launch.py
 resource/ros2_test1

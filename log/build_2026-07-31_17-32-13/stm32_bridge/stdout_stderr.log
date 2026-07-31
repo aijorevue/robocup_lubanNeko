@@ -1,0 +1,18 @@
+running develop
+running egg_info
+writing stm32_bridge.egg-info/PKG-INFO
+writing dependency_links to stm32_bridge.egg-info/dependency_links.txt
+writing entry points to stm32_bridge.egg-info/entry_points.txt
+writing requirements to stm32_bridge.egg-info/requires.txt
+writing top-level names to stm32_bridge.egg-info/top_level.txt
+reading manifest file 'stm32_bridge.egg-info/SOURCES.txt'
+writing manifest file 'stm32_bridge.egg-info/SOURCES.txt'
+running build_ext
+Creating /home/cat/ros2_ws/install/stm32_bridge/lib/python3.10/site-packages/stm32-bridge.egg-link (link to .)
+Installing stm32_bridge_node script to /home/cat/ros2_ws/install/stm32_bridge/lib/stm32_bridge
+
+Installed /home/cat/ros2_ws/build/stm32_bridge
+running symlink_data
+symbolically linking /home/cat/ros2_ws/build/stm32_bridge/resource/stm32_bridge -> /home/cat/ros2_ws/install/stm32_bridge/share/ament_index/resource_index/packages
+symbolically linking /home/cat/ros2_ws/build/stm32_bridge/package.xml -> /home/cat/ros2_ws/install/stm32_bridge/share/stm32_bridge
+symbolically linking /home/cat/ros2_ws/build/stm32_bridge/launch/bridge.launch.py -> /home/cat/ros2_ws/install/stm32_bridge/share/stm32_bridge/launch

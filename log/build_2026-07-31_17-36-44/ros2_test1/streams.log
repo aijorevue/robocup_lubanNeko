@@ -1,0 +1,17 @@
+[2.631s] Invoking command in '/home/cat/ros2_ws/build/ros2_test1': PYTHONPATH=/home/cat/ros2_ws/build/ros2_test1/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/cat/ros2_ws/build/ros2_test1/build --no-deps symlink_data
+[2.993s] running develop
+[3.204s] running egg_info
+[3.205s] writing ros2_test1.egg-info/PKG-INFO
+[3.205s] writing dependency_links to ros2_test1.egg-info/dependency_links.txt
+[3.205s] writing entry points to ros2_test1.egg-info/entry_points.txt
+[3.205s] writing requirements to ros2_test1.egg-info/requires.txt
+[3.205s] writing top-level names to ros2_test1.egg-info/top_level.txt
+[3.210s] reading manifest file 'ros2_test1.egg-info/SOURCES.txt'
+[3.211s] writing manifest file 'ros2_test1.egg-info/SOURCES.txt'
+[3.214s] running build_ext
+[3.214s] Creating /home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages/ros2-test1.egg-link (link to .)
+[3.216s] Installing target_vision script to /home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1
+[3.216s] 
+[3.216s] Installed /home/cat/ros2_ws/build/ros2_test1
+[3.216s] running symlink_data
+[3.325s] Invoked command in '/home/cat/ros2_ws/build/ros2_test1' returned '0': PYTHONPATH=/home/cat/ros2_ws/build/ros2_test1/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/cat/ros2_ws/build/ros2_test1/build --no-deps symlink_data

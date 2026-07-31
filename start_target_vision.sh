@@ -70,7 +70,7 @@ pkill -u "$(id -un)" -f "ros2_test1.target_vision|ros2_test1.target_vision_rc|/r
 pkill -INT -u "$(id -un)" -f "[t]arget_vision.*--enable-red-square-grasp" 2>/dev/null || true
 pkill -INT -u "$(id -un)" -f "[t]arget_vision_rc.*--enable-red-square-grasp" 2>/dev/null || true
 pkill -INT -u "$(id -un)" -f "/home/cat/bin/[s]ervo_slider_gui" 2>/dev/null || true
-pkill -u "$(id -un)" -f "[r]ed_square_grasp_rc.launch.py|[r]ed_square_grasp_rk_direct.launch.py" 2>/dev/null || true
+pkill -u "$(id -un)" -f "[r]ed_square_grasp_rc.launch.py|[r]ed_square_grasp_rk_direct.launch.py|[r]ed_square_chassis_rk_direct.launch.py" 2>/dev/null || true
 pkill -u "$(id -un)" -f "/rviz2/rviz2.*arm_5.rviz" 2>/dev/null || true
 pkill -u "$(id -un)" -f "/robot_state_publisher/[r]obot_state_publisher" 2>/dev/null || true
 sleep 1
