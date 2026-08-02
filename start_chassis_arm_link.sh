@@ -25,6 +25,18 @@ export DIRECT_ARM_UART="${DIRECT_ARM_UART:-/dev/ttyS9}"
 export DIRECT_ZP_TIME_MS="${DIRECT_ZP_TIME_MS:-350}"
 export DIRECT_ARM_TIME_MS="${DIRECT_ARM_TIME_MS:-600}"
 
+wait_for_device() {
+  local device="$1"
+  while [ ! -e "$device" ]; do
+    echo "waiting for required device: $device"
+    sleep 1
+  done
+}
+
+wait_for_device "$CAMERA_DEVICE"
+wait_for_device "$DIRECT_ARM_UART"
+wait_for_device "$DIRECT_ZP_UART"
+
 echo "camera=$CAMERA_DEVICE display=$DISPLAY"
 echo "rk direct ports: arm85=$DIRECT_ARM_UART zp=$DIRECT_ZP_UART arm_time_ms=$DIRECT_ARM_TIME_MS zp_time_ms=$DIRECT_ZP_TIME_MS"
 echo "target color=${VISION_TARGET_COLOR:-red} kind=${VISION_TARGET_KIND:-any} execute=${RED_SQUARE_EXECUTE:-true}"

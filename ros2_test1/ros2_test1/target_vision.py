@@ -17,6 +17,7 @@ import select
 import signal
 import socket
 import subprocess
+import termios
 import threading
 import time
 from pathlib import Path
@@ -110,8 +111,11 @@ DISC_CATCH_READY_ID1_TICK = 600
 DISC_CATCH_READY_ID2_TICK = 350
 DISC_CATCH_DESCEND_ID1_TICK = 520
 DISC_CATCH_TARGET_TIMEOUT_S = 2.0
+DISC_CATCH_SPLITTER_RED_TICK = 800
+DISC_CATCH_SPLITTER_YELLOW_TICK = 1600
 COLUMN_CATCH_READY_ID1_TICK = 600
 COLUMN_CATCH_READY_ID2_TICK = 350
+COLUMN_CATCH_SPLITTER_TICK = 800
 GRASP_DISTANCE_CALIBRATION = (
     (10.0, (551, 460), (470, 461)),
     (15.0, (551, 460), (413, 466)),
@@ -682,6 +686,11 @@ class ChassisArmLink:
         self.pending_stops = []
         self.next_retry = 0.0
         self.last_ready_sent = 0.0
+        self.ready_to_run = False
+        self.last_completed_task = None
+        self.last_completed_reason = None
+        self.last_backpressure_log = 0.0
+        self.last_open_failure_log = 0.0
         if self.enabled:
             self._open()
 
@@ -696,36 +705,43 @@ class ChassisArmLink:
             return False
         self.next_retry = now + 1.0
         for device in self._candidate_devices():
+            fd = None
             try:
-                subprocess.run(
-                    [
-                        "stty",
-                        "-F",
-                        device,
-                        str(self.baudrate),
-                        "cs8",
-                        "-cstopb",
-                        "-parenb",
-                        "-ixon",
-                        "-ixoff",
-                        "-crtscts",
-                        "raw",
-                        "-echo",
-                    ],
-                    check=True,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
+                fd = os.open(device, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+                attrs = termios.tcgetattr(fd)
+                attrs[0] = 0
+                attrs[1] = 0
+                attrs[2] = (
+                    (attrs[2] & ~(termios.CSIZE | termios.PARENB | termios.CSTOPB))
+                    | termios.CS8
+                    | termios.CLOCAL
+                    | termios.CREAD
                 )
-                self.fd = os.open(device, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+                if hasattr(termios, "CRTSCTS"):
+                    attrs[2] &= ~termios.CRTSCTS
+                attrs[3] = 0
+                baud_flag = getattr(termios, f"B{self.baudrate}", termios.B115200)
+                attrs[4] = baud_flag
+                attrs[5] = baud_flag
+                attrs[6][termios.VMIN] = 0
+                attrs[6][termios.VTIME] = 0
+                termios.tcsetattr(fd, termios.TCSANOW, attrs)
+                self.fd = fd
                 self.device = device
                 self.status = f"CHASSIS LINK open {device}"
                 print(self.status, flush=True)
-                self.send_line("RK,ARM,READY")
-                self.last_ready_sent = time.monotonic()
+                self._announce_ready()
                 return True
-            except (OSError, subprocess.CalledProcessError) as exc:
-                self.status = f"CHASSIS LINK open failed {device}: {exc}"
-                print(self.status, flush=True)
+            except (OSError, termios.error) as exc:
+                if fd is not None:
+                    os.close(fd)
+                if isinstance(exc, FileNotFoundError):
+                    self.status = f"CHASSIS LINK waiting for {device}"
+                else:
+                    self.status = f"CHASSIS LINK open failed {device}: {exc}"
+                if now - self.last_open_failure_log >= 10.0:
+                    print(self.status, flush=True)
+                    self.last_open_failure_log = now
         if self.device_arg == "auto":
             self.status = "CHASSIS LINK waiting for /dev/ttyACM* or /dev/ttyUSB*"
         return False
@@ -749,11 +765,32 @@ class ChassisArmLink:
             os.write(self.fd, payload)
             print(f"CHASSIS TX {text.rstrip()}", flush=True)
             return True
+        except BlockingIOError:
+            now = time.monotonic()
+            self.status = "CHASSIS LINK TX backpressure"
+            if now - self.last_backpressure_log >= 10.0:
+                print(self.status, flush=True)
+                self.last_backpressure_log = now
+            return False
         except OSError as exc:
             self.status = f"CHASSIS LINK write failed: {exc}"
             print(self.status, flush=True)
             self._close_fd()
             return False
+
+    def _announce_ready(self):
+        if not self.ready_to_run or self.active_task is not None:
+            return False
+        self.last_ready_sent = time.monotonic()
+        if self.send_line("RK,ARM,READY"):
+            return True
+        return False
+
+    def set_ready(self, ready):
+        became_ready = bool(ready) and not self.ready_to_run
+        self.ready_to_run = bool(ready)
+        if became_ready:
+            self._announce_ready()
 
     def _handle_line(self, line):
         normalized = line.strip().upper()
@@ -761,6 +798,25 @@ class ChassisArmLink:
             return
         print(f"CHASSIS RX {line.strip()}", flush=True)
         parts = [part.strip() for part in normalized.split(",")]
+        if parts[:2] == ["ARM", "SYNC"]:
+            if self.active_task is not None:
+                if self.active_task not in self.pending_stops:
+                    self.pending_stops.append(self.active_task)
+                self.send_line(f"RK,ARM,{self.active_task},SYNC_WAIT")
+            else:
+                self._announce_ready()
+            return
+        if len(parts) >= 3 and parts[0] == "ARM" and parts[2] == "STATUS":
+            task = parts[1]
+            if self.active_task == task:
+                self.send_line(f"RK,ARM,{task},ACK")
+            elif self.last_completed_task == task:
+                self.send_line(
+                    f"RK,ARM,{task},DONE,{self.last_completed_reason}"
+                )
+            else:
+                self.send_line(f"RK,ARM,{task},IDLE")
+            return
         if len(parts) >= 3 and parts[0] == "ARM" and parts[2] == "START":
             task = parts[1]
             if task not in self.VALID_TASKS:
@@ -782,6 +838,11 @@ class ChassisArmLink:
         if len(parts) >= 3 and parts[0] == "ARM" and parts[2] == "STOP":
             task = parts[1]
             if self.active_task != task:
+                if self.last_completed_task == task:
+                    self.send_line(
+                        f"RK,ARM,{task},DONE,{self.last_completed_reason}"
+                    )
+                    return
                 self.send_line(f"RK,ARM,{task},ERR,NO_ACTIVE_TASK")
                 return
             self.pending_stops.append(task)
@@ -790,7 +851,7 @@ class ChassisArmLink:
             self.send_line(f"RK,ARM,{task},STOP_ACK")
             return
         if normalized in {"RUN", "START"}:
-            self.send_line("RK,ARM,READY")
+            self._announce_ready()
 
     def update(self):
         if not self.enabled:
@@ -800,8 +861,7 @@ class ChassisArmLink:
             return []
         now = time.monotonic()
         if self.active_task is None and now - self.last_ready_sent >= 1.0:
-            if self.send_line("RK,ARM,READY"):
-                self.last_ready_sent = now
+            self._announce_ready()
             if self.fd is None:
                 return []
         try:
@@ -839,10 +899,10 @@ class ChassisArmLink:
         if self.active_task is not None and target is not None:
             self.last_target_seen = time.monotonic()
 
-    def no_target_timed_out(self, now, controller_busy):
-        if self.active_task is None or controller_busy:
+    def no_target_timed_out(self, now, searching_for_target):
+        if self.active_task is None or not searching_for_target:
             return False
-        if self.active_task == "COLUMN_CATCH":
+        if self.active_task in {"DISC_CATCH", "COLUMN_CATCH"}:
             return False
         return (now - self.last_target_seen) >= self.no_target_timeout_s
 
@@ -854,6 +914,8 @@ class ChassisArmLink:
         self.status = f"CHASSIS station {task} done: {reason}"
         print(self.status, flush=True)
         self.active_task = None
+        self.last_completed_task = task
+        self.last_completed_reason = reason
         self.station_started = 0.0
         self.last_target_seen = 0.0
         return True
@@ -1472,6 +1534,12 @@ class RedSquareGraspController:
 
     def _zp_settle_s(self):
         return max(0.12, getattr(self.servo_bridge, "zp_time_ms", 450) / 1000.0 + 0.08)
+
+    def _splitter_settle_s(self):
+        return max(
+            0.12,
+            getattr(self.servo_bridge, "splitter_time_ms", 900) / 1000.0 + 0.08,
+        )
 
     def _clamp_center_id2(self, value):
         value = self._clamp(value, self.id2_limits)
@@ -2098,6 +2166,14 @@ class RedSquareGraspController:
             or self.algorithm_stage != "centering"
         )
 
+    def searching_for_chassis_target(self):
+        return (
+            self.startup_stage == "complete"
+            and self.active_chassis_station == "PLATFORM_PICK"
+            and self.locked_target is None
+            and self.algorithm_stage == "centering"
+        )
+
     def begin_chassis_station(self, station):
         self._reset_cycle_for_search(f"chassis station {station} start")
         if self.startup_stage != "complete":
@@ -2150,8 +2226,8 @@ class RedSquareGraspController:
         self.id2 = DISC_CATCH_READY_ID2_TICK
         self.id6 = BASE_YAW_CENTER_TICK
         self.id4 = self.id4_closed
-        self.id5 = CATCHER_HOME_TICK
-        self.splitter_id4 = SPLITTER_YELLOW_TICK
+        self.id5 = CATCHER_RELEASE_READY_TICK
+        self.splitter_id4 = DISC_CATCH_SPLITTER_RED_TICK
         self._enforce_angle_gap()
         self.chassis_station_stage = "disc_ready"
         self.chassis_station_deadline = 0.0
@@ -2197,7 +2273,7 @@ class RedSquareGraspController:
         self.id6 = BASE_YAW_CENTER_TICK
         self.id4 = self.id4_closed
         self.id5 = CATCHER_HOME_TICK
-        self.splitter_id4 = SPLITTER_YELLOW_TICK
+        self.splitter_id4 = COLUMN_CATCH_SPLITTER_TICK
         self._enforce_angle_gap()
         self.chassis_station_stage = "column_ready"
         self.chassis_station_deadline = 0.0
@@ -2274,7 +2350,11 @@ class RedSquareGraspController:
             self.chassis_station_no_target_deadline = (
                 now + DISC_CATCH_TARGET_TIMEOUT_S
             )
-        if now >= self.chassis_station_no_target_deadline and ball is None:
+        if (
+            self.chassis_station_stage == "disc_detect"
+            and now >= self.chassis_station_no_target_deadline
+            and ball is None
+        ):
             self.state = "DISC_CATCH no target"
             return self._finish_chassis_station_after_retract("NO_RED_YELLOW_BALL_2S")
 
@@ -2328,11 +2408,46 @@ class RedSquareGraspController:
             if ball is None:
                 remaining = max(0.0, self.chassis_station_no_target_deadline - now)
                 return f"DISC_CATCH waiting red/yellow ball {remaining:.1f}s"
-            self.chassis_station_stage = "disc_open"
+            ball_color = ball.get("color")
+            splitter_target = (
+                DISC_CATCH_SPLITTER_YELLOW_TICK
+                if ball_color == "yellow"
+                else DISC_CATCH_SPLITTER_RED_TICK
+            )
             self.status = (
-                f"DISC_CATCH {ball.get('color')} ball detected; pulse ID7"
+                f"DISC_CATCH {ball_color} ball detected; "
+                f"set splitter ID4={splitter_target} before ID7 pulse"
             )
             print(f"CHASSIS STATION {self.status}", flush=True)
+            if splitter_target != self.splitter_id4:
+                if not self.servo_bridge.write_enabled:
+                    self.splitter_id4 = splitter_target
+                    self.chassis_station_stage = "disc_splitter_wait"
+                    self.chassis_station_deadline = now + self._splitter_settle_s()
+                    return (
+                        f"preview DISC_CATCH splitter ID4={self.splitter_id4}; "
+                        "wait before ID7 pulse"
+                    )
+                splitter_status = self._send_splitter_id4(
+                    splitter_target,
+                    f"DISC_CATCH {ball_color} ball route",
+                )
+                if self.servo_bridge.last_command_ok:
+                    self.chassis_station_stage = "disc_splitter_wait"
+                    self.chassis_station_deadline = (
+                        time.monotonic() + self._splitter_settle_s()
+                    )
+                return splitter_status
+            self.chassis_station_stage = "disc_open"
+
+        if self.chassis_station_stage == "disc_splitter_wait":
+            self.state = "DISC_CATCH splitter wait"
+            if now < self.chassis_station_deadline:
+                return (
+                    f"DISC_CATCH splitter ID4={self.splitter_id4} settling "
+                    f"{self.chassis_station_deadline - now:.1f}s"
+                )
+            self.chassis_station_stage = "disc_open"
 
         if self.chassis_station_stage == "disc_open":
             self.state = "DISC_CATCH open claw"
@@ -2385,10 +2500,57 @@ class RedSquareGraspController:
         now = time.monotonic()
         ball = self._red_ball_visible(detections)
 
+        if self.splitter_id4 != COLUMN_CATCH_SPLITTER_TICK:
+            if not self.servo_bridge.write_enabled:
+                self.splitter_id4 = COLUMN_CATCH_SPLITTER_TICK
+            else:
+                return self._send_splitter_id4(
+                    COLUMN_CATCH_SPLITTER_TICK,
+                    "COLUMN_CATCH hold splitter",
+                )
+
         if self.chassis_station_stage == "column_ready":
             self.state = "COLUMN_CATCH ready"
             if now < self.chassis_station_deadline:
                 return f"COLUMN_CATCH ready settling {self.chassis_station_deadline - now:.1f}s"
+            self.id1 = DISC_CATCH_DESCEND_ID1_TICK
+            self.id2 = COLUMN_CATCH_READY_ID2_TICK
+            self.id6 = BASE_YAW_CENTER_TICK
+            self._enforce_angle_gap()
+            if not self.servo_bridge.write_enabled:
+                self.chassis_station_stage = "column_descend_wait"
+                self.chassis_station_deadline = now + self._arm_settle_s()
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+                return (
+                    f"preview COLUMN_CATCH descend ID1={self.id1} "
+                    f"ID2={self.id2}"
+                )
+            status = self.servo_bridge.send_targets(
+                id1=self.id1,
+                id2=self.id2,
+                id6=self.id6,
+            )
+            self.last_command_time = now
+            if not self.servo_bridge.last_command_ok:
+                self.chassis_station_stage = None
+                self.state = "fault"
+                self.algorithm_stage = "fault"
+                self.status = f"COLUMN_CATCH descend failed: {status}"
+                self.arm_preview.publish(self.status)
+                return self.status
+            self.chassis_station_stage = "column_descend_wait"
+            self.chassis_station_deadline = time.monotonic() + self._arm_settle_s()
+            self.status = (
+                f"COLUMN_CATCH descend ID1={self.id1} ID2={self.id2} "
+                f"ID6={self.id6} | {status}"
+            )
+            print(f"CHASSIS STATION COLUMN_CATCH DESCEND {self.status}", flush=True)
+            return self.status
+
+        if self.chassis_station_stage == "column_descend_wait":
+            self.state = "COLUMN_CATCH descend"
+            if now < self.chassis_station_deadline:
+                return f"COLUMN_CATCH descend settling {self.chassis_station_deadline - now:.1f}s"
             self.chassis_station_stage = "column_detect"
             return "COLUMN_CATCH detecting red ball during orbit"
 
@@ -2397,7 +2559,9 @@ class RedSquareGraspController:
             if ball is None:
                 return "COLUMN_CATCH orbit detect; no red ball"
             self.chassis_station_stage = "column_open"
-            self.status = "COLUMN_CATCH red ball detected; pulse ID7"
+            self.status = (
+                f"COLUMN_CATCH {ball.get('color')} ball detected; pulse ID7"
+            )
             print(f"CHASSIS STATION {self.status}", flush=True)
 
         if self.chassis_station_stage == "column_open":
@@ -5546,10 +5710,13 @@ def main(argv=None):
         args.station_no_target_timeout,
     )
     if args.chassis_home_on_start and execute_auto_grasp:
-        print(
-            f"CHASSIS LINK startup home requested: {grasp_controller.shutdown_contract()}",
-            flush=True,
-        )
+        startup_home_status = grasp_controller.shutdown_contract()
+        print(f"CHASSIS LINK startup home requested: {startup_home_status}", flush=True)
+        if not servo_bridge.last_command_ok:
+            raise RuntimeError(
+                "chassis startup home failed; refusing to announce RK,ARM,READY: "
+                f"{startup_home_status}"
+            )
     server = None
     if not args.no_web:
         server = ThreadedHTTPServer(("0.0.0.0", args.web_port), StreamHandler, state)
@@ -5608,6 +5775,7 @@ def main(argv=None):
     perf_display_s = 0.0
     try:
         while True:
+            chassis_link.set_ready(grasp_controller.startup_complete())
             for station in chassis_link.update():
                 station_status = grasp_controller.begin_chassis_station(station)
                 print(
@@ -5722,7 +5890,7 @@ def main(argv=None):
                     chassis_link.enabled
                     and chassis_link.no_target_timed_out(
                         now,
-                        grasp_controller.busy_for_chassis(),
+                        grasp_controller.searching_for_chassis_target(),
                     )
                 ):
                     station = chassis_link.active_task

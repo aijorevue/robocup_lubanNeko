@@ -1,0 +1,62 @@
+==== 2026-08-01 06:17:10 autostart chassis arm link ====
+boot delay 2s; camera=/dev/video20
+==== 2026-08-01 06:55:23 autostart chassis arm link ====
+boot delay 3s; camera=/dev/video20
+==== 2026-08-01 06:55:29 autostart chassis arm link ====
+boot delay 3s; camera=/dev/video20
+==== 2026-08-01 06:55:34 autostart chassis arm link ====
+boot delay 3s; camera=/dev/video20
+==== 2026-08-01 06:55:39 autostart chassis arm link ====
+boot delay 3s; camera=/dev/video20
+==== 2026-08-01 06:55:44 autostart chassis arm link ====
+boot delay 3s; camera=/dev/video20
+==== 2026-08-01 06:55:50 autostart chassis arm link ====
+boot delay 3s; camera=/dev/video20
+==== 2026-08-01 06:55:55 autostart chassis arm link ====
+boot delay 3s; camera=/dev/video20
+==== 2026-08-01 06:56:00 autostart chassis arm link ====
+boot delay 3s; camera=/dev/video20
+==== 2026-08-01 06:56:05 autostart chassis arm link ====
+boot delay 3s; camera=/dev/video20
+==== 2026-08-01 06:56:10 autostart chassis arm link ====
+boot delay 3s; camera=/dev/video20
+==== 2026-08-01 06:56:16 autostart chassis arm link ====
+boot delay 3s; camera=/dev/video20
+==== 2026-08-01 06:56:21 autostart chassis arm link ====
+boot delay 3s; camera=/dev/video20
+==== 2026-08-01 06:56:26 autostart chassis arm link ====
+boot delay 3s; camera=/dev/video20
+==== 2026-08-01 06:56:31 autostart chassis arm link ====
+boot delay 3s; camera=/dev/video20
+==== 2026-08-01 06:56:37 autostart chassis arm link ====
+boot delay 3s; camera=/dev/video20
+==== 2026-08-01 06:57:28 autostart chassis arm link ====
+boot delay 3s; camera=/dev/video20
+==== 2026-08-01 06:59:05 autostart chassis arm link ====
+boot delay 3s; camera=/dev/video20
+==== 2026-08-01 07:04:27 autostart chassis arm link ====
+boot delay 3s; camera=/dev/video20
+==== 2026-08-01 07:17:57 autostart chassis arm link ====
+boot delay 2s; camera=/dev/video20
+==== 2026-08-01 07:22:03 autostart chassis arm link ====
+boot delay 2s; camera=/dev/video20
+==== 2026-08-01 07:25:15 autostart chassis arm link ====
+boot delay 2s; camera=/dev/video20
+==== 2026-08-01 07:29:07 autostart chassis arm link ====
+boot delay 2s; camera=/dev/video20
+==== 2026-08-02 17:27:47 autostart chassis arm link ====
+boot delay 2s; camera=/dev/video20
+==== 2026-08-02 17:29:44 autostart chassis arm link ====
+boot delay 2s; camera=/dev/video20
+==== 2026-08-02 18:38:33 autostart chassis arm link ====
+boot delay 2s; camera=/dev/video20
+==== 2026-08-02 18:17:26 autostart chassis arm link ====
+boot delay 2s; camera=/dev/video20
+==== 2026-08-02 18:17:26 autostart chassis arm link ====
+boot delay 2s; camera=/dev/video20
+==== 2026-08-02 18:33:46 autostart chassis arm link ====
+boot delay 0s; camera=/dev/video20
+camera /dev/video20 frame probe passed
+==== 2026-08-02 18:17:26 autostart chassis arm link ====
+boot delay 0s; camera=/dev/video20
+camera /dev/video20 frame probe passed

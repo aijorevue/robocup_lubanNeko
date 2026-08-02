@@ -1,0 +1,29 @@
+[Unit]
+Description=RoboCup RK vision and H7 chassis-arm link
+After=network-online.target graphical.target display-manager.service
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=cat
+Group=cat
+SupplementaryGroups=video dialout
+WorkingDirectory=/home/cat/ros2_ws
+Environment=HOME=/home/cat
+Environment=DISPLAY=:0
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=RED_SQUARE_EXECUTE=true
+Environment=VISION_TARGET_COLOR=red
+Environment=VISION_TARGET_KIND=any
+Environment=CAMERA_DEVICE=/dev/video20
+Environment=CHASSIS_ARM_BOOT_DELAY_S=3
+ExecStartPre=/usr/bin/test -x /home/cat/ros2_ws/autostart_chassis_arm_link.sh
+ExecStart=/home/cat/ros2_ws/autostart_chassis_arm_link.sh
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=20
+KillMode=control-group
+
+[Install]
+WantedBy=graphical.target
