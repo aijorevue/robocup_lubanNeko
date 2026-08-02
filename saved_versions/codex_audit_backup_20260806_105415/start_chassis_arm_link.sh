@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+set -eo pipefail
+
+LOG=/home/cat/ros2_ws/chassis_arm_link.log
+LOCK=/tmp/chassis_arm_link.lock
+exec 9>"$LOCK"
+if ! flock -n 9; then
+  msg="chassis arm link is already running; log: $LOG"
+  echo "$msg"
+  echo "==== $(date '+%F %T') $msg ====" >>"$LOG"
+  exit 0
+fi
+
+exec >>"$LOG" 2>&1
+
+echo "==== $(date '+%F %T') start chassis arm link rk direct ===="
+export DISPLAY="${DISPLAY:-:0}"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=${XDG_RUNTIME_DIR}/bus}"
+export CAMERA_DEVICE="${CAMERA_DEVICE:-/dev/video20}"
+export PYTHONUNBUFFERED=1
+export DIRECT_SERVO_BUS=1
+export DIRECT_ZP_UART="${DIRECT_ZP_UART:-/dev/ttyS0}"
+export DIRECT_ARM_UART="${DIRECT_ARM_UART:-/dev/ttyS9}"
+export DIRECT_ZP_TIME_MS="${DIRECT_ZP_TIME_MS:-350}"
+export DIRECT_ARM_TIME_MS="${DIRECT_ARM_TIME_MS:-600}"
+
+wait_for_device() {
+  local device="$1"
+  while [ ! -e "$device" ]; do
+    echo "waiting for required device: $device"
+    sleep 1
+  done
+}
+
+wait_for_device "$CAMERA_DEVICE"
+wait_for_device "$DIRECT_ARM_UART"
+wait_for_device "$DIRECT_ZP_UART"
+
+echo "camera=$CAMERA_DEVICE display=$DISPLAY"
+echo "rk direct ports: arm85=$DIRECT_ARM_UART zp=$DIRECT_ZP_UART arm_time_ms=$DIRECT_ARM_TIME_MS zp_time_ms=$DIRECT_ZP_TIME_MS"
+echo "target color=${VISION_TARGET_COLOR:-red} kind=${VISION_TARGET_KIND:-any} execute=${RED_SQUARE_EXECUTE:-true}"
+
+XAUTH_FILE="$(find "$XDG_RUNTIME_DIR" -maxdepth 1 -name '.mutter-Xwaylandauth.*' -print -quit 2>/dev/null)"
+if [ -n "$XAUTH_FILE" ]; then
+  export XAUTHORITY="$XAUTH_FILE"
+fi
+
+source /opt/ros/humble/setup.bash
+source /home/cat/ros2_ws/install/local_setup.bash
+export PYTHONPATH="/home/cat/ros2_ws/build/ros2_test1:/home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages:${PYTHONPATH:-}"
+export AMENT_PREFIX_PATH="/home/cat/ros2_ws/install/ros2_test1:${AMENT_PREFIX_PATH:-}"
+export CMAKE_PREFIX_PATH="/home/cat/ros2_ws/install/ros2_test1:${CMAKE_PREFIX_PATH:-}"
+cd /home/cat/ros2_ws
+
+pkill -INT -u "$(id -un)" -f "[t]arget_vision.*--enable-red-square-grasp" 2>/dev/null || true
+pkill -u "$(id -un)" -f "[r]ed_square_grasp_rk_direct.launch.py|[r]ed_square_chassis_rk_direct.launch.py" 2>/dev/null || true
+pkill -u "$(id -un)" -f "/rviz2/rviz2.*arm_5.rviz" 2>/dev/null || true
+pkill -u "$(id -un)" -f "/robot_state_publisher/[r]obot_state_publisher" 2>/dev/null || true
+sleep 1
+
+exec ros2 launch ros2_test1 red_square_chassis_rk_direct.launch.py \
+  execute:="${RED_SQUARE_EXECUTE:-true}" \
+  target_color:="${VISION_TARGET_COLOR:-red}" \
+  target_kind:="${VISION_TARGET_KIND:-any}"

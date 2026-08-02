@@ -21,8 +21,9 @@ case "$REQUESTED_MODE" in
     export DIRECT_SERVO_BUS=1
     export DIRECT_ZP_UART="${DIRECT_ZP_UART:-/dev/ttyS0}"
     export DIRECT_ARM_UART="${DIRECT_ARM_UART:-/dev/ttyS9}"
-    export DIRECT_ZP_TIME_MS="${DIRECT_ZP_TIME_MS:-450}"
-    export DIRECT_ARM_TIME_MS="${DIRECT_ARM_TIME_MS:-700}"
+    export DIRECT_ZP_TIME_MS="${DIRECT_ZP_TIME_MS:-350}"
+    export DIRECT_ARM_TIME_MS="${DIRECT_ARM_TIME_MS:-600}"
+    export DIRECT_SPLITTER_TIME_MS="${DIRECT_SPLITTER_TIME_MS:-1500}"
     ;;
   rc|rct6)
     MODE="rc"

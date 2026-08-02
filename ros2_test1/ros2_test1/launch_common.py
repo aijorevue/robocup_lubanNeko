@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory
@@ -9,6 +10,11 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, Shutdown, TimerAction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+
+
+DIRECT_ARM_TIME_MS = os.environ.get("DIRECT_ARM_TIME_MS", "600")
+DIRECT_ZP_TIME_MS = os.environ.get("DIRECT_ZP_TIME_MS", "350")
+DIRECT_SPLITTER_TIME_MS = os.environ.get("DIRECT_SPLITTER_TIME_MS", "1500")
 
 
 DESKTOP_ENV = {
@@ -68,16 +74,17 @@ MODE_PROFILES = {
         "rviz_period": 1.5,
         "extra_args": [
             "--direct-servo-bus",
+            "--direct-wait-start",
             "--direct-arm-uart",
             "/dev/ttyS9",
             "--direct-zp-uart",
             "/dev/ttyS0",
             "--direct-arm-time-ms",
-            "600",
+            DIRECT_ARM_TIME_MS,
             "--direct-zp-time-ms",
-            "350",
+            DIRECT_ZP_TIME_MS,
             "--direct-splitter-time-ms",
-            "1500",
+            DIRECT_SPLITTER_TIME_MS,
             "--post-center-direct-descend",
             "--qr-template-every",
             "1",
@@ -117,16 +124,17 @@ MODE_PROFILES = {
         "rviz_period": 1.5,
         "extra_args": [
             "--direct-servo-bus",
+            "--direct-wait-start",
             "--direct-arm-uart",
             "/dev/ttyS9",
             "--direct-zp-uart",
             "/dev/ttyS0",
             "--direct-arm-time-ms",
-            "600",
+            DIRECT_ARM_TIME_MS,
             "--direct-zp-time-ms",
-            "350",
+            DIRECT_ZP_TIME_MS,
             "--direct-splitter-time-ms",
-            "1500",
+            DIRECT_SPLITTER_TIME_MS,
             "--post-center-direct-descend",
             "--qr-template-every",
             "1",

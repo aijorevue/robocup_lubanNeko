@@ -24,6 +24,7 @@ export DIRECT_ZP_UART="${DIRECT_ZP_UART:-/dev/ttyS0}"
 export DIRECT_ARM_UART="${DIRECT_ARM_UART:-/dev/ttyS9}"
 export DIRECT_ZP_TIME_MS="${DIRECT_ZP_TIME_MS:-350}"
 export DIRECT_ARM_TIME_MS="${DIRECT_ARM_TIME_MS:-600}"
+export DIRECT_SPLITTER_TIME_MS="${DIRECT_SPLITTER_TIME_MS:-1500}"
 
 wait_for_device() {
   local device="$1"

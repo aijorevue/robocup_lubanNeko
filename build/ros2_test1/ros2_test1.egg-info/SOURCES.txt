@@ -12,6 +12,8 @@ ros2_test1/__init__.py
 ros2_test1/arm_kinematics.py
 ros2_test1/arm_kinematics_common.py
 ros2_test1/arm_kinematics_rc.py
+ros2_test1/chassis_link.py
+ros2_test1/field_mode.py
 ros2_test1/launch_common.py
 ros2_test1/target_vision.py
 ros2_test1/target_vision_rc.py
