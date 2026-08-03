@@ -136,11 +136,7 @@ class ChassisStationSafetyTests(unittest.TestCase):
             controller.update_chassis_station(
                 "DISC_CATCH", [], (600, 800, 3), detection_fresh=False
             )
-            clock[0] = 110.36
-            controller.update_chassis_station(
-                "DISC_CATCH", [], (600, 800, 3), detection_fresh=False
-            )
-            clock[0] = 120.5
+            clock[0] = 102.36
             controller.update_chassis_station(
                 "DISC_CATCH", [], (600, 800, 3), detection_fresh=False
             )
@@ -148,7 +144,7 @@ class ChassisStationSafetyTests(unittest.TestCase):
         self.assertIsNone(controller.active_chassis_station)
         self.assertEqual(
             controller.consume_chassis_station_done(),
-            "NO_RED_OR_YELLOW_BALL_10.0S",
+            "NO_RED_OR_YELLOW_BALL_2.0S",
         )
         self.assertEqual(bridge.sent[-1]["id1"], target_vision.HOME_ID1_TICK)
         self.assertEqual(bridge.sent[-1]["id2"], target_vision.HOME_ID2_TICK)
@@ -203,7 +199,7 @@ class ChassisStationSafetyTests(unittest.TestCase):
         )
         self.assertIsNone(controller.active_chassis_station)
         self.assertEqual(bridge.sent[-1]["id4"], 1120)
-        self.assertEqual(bridge.sent[-1]["splitter_id4"], target_vision.SPLITTER_YELLOW_TICK)
+        self.assertEqual(bridge.sent[-1]["splitter_id4"], 800)
 
 
 if __name__ == "__main__":

@@ -445,16 +445,10 @@ class ChassisArmLink:
             self.pending_preps.append(
                 {
                     "task": task,
+                    "sequence": sequence,
                     "id1": self._int_from_parts(parts, "ID1"),
                     "id2": self._int_from_parts(parts, "ID2"),
                 }
-            )
-            self._send_task_state(
-                task,
-                "PREP_HIGH_ACK",
-                sequence,
-                "FIELD",
-                self.field_mode.wire_name,
             )
             return
 
@@ -541,6 +535,27 @@ class ChassisArmLink:
         preps = self.pending_preps
         self.pending_preps = []
         return preps
+
+    def complete_prep(self, prep, success, reason=""):
+        task = prep.get("task", "DISC_CATCH")
+        sequence = prep.get("sequence")
+        if success:
+            return self._send_task_state(
+                task,
+                "PREP_HIGH_ACK",
+                sequence,
+                "FIELD",
+                self.field_mode.wire_name,
+            )
+        return self._send_task_state(
+            task,
+            "ERR",
+            sequence,
+            "REASON",
+            reason or "PREP_HIGH_FAILED",
+            "FIELD",
+            self.field_mode.wire_name,
+        )
 
     def consume_stops(self):
         stops = self.pending_stops

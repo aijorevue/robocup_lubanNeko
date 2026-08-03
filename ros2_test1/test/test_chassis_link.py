@@ -27,6 +27,17 @@ class FieldPolicyTests(unittest.TestCase):
 
 
 class ChassisProtocolTests(unittest.TestCase):
+    def test_prep_high_ack_is_sent_only_after_motion_completion(self):
+        link = RecordingLink()
+        link.ready_to_run = True
+        link._handle_line("ARM,DISC_CATCH,PREP_HIGH,SEQ,19,FIELD,RED,ID1,500,ID2,600")
+
+        self.assertFalse(any("PREP_HIGH_ACK" in line for line in link.sent))
+        prep = link.consume_preps()[0]
+        self.assertEqual(prep["sequence"], 19)
+        link.complete_prep(prep, True)
+        self.assertTrue(any("PREP_HIGH_ACK,SEQ,19" in line for line in link.sent))
+
     def test_plain_sync_does_not_stop_active_task(self):
         link = RecordingLink()
         link.active_task = "PLATFORM_PICK"

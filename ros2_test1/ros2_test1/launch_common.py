@@ -79,7 +79,7 @@ MODE_PROFILES = {
             "--direct-zp-time-ms",
             "400",
             "--direct-gripper-time-ms",
-            "400",
+            "250",
             "--post-center-direct-descend",
             "--qr-template-every",
             "1",
@@ -104,6 +104,10 @@ MODE_PROFILES = {
 
 
 def generate_grasp_launch(mode):
+    # The chassis launch file uses the explicit rk_chassis profile name;
+    # both linked and standalone modes share the RK direct-servo settings.
+    if mode == "rk_chassis":
+        mode = "rk"
     profile = MODE_PROFILES[mode]
     share_dir = Path(get_package_share_directory("ros2_test1"))
     robot_description = (share_dir / "urdf" / "arm_5.urdf").read_text()
