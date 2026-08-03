@@ -27,7 +27,7 @@ case "$REQUESTED_MODE" in
     export DIRECT_ARM_UART="${DIRECT_ARM_UART:-/dev/ttyS9}"
     export DIRECT_ZP_TIME_MS="${DIRECT_ZP_TIME_MS:-350}"
     export DIRECT_ARM_TIME_MS="${DIRECT_ARM_TIME_MS:-600}"
-    export DIRECT_SPLITTER_TIME_MS="${DIRECT_SPLITTER_TIME_MS:-1500}"
+    export DIRECT_SPLITTER_TIME_MS="${DIRECT_SPLITTER_TIME_MS:-250}"
     ;;
   *)
     echo "Unknown SERVO_MODE=$REQUESTED_MODE. This project supports rk only."

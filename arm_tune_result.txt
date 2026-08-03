@@ -1,0 +1,1 @@
+2026-08-03 19:28:27 OK STATUS active_task=None controller_station=None ID1=550 ID2=300 ID4=1120 ID5=800 ID6=570 ID7=1120

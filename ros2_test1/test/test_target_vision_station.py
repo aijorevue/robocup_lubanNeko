@@ -46,7 +46,7 @@ class FakeServoBridge:
         )
 
 
-def make_controller(bridge=None):
+def make_controller(bridge=None, field_mode=target_vision.FieldMode.RED):
     bridge = bridge or FakeServoBridge()
     preview = FakeArmPreview()
     controller = target_vision.RedSquareGraspController(
@@ -81,6 +81,7 @@ def make_controller(bridge=None):
         post_center_retreat_mm=52.0,
         post_center_down_mm=150.0,
         post_center_ik_error_mm=30.0,
+        field_mode=field_mode,
     )
     controller.startup_stage = "complete"
     controller.algorithm_stage = "centering"
@@ -88,6 +89,40 @@ def make_controller(bridge=None):
 
 
 class ChassisStationSafetyTests(unittest.TestCase):
+    def test_direct_bridge_executes_each_multi_servo_target_immediately(self):
+        bridge = target_vision.DirectBusServoBridge(
+            "/dev/missing", 115200, enabled=False, write_enabled=False
+        )
+        bridge.enabled = True
+        bridge.write_enabled = True
+        bridge.arm_fd = 10
+        bridge.zp_fd = 11
+        writes = []
+        bridge._write_payload = lambda fd, payload, repeat=None: writes.append((fd, payload))
+
+        bridge.send_targets(id1=500, id2=600, id6=570)
+
+        self.assertTrue(bridge.last_command_ok)
+        self.assertEqual(len(writes), 3)
+        self.assertTrue(
+            all(
+                packet[1][4] == target_vision.DIRECT_CMD_MOVE_TIME_WRITE
+                for packet in writes
+            )
+        )
+
+    def test_disc_prep_high_keeps_id6_at_570_and_is_idempotent(self):
+        controller, bridge, _ = make_controller()
+        prep = {"task": "DISC_CATCH", "id1": 500, "id2": 600}
+        with mock.patch.object(target_vision.time, "sleep"):
+            controller.prepare_chassis_station_high(prep)
+            first_command_count = len(bridge.sent)
+            controller.prepare_chassis_station_high(prep)
+
+        self.assertEqual(controller.id6, 570)
+        self.assertEqual(bridge.sent[-1]["id6"], 570)
+        self.assertEqual(len(bridge.sent), first_command_count)
+
     def test_chassis_ready_requires_writable_servo_link(self):
         controller, bridge, _ = make_controller()
         self.assertTrue(controller.ready_for_chassis_link(True))
@@ -153,6 +188,22 @@ class ChassisStationSafetyTests(unittest.TestCase):
         self.assertEqual(bridge.sent[-1]["id1"], target_vision.HOME_ID1_TICK)
         self.assertEqual(bridge.sent[-1]["id2"], target_vision.HOME_ID2_TICK)
         self.assertEqual(bridge.sent[-1]["id5"], target_vision.CATCHER_HOME_TICK)
+
+
+    def test_disc_red_field_rejects_blue_ball(self):
+        controller, _bridge, _ = make_controller(field_mode=target_vision.FieldMode.RED)
+
+        self.assertIsNone(
+            controller._disc_catch_ball_visible([{"kind": "ball", "color": "blue", "center": (320, 240), "area_percent": 1.0}])
+        )
+
+    def test_disc_blue_field_rejects_red_ball_and_accepts_blue_first_frame(self):
+        controller, _bridge, _ = make_controller(field_mode=target_vision.FieldMode.BLUE)
+        red_ball = {"kind": "ball", "color": "red", "center": (320, 240), "area_percent": 1.0}
+        blue_ball = {"kind": "ball", "color": "blue", "center": (322, 241), "area_percent": 1.0}
+
+        self.assertIsNone(controller._disc_catch_ball_visible([red_ball]))
+        self.assertIs(controller._disc_catch_ball_visible([blue_ball]), blue_ball)
 
     def test_control_fault_attempts_home_before_reporting_error(self):
         controller, bridge, _ = make_controller()

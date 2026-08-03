@@ -122,13 +122,26 @@ DISC_CATCH_PREP_ID1_TICK = 500
 DISC_CATCH_PREP_ID2_TICK = 600
 DISC_CATCH_READY_ID1_TICK = 420
 DISC_CATCH_READY_ID2_TICK = 520
-DISC_CATCH_ID6_TICK = 600
+DISC_CATCH_ID6_TICK = 570
 DISC_CATCH_CATCHER_READY_TICK = 1200
 DISC_CATCH_SPLITTER_READY_TICK = 1200
 DISC_CATCH_DESCEND_ID1_TICK = 520
 DISC_CATCH_TARGET_TIMEOUT_S = 10.0
-DISC_CATCH_SPLITTER_FIELD_TICK = 1400
-DISC_CATCH_SPLITTER_YELLOW_TICK = 900
+DISC_CATCH_SPLITTER_FIELD_TICK = 800
+DISC_CATCH_SPLITTER_YELLOW_TICK = 1500
+ARM_TUNE_COMMAND_PATH = Path("/home/cat/ros2_ws/arm_tune_command.txt")
+ARM_TUNE_RESULT_PATH = Path("/home/cat/ros2_ws/arm_tune_result.txt")
+ARM_TUNE_POLL_INTERVAL_S = 0.10
+ARM_TUNE_85KG_LIMITS = {
+    1: ID1_SAFE_LIMITS,
+    2: ID2_SAFE_LIMITS,
+    6: ID6_SAFE_LIMITS,
+}
+ARM_TUNE_ZP_LIMITS = {
+    4: (500, 2500),
+    5: (500, 2500),
+    7: (500, 2500),
+}
 COLUMN_CATCH_READY_ID1_TICK = 600
 COLUMN_CATCH_READY_ID2_TICK = 350
 COLUMN_CATCH_SPLITTER_TICK = 800
@@ -160,10 +173,7 @@ POSITION_REPORT_RE = re.compile(
 ARM_READY_REPORT_RE = re.compile(r"OK\s+ARMREADY\s+ID1=(-?\d+)\s+ID2=(-?\d+)")
 DIRECT_85KG_IDS = {1, 2, 6}
 DIRECT_ZP_IDS = {4, 5, 7}
-DIRECT_SERVO_BROADCAST_ID = 0xFE
 DIRECT_CMD_MOVE_TIME_WRITE = 0x01
-DIRECT_CMD_MOVE_TIME_WAIT_WRITE = 0x07
-DIRECT_CMD_MOVE_START = 0x0B
 
 
 def direct_servo_checksum(body):
@@ -175,10 +185,9 @@ def direct_servo_packet(servo_id, command, params=b""):
     return b"\x55\x55" + body + bytes([direct_servo_checksum(body)])
 
 
-def direct_85kg_move_packet(servo_id, position, time_ms, wait=False):
+def direct_85kg_move_packet(servo_id, position, time_ms):
     position = max(0, min(1000, int(position)))
     time_ms = max(0, min(30000, int(time_ms)))
-    command = DIRECT_CMD_MOVE_TIME_WAIT_WRITE if wait else DIRECT_CMD_MOVE_TIME_WRITE
     params = bytes(
         [
             position & 0xFF,
@@ -187,11 +196,7 @@ def direct_85kg_move_packet(servo_id, position, time_ms, wait=False):
             (time_ms >> 8) & 0xFF,
         ]
     )
-    return direct_servo_packet(servo_id, command, params)
-
-
-def direct_85kg_start_packet(servo_id=DIRECT_SERVO_BROADCAST_ID):
-    return direct_servo_packet(servo_id, DIRECT_CMD_MOVE_START)
+    return direct_servo_packet(servo_id, DIRECT_CMD_MOVE_TIME_WRITE, params)
 
 
 def direct_zp_move_packet(servo_id, position, time_ms):
@@ -902,6 +907,147 @@ class AbsoluteServoBridge:
         self.last_command_ok = False
 
 
+class ArmTuneFileBridge:
+    """Polls a local file so the owner process can safely tune bus servos."""
+
+    def __init__(self, command_path, result_path, poll_interval_s=0.10):
+        self.command_path = Path(command_path)
+        self.result_path = Path(result_path)
+        self.poll_interval_s = max(0.02, float(poll_interval_s))
+        self.last_poll = 0.0
+        self.last_mtime_ns = None
+        self.last_command_text = ""
+
+    def _write_result(self, message):
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        text = f"{stamp} {message}\n"
+        try:
+            self.result_path.write_text(text)
+        except OSError as exc:
+            print(f"ARM_TUNE RESULT_WRITE_FAILED {exc}", flush=True)
+        print(f"ARM_TUNE {message}", flush=True)
+        return message
+
+    def poll(self, controller, chassis_link, frame_shape):
+        now = time.monotonic()
+        if now - self.last_poll < self.poll_interval_s:
+            return None
+        self.last_poll = now
+        try:
+            stat = self.command_path.stat()
+        except OSError:
+            return None
+        if stat.st_size <= 0:
+            return None
+        if stat.st_mtime_ns == self.last_mtime_ns:
+            return None
+        self.last_mtime_ns = stat.st_mtime_ns
+        try:
+            command_text = self.command_path.read_text().strip()
+        except OSError as exc:
+            return self._write_result(f"ERR READ_FAILED {exc}")
+        if not command_text or command_text == self.last_command_text:
+            return None
+        self.last_command_text = command_text
+        return self._execute(command_text, controller, chassis_link, frame_shape)
+
+    def _execute(self, command_text, controller, chassis_link, frame_shape):
+        parts = command_text.replace(",", " ").split()
+        if not parts:
+            return None
+        verb = parts[0].upper()
+        if verb == "STATUS":
+            return self._write_result(
+                "OK STATUS "
+                f"active_task={chassis_link.active_task} "
+                f"controller_station={controller.active_chassis_station} "
+                f"ID1={controller.id1} ID2={controller.id2} "
+                f"ID4={controller.splitter_id4} ID5={controller.id5} "
+                f"ID6={controller.id6} ID7={controller.id4}"
+            )
+        if verb not in {"SET", "MOVE"}:
+            return self._write_result("ERR UNKNOWN_COMMAND use: SET ID6 580 [ID1 500 ...] or STATUS")
+        if controller.active_chassis_station is not None or chassis_link.active_task is not None:
+            return self._write_result(
+                "ERR BUSY active_task="
+                f"{chassis_link.active_task} controller_station={controller.active_chassis_station}"
+            )
+        servo_ready = (
+            controller.servo_bridge.enabled
+            and controller.servo_bridge.write_enabled
+            and getattr(controller.servo_bridge, "arm_fd", None) is not None
+            and getattr(controller.servo_bridge, "zp_fd", None) is not None
+        )
+        if not servo_ready:
+            return self._write_result(f"ERR SERVO_NOT_READY {controller.servo_bridge.status}")
+        if (len(parts) - 1) % 2 != 0:
+            return self._write_result("ERR BAD_ARGS use pairs like: SET ID6 580 ID7 1120")
+
+        targets = {}
+        for index in range(1, len(parts), 2):
+            servo_token = parts[index].upper()
+            if not servo_token.startswith("ID"):
+                return self._write_result(f"ERR BAD_SERVO {parts[index]}")
+            try:
+                servo_id = int(servo_token[2:])
+                value = int(parts[index + 1])
+            except ValueError:
+                return self._write_result(f"ERR BAD_VALUE {parts[index]} {parts[index + 1]}")
+            limits = ARM_TUNE_85KG_LIMITS.get(servo_id) or ARM_TUNE_ZP_LIMITS.get(servo_id)
+            if limits is None:
+                return self._write_result("ERR UNSUPPORTED_ID allowed=ID1,ID2,ID4,ID5,ID6,ID7")
+            lower, upper = limits
+            if value < lower or value > upper:
+                return self._write_result(f"ERR RANGE ID{servo_id} {value} allowed={lower}-{upper}")
+            targets[servo_id] = value
+
+        if not targets:
+            return self._write_result("ERR NO_TARGETS")
+
+        send_kwargs = {}
+        if 1 in targets:
+            send_kwargs["id1"] = targets[1]
+        if 2 in targets:
+            send_kwargs["id2"] = targets[2]
+        if 6 in targets:
+            send_kwargs["id6"] = targets[6]
+        if 4 in targets:
+            send_kwargs["splitter_id4"] = targets[4]
+        if 5 in targets:
+            send_kwargs["id5"] = targets[5]
+        if 7 in targets:
+            send_kwargs["id4"] = targets[7]
+
+        status = controller.servo_bridge.send_targets(**send_kwargs)
+        if not controller.servo_bridge.last_command_ok:
+            return self._write_result(f"ERR WRITE_FAILED {status}")
+
+        if 1 in targets:
+            controller.id1 = targets[1]
+        if 2 in targets:
+            controller.id2 = targets[2]
+        if 6 in targets:
+            controller.id6 = targets[6]
+        if 4 in targets:
+            controller.splitter_id4 = targets[4]
+        if 5 in targets:
+            controller.id5 = targets[5]
+        if 7 in targets:
+            controller.id4 = targets[7]
+        controller.last_command_time = time.monotonic()
+        controller.arm_preview.set_targets(controller.id1, controller.id2, controller.id4, controller.id6)
+        controller.arm_preview.publish(
+            "arm tune " + " ".join(f"ID{sid}={value}" for sid, value in sorted(targets.items())),
+            None,
+            controller.state,
+        )
+        return self._write_result(
+            "OK SET "
+            + " ".join(f"ID{sid}={value}" for sid, value in sorted(targets.items()))
+            + f" | {status}"
+        )
+
+
 class DirectBusServoBridge:
     def __init__(
         self,
@@ -916,7 +1062,6 @@ class DirectBusServoBridge:
         gripper_time_ms=None,
         splitter_time_ms=None,
         repeat=1,
-        wait_start_enabled=False,
     ):
         self.device = device
         self.arm_device = arm_device or device
@@ -933,7 +1078,6 @@ class DirectBusServoBridge:
         )
         self.splitter_time_ms = int(splitter_time_ms) if splitter_time_ms is not None else int(zp_time_ms)
         self.repeat = max(1, min(8, int(repeat)))
-        self.wait_start_enabled = bool(wait_start_enabled)
         self.arm_fd = None
         self.zp_fd = None
         self.last_feedback = None
@@ -984,7 +1128,7 @@ class DirectBusServoBridge:
                 f"direct bus servo bridge arm={self.arm_device} "
                 f"zp={self.zp_device} "
                 f"zp_time={self.zp_time_ms}ms splitter_time={self.splitter_time_ms}ms "
-                f"arm_multi={'wait-start' if self.wait_start_enabled else 'immediate'} "
+                "arm_multi=immediate "
                 "exclusive=yes"
             )
             print(self.status)
@@ -1053,32 +1197,15 @@ class DirectBusServoBridge:
         if id6 is not None:
             arm_targets.append((6, int(id6)))
 
-        if len(arm_targets) > 1 and self.wait_start_enabled:
-            for servo_id, value in arm_targets:
-                payloads.append(
-                    (
-                        self.arm_fd,
-                        self.arm_device,
-                        direct_85kg_move_packet(
-                            servo_id,
-                            value,
-                            self.arm_time_ms,
-                            wait=True,
-                        ),
-                    )
+        for servo_id, value in arm_targets:
+            payloads.append(
+                (
+                    self.arm_fd,
+                    self.arm_device,
+                    direct_85kg_move_packet(servo_id, value, self.arm_time_ms),
                 )
-                targets[servo_id] = value
-            payloads.append((self.arm_fd, self.arm_device, direct_85kg_start_packet()))
-        else:
-            for servo_id, value in arm_targets:
-                payloads.append(
-                    (
-                        self.arm_fd,
-                        self.arm_device,
-                        direct_85kg_move_packet(servo_id, value, self.arm_time_ms),
-                    )
-                )
-                targets[servo_id] = value
+            )
+            targets[servo_id] = value
         if id4 is not None:
             payloads.append((self.zp_fd, self.zp_device, direct_zp_move_packet(7, id4, self.gripper_time_ms)))
             targets[7] = int(id4)
@@ -1312,7 +1439,6 @@ class RedSquareGraspController:
         self.disc_pulse_done = False
         self.disc_last_pulsed_color = None
         self.disc_prep_high_active = False
-        self.disc_pending_splitter_id4 = None
         self.column_target_armed = True
         self.column_target_absent_frames = 0
         self.approach_feedback_tolerance = 10
@@ -2109,8 +2235,12 @@ class RedSquareGraspController:
             self.disc_prep_high_active
             and self.id1 == target_id1
             and self.id2 == target_id2
+            and self.id6 == DISC_CATCH_ID6_TICK
         ):
-            return f"DISC_CATCH prep high already active ID1={self.id1} ID2={self.id2}"
+            return (
+                f"DISC_CATCH prep high already active ID1={self.id1} "
+                f"ID2={self.id2} ID6={self.id6}"
+            )
         target_id1, target_id2 = enforce_angle_gap(
             target_id1,
             target_id2,
@@ -2148,6 +2278,7 @@ class RedSquareGraspController:
             self.status = f"DISC_CATCH prep high failed: {status}"
             self.arm_preview.publish(self.status)
             return self.status
+        time.sleep(self._arm_settle_s())
         self.status = (
             f"DISC_CATCH prep high ID1={self.id1} ID2={self.id2} "
             f"ID5={self.id5} ID6={self.id6} | {status}"
@@ -2168,7 +2299,6 @@ class RedSquareGraspController:
         self.chassis_station_stage = "disc_first_expand"
         self.disc_pulse_done = False
         self.disc_last_pulsed_color = None
-        self.disc_pending_splitter_id4 = None
         self.chassis_station_deadline = 0.0
         self.chassis_station_no_target_deadline = (
             time.monotonic() + DISC_CATCH_TARGET_TIMEOUT_S
@@ -2253,11 +2383,32 @@ class RedSquareGraspController:
         print(f"CHASSIS STATION COLUMN_CATCH READY {self.status}", flush=True)
         return self.status
 
+    def _disc_catch_allowed_colors(self):
+        return self.target_policy.disc_colors
+
     def _disc_catch_ball_visible(self, detections):
+        allowed_colors = self._disc_catch_allowed_colors()
+        allowed = []
+        rejected = []
         for det in detections:
-            if self.target_policy.matches_disc_ball(det):
-                return det
-        return None
+            if det.get("kind") != "ball":
+                continue
+            color = det.get("color")
+            if color in allowed_colors:
+                allowed.append(det)
+            elif color in {"red", "blue", "yellow"}:
+                rejected.append(color)
+        if rejected:
+            print(
+                "CHASSIS STATION DISC_CATCH ignored "
+                f"{sorted(set(rejected))} ball(s) for field "
+                f"{self.field_mode.wire_name}; allowed={sorted(allowed_colors)}",
+                flush=True,
+            )
+        if not allowed:
+            return None
+
+        return max(allowed, key=lambda det: float(det.get("area_percent") or 0.0))
 
     def _column_ball_visible(self, detections):
         for det in detections:
@@ -2300,7 +2451,6 @@ class RedSquareGraspController:
         self.disc_pulse_done = False
         self.disc_last_pulsed_color = None
         self.disc_prep_high_active = False
-        self.disc_pending_splitter_id4 = None
         self.column_target_armed = True
         self.column_target_absent_frames = 0
         self._reset_cycle_for_search("chassis reset; arm home")
@@ -2435,7 +2585,10 @@ class RedSquareGraspController:
             self.chassis_station_stage = "disc_detect"
             self.chassis_station_deadline = 0.0
             self.chassis_station_no_target_deadline = now + DISC_CATCH_TARGET_TIMEOUT_S
-            return "DISC_CATCH detecting ball at task point 1"
+            return (
+                "DISC_CATCH detecting "
+                f"{self.field_mode.wire_name.lower()}/yellow ball at task point 1"
+            )
 
         if self.chassis_station_stage == "disc_detect":
             self.state = "DISC_CATCH detect ball"
@@ -2459,52 +2612,49 @@ class RedSquareGraspController:
                     f"ball {remaining:.1f}s"
                 )
             ball_color = ball.get("color")
+            if ball_color not in self._disc_catch_allowed_colors():
+                remaining = max(0.0, self.chassis_station_no_target_deadline - now)
+                return (
+                    f"DISC_CATCH rejected {ball_color} ball for "
+                    f"field {self.field_mode.wire_name}; waiting allowed color "
+                    f"{remaining:.1f}s"
+                )
             self.disc_last_pulsed_color = ball_color
             splitter_target = (
                 DISC_CATCH_SPLITTER_YELLOW_TICK
                 if ball_color == "yellow"
                 else DISC_CATCH_SPLITTER_FIELD_TICK
             )
-            self.disc_pending_splitter_id4 = splitter_target
             self.status = (
                 f"DISC_CATCH {ball_color} ball detected at ID1={self.id1} "
-                f"ID2={self.id2}; open ID7 then set splitter ID4={splitter_target}"
+                f"ID2={self.id2}; immediately set ID4={splitter_target} and open ID7"
             )
             print(f"CHASSIS STATION {self.status}", flush=True)
-            self.chassis_station_stage = "disc_open"
-
-        if self.chassis_station_stage == "disc_route_splitter":
-            self.state = "DISC_CATCH route splitter"
-            splitter_target = self.disc_pending_splitter_id4
-            if splitter_target is None:
-                self.chassis_station_stage = "disc_detect"
-            elif splitter_target != self.splitter_id4:
-                if not self.servo_bridge.write_enabled:
-                    self.splitter_id4 = splitter_target
-                    self.chassis_station_stage = "disc_splitter_wait"
-                    self.chassis_station_deadline = now + self._splitter_settle_s()
-                    return f"preview DISC_CATCH splitter ID4={self.splitter_id4} after ID7 open"
+            if not self.servo_bridge.write_enabled:
+                self.splitter_id4 = splitter_target
+                self.id4 = self.id4_open
+                self.chassis_station_stage = "disc_open_wait"
+                self.chassis_station_deadline = now + 0.30
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+                return (
+                    f"preview DISC_CATCH immediate ID4={self.splitter_id4} "
+                    "and open ID7 pulse"
+                )
+            if splitter_target != self.splitter_id4:
                 splitter_status = self._send_splitter_id4(
                     splitter_target,
-                    "DISC_CATCH route splitter after ID7 open",
+                    "DISC_CATCH immediate splitter before ID7",
                 )
-                if self.servo_bridge.last_command_ok:
-                    self.chassis_station_stage = "disc_splitter_wait"
-                    self.chassis_station_deadline = time.monotonic() + self._splitter_settle_s()
-                return splitter_status
-            else:
-                self.disc_pending_splitter_id4 = None
-                self.chassis_station_stage = "disc_detect"
-
-        if self.chassis_station_stage == "disc_splitter_wait":
-            self.state = "DISC_CATCH splitter wait"
-            if now < self.chassis_station_deadline:
-                return (
-                    f"DISC_CATCH splitter ID4={self.splitter_id4} settling "
-                    f"{self.chassis_station_deadline - now:.1f}s"
-                )
-            self.disc_pending_splitter_id4 = None
-            self.chassis_station_stage = "disc_detect"
+                if not self.servo_bridge.last_command_ok:
+                    return splitter_status
+            open_status = self._send_gripper_id7(
+                self.id4_open,
+                "DISC_CATCH immediate open ID7 pulse",
+            )
+            if self.servo_bridge.last_command_ok:
+                self.chassis_station_stage = "disc_open_wait"
+                self.chassis_station_deadline = time.monotonic() + 0.30
+            return open_status
 
         if self.chassis_station_stage == "disc_open":
             self.state = "DISC_CATCH open claw"
@@ -2545,7 +2695,7 @@ class RedSquareGraspController:
             self.state = "DISC_CATCH close wait"
             if now < self.chassis_station_deadline:
                 return f"DISC_CATCH close wait {self.chassis_station_deadline - now:.1f}s"
-            self.chassis_station_stage = "disc_route_splitter"
+            self.chassis_station_stage = "disc_detect"
             self.disc_pulse_done = True
             self.chassis_station_deadline = 0.0
             self.chassis_station_no_target_deadline = (
@@ -5663,13 +5813,8 @@ def build_arg_parser():
     parser.add_argument("--direct-arm-time-ms", type=int, default=int(os.environ.get("DIRECT_ARM_TIME_MS", "1200")))
     parser.add_argument("--direct-zp-time-ms", type=int, default=int(os.environ.get("DIRECT_ZP_TIME_MS", "1000")))
     parser.add_argument("--direct-gripper-time-ms", type=int, default=int(os.environ.get("DIRECT_GRIPPER_TIME_MS", "400")))
-    parser.add_argument("--direct-splitter-time-ms", type=int, default=int(os.environ.get("DIRECT_SPLITTER_TIME_MS", "900")))
+    parser.add_argument("--direct-splitter-time-ms", type=int, default=None)
     parser.add_argument("--direct-repeat", type=int, default=int(os.environ.get("DIRECT_SERVO_REPEAT", "1")))
-    parser.add_argument(
-        "--direct-wait-start",
-        action="store_true",
-        help="queue multi-servo 85kg moves and broadcast one synchronized start",
-    )
     parser.add_argument("--direct-arm-uart", default=os.environ.get("DIRECT_ARM_UART", os.environ.get("SERVO_ARM_UART", "/dev/ttyS9")))
     parser.add_argument("--direct-zp-uart", default=os.environ.get("DIRECT_ZP_UART", os.environ.get("SERVO_ZP_UART", "/dev/ttyS0")))
     parser.add_argument("--trigger-command", default=os.environ.get("SERVO_TRIGGER_COMMAND", "linkstart"))
@@ -5825,6 +5970,11 @@ def main(argv=None):
         preview_id4,
         args.preview_id6,
     )
+    if args.direct_splitter_time_ms is None:
+        args.direct_splitter_time_ms = int(
+            os.environ.get("DIRECT_SPLITTER_TIME_MS", args.direct_gripper_time_ms)
+        )
+
     servo_bridge_class = DirectBusServoBridge if args.direct_servo_bus else AbsoluteServoBridge
     if args.direct_servo_bus:
         servo_bridge = servo_bridge_class(
@@ -5839,7 +5989,6 @@ def main(argv=None):
             gripper_time_ms=args.direct_gripper_time_ms,
             splitter_time_ms=args.direct_splitter_time_ms,
             repeat=args.direct_repeat,
-            wait_start_enabled=args.direct_wait_start,
         )
     else:
         servo_bridge = servo_bridge_class(
@@ -5954,6 +6103,17 @@ def main(argv=None):
     for handled_signal in (signal.SIGINT, signal.SIGTERM):
         signal.signal(handled_signal, request_shutdown)
 
+    arm_tune_bridge = ArmTuneFileBridge(
+        ARM_TUNE_COMMAND_PATH,
+        ARM_TUNE_RESULT_PATH,
+        ARM_TUNE_POLL_INTERVAL_S,
+    )
+    print(
+        "Arm tune file: "
+        f"write commands to {ARM_TUNE_COMMAND_PATH}; "
+        f"read result from {ARM_TUNE_RESULT_PATH}",
+        flush=True,
+    )
     print("Press q or Esc in the preview window to quit.")
     fps_started = time.monotonic()
     fps_last_log = fps_started
@@ -6076,6 +6236,11 @@ def main(argv=None):
                 and cap is not None
             )
             pending_stations = chassis_link.update()
+            arm_tune_bridge.poll(
+                grasp_controller,
+                chassis_link,
+                (args.height, args.width, 3),
+            )
             if chassis_link.consume_reset_request():
                 reset_success, reset_status = grasp_controller.reset_from_chassis()
                 chassis_link.complete_reset(reset_success, reset_status)
@@ -6312,6 +6477,7 @@ def main(argv=None):
                             detection_fresh
                             and preview_target is None
                             and grasp_controller.locked_target is None
+                            and grasp_controller.active_chassis_station is None
                         ):
                             aux_info = grasp_controller.update_auxiliary(detections)
                         grasp_info = grasp_controller.update(
