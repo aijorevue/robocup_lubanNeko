@@ -1,0 +1,22 @@
+[0.000000] (-) TimerEvent: {}
+[0.000104] (ros2_test1) JobQueued: {'identifier': 'ros2_test1', 'dependencies': OrderedDict([('ros2_test1', '/home/cat/ros2_ws/install/ros2_test1')])}
+[0.000145] (ros2_test1) JobStarted: {'identifier': 'ros2_test1'}
+[0.098543] (-) TimerEvent: {}
+[0.198998] (-) TimerEvent: {}
+[0.299417] (-) TimerEvent: {}
+[0.399891] (-) TimerEvent: {}
+[0.434846] (ros2_test1) Command: {'cmd': ['/usr/bin/python3', '-m', 'unittest', '-v'], 'cwd': '/home/cat/ros2_ws/ros2_test1', 'env': {'HTTPS_PROXY': 'http://192.168.137.1:7892', 'USER': 'cat', 'SSH_CLIENT': '192.168.137.1 54856 22', 'XDG_SESSION_TYPE': 'tty', 'SHLVL': '1', 'LD_LIBRARY_PATH': '/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/aarch64-linux-gnu:/opt/ros/humble/lib', 'MOTD_SHOWN': 'pam', 'HOME': '/home/cat', 'MUTTER_DEBUG_ENABLE_ATOMIC_KMS': '0', 'OLDPWD': '/home/cat', 'NO_PROXY': 'localhost,127.0.0.1,192.168.137.1,192.168.137.207', 'ROS_PYTHON_VERSION': '3', 'DBUS_SESSION_BUS_ADDRESS': 'unix:path=/run/user/1000/bus', 'https_proxy': 'http://192.168.137.1:7892', 'ROS_DISTRO': 'humble', 'LOGNAME': 'cat', 'http_proxy': 'http://192.168.137.1:7892', '_': '/usr/bin/colcon', 'ROS_VERSION': '2', 'XDG_SESSION_CLASS': 'user', 'XDG_SESSION_ID': '10', 'ROS_LOCALHOST_ONLY': '0', 'PATH': '/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin', 'XDG_RUNTIME_DIR': '/run/user/1000', 'LANG': 'zh_CN.UTF-8', 'AMENT_PREFIX_PATH': '/home/cat/ros2_ws/install/ros2_test1:/opt/ros/humble', 'SHELL': '/bin/bash', 'CLUTTER_PAINT': 'disable-dynamic-max-render-time', 'MUTTER_DEBUG_FORCE_KMS_MODE': 'simple', 'PWD': '/home/cat/ros2_ws/build/ros2_test1', 'SSH_CONNECTION': '192.168.137.1 54856 192.168.137.207 22', 'PYTHONPATH': '/home/cat/ros2_ws/build/ros2_test1:/home/cat/ros2_ws/install/ros2_test1/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages', 'HTTP_PROXY': 'http://192.168.137.1:7892', 'COLCON': '1', 'PYTHONDONTWRITEBYTECODE': '1'}, 'shell': False}
+[0.500115] (-) TimerEvent: {}
+[0.600633] (-) TimerEvent: {}
+[0.701146] (-) TimerEvent: {}
+[0.801604] (-) TimerEvent: {}
+[0.902076] (-) TimerEvent: {}
+[1.002592] (-) TimerEvent: {}
+[1.015878] (ros2_test1) StderrLine: {'line': b'\n'}
+[1.016715] (ros2_test1) StderrLine: {'line': b'----------------------------------------------------------------------\n'}
+[1.017226] (ros2_test1) StderrLine: {'line': b'Ran 0 tests in 0.000s\n'}
+[1.017667] (ros2_test1) StderrLine: {'line': b'\n'}
+[1.018080] (ros2_test1) StderrLine: {'line': b'OK\n'}
+[1.081283] (ros2_test1) CommandEnded: {'returncode': 0}
+[1.082825] (ros2_test1) JobEnded: {'identifier': 'ros2_test1', 'rc': 0}
+[1.084632] (-) EventReactorShutdown: {}

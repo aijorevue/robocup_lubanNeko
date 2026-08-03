@@ -5,7 +5,6 @@ package_name = 'ros2_test1'
 
 CURRENT_CONSOLE_SCRIPTS = [
     'target_vision = ros2_test1.target_vision:main',
-    'target_vision_rc = ros2_test1.target_vision_rc:main',
 ]
 
 setup(

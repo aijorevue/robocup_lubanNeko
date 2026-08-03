@@ -1,0 +1,4 @@
+{
+  "name": "ros2_test1",
+  "type": "ros.ament_python"
+}

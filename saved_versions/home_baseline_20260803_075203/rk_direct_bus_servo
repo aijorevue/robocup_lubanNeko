@@ -1,0 +1,69 @@
+#!/usr/bin/env python3
+import argparse, json, os, subprocess, time
+from pathlib import Path
+DIRECT_85KG_IDS={1,2,6}; DIRECT_ZP_IDS={4,5,7}
+STATE_FILE=Path.home()/'.rk_direct_bus_servo_state.json'
+HOME={1:480,2:10,4:800,5:800,6:500,7:1120}; READY={1:550,2:300,4:800,5:800,6:500,7:1120}
+def checksum(body): return (~(sum(body)&0xFF))&0xFF
+def packet(sid,cmd,params=b''):
+    body=bytes([sid,len(params)+3,cmd])+bytes(params); return b'\x55\x55'+body+bytes([checksum(body)])
+def packet_85(sid,pos,t):
+    pos=max(0,min(1000,int(pos))); t=max(0,min(30000,int(t)))
+    return packet(int(sid),0x01,bytes([pos&255,(pos>>8)&255,t&255,(t>>8)&255]))
+def packet_zp(sid,pos,t):
+    pos=max(500,min(2500,int(pos))); t=max(0,min(9999,int(t)))
+    return f'#{int(sid):03d}P{pos:04d}T{t:04d}!'.encode('ascii')
+def setup_port(port,baud):
+    subprocess.run(['stty','-F',port,str(baud),'cs8','-cstopb','-parenb','-ixon','-ixoff','-crtscts','raw','-echo'],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    return os.open(port,os.O_RDWR|os.O_NOCTTY|os.O_NONBLOCK)
+def fmt(payload):
+    try:
+        s=payload.decode('ascii')
+        if s.startswith('#'): return s
+    except Exception: pass
+    return ' '.join(f'{b:02X}' for b in payload)
+def load_state():
+    try: return {int(k):int(v) for k,v in json.loads(STATE_FILE.read_text()).items()}
+    except Exception: return dict(READY)
+def save_state(st): STATE_FILE.write_text(json.dumps({str(k):int(v) for k,v in sorted(st.items())},indent=2)+'\n')
+def payload_for(sid,pos,t): return packet_zp(sid,pos,t) if sid in DIRECT_ZP_IDS or int(pos)>1000 else packet_85(sid,pos,t)
+def send_many(port,baud,moves,t,repeat):
+    fd=setup_port(port,baud)
+    try:
+        for sid,pos in moves:
+            payload=payload_for(int(sid),int(pos),t)
+            for i in range(max(1,int(repeat))):
+                os.write(fd,payload)
+                if i<int(repeat)-1: time.sleep(0.08)
+            print(f'TX {port}: ID{int(sid)}={int(pos)} T={int(t)} {fmt(payload)}',flush=True); time.sleep(0.02)
+    finally: os.close(fd)
+    st=load_state()
+    for sid,pos in moves: st[int(sid)]=int(pos)
+    save_state(st)
+def split_send(arm,zp,baud,moves,t,repeat):
+    am=[(s,p) for s,p in moves if int(s) in DIRECT_85KG_IDS and int(p)<=1000]
+    zm=[(s,p) for s,p in moves if not (int(s) in DIRECT_85KG_IDS and int(p)<=1000)]
+    if am: send_many(arm,baud,am,t,repeat)
+    if zm: send_many(zp,baud,zm,t,repeat)
+def main():
+    ap=argparse.ArgumentParser(description='RK direct bus servo helper')
+    ap.add_argument('--port'); ap.add_argument('--arm-port',default='/dev/ttyS9'); ap.add_argument('--zp-port',default='/dev/ttyS0')
+    ap.add_argument('--baud',type=int,default=115200); ap.add_argument('--time',type=int,default=None); ap.add_argument('--repeat',type=int,default=1)
+    ap.add_argument('--splitter-time',type=int,default=1500)
+    sub=ap.add_subparsers(dest='cmd',required=True)
+    p=sub.add_parser('move'); p.add_argument('servo_id',type=int); p.add_argument('position',type=int)
+    p=sub.add_parser('pair'); p.add_argument('values',nargs='+',type=int)
+    sub.add_parser('home'); sub.add_parser('ready'); sub.add_parser('state')
+    a=ap.parse_args()
+    if a.cmd=='move':
+        port=a.port or (a.zp_port if a.servo_id in DIRECT_ZP_IDS or a.position>1000 else a.arm_port)
+        send_many(port,a.baud,[(a.servo_id,a.position)],a.splitter_time if a.time is None and a.servo_id==4 else (900 if a.time is None else a.time),a.repeat)
+    elif a.cmd=='pair':
+        if len(a.values)%2: raise SystemExit('pair needs: id pos [id pos ...]')
+        moves=list(zip(a.values[0::2],a.values[1::2])); t=900 if a.time is None else a.time; (send_many(a.port,a.baud,moves,t,a.repeat) if a.port else split_send(a.arm_port,a.zp_port,a.baud,moves,t,a.repeat))
+    elif a.cmd=='home': split_send(a.arm_port,a.zp_port,a.baud,HOME.items(),900 if a.time is None else a.time,a.repeat)
+    elif a.cmd=='ready': split_send(a.arm_port,a.zp_port,a.baud,READY.items(),900 if a.time is None else a.time,a.repeat)
+    elif a.cmd=='state':
+        st=load_state(); print('Last commanded targets, RK direct has no real readback:')
+        for sid in [1,2,4,5,6,7]: print(f'  ID{sid}: {st.get(sid,"unknown")}')
+if __name__=='__main__': main()

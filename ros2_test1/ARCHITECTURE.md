@@ -9,14 +9,12 @@ This document describes the active project layout on the RK board:
 `-- ros2_test1
     |-- launch
     |   |-- red_square_grasp_rk_direct.launch.py  # RK-only direct UART version
-    |   `-- red_square_grasp_rc.launch.py         # RCT6 bridge version
+    |   `-- red_square_chassis_rk_direct.launch.py # H7-linked RK version
     |-- ros2_test1
     |   |-- target_vision.py              # active RK-only visual grasp
-    |   |-- target_vision_rc.py           # preserved RCT6 version
     |   |-- launch_common.py              # shared launch construction
     |   |-- arm_kinematics_common.py      # shared IK/math implementation
     |   |-- arm_kinematics.py             # RK IK/calibration mapping
-    |   |-- arm_kinematics_rc.py          # RC IK/calibration mapping
     |   |-- assets/red.png                # QR template, still required
     |   `-- assets/blue.png               # QR template, still required
     |-- urdf/arm_5.urdf
@@ -30,12 +28,6 @@ Default RK-only direct UART mode:
 
 ```bash
 RED_SQUARE_EXECUTE=true /home/cat/ros2_ws/start_target_vision.sh
-```
-
-RCT6 bridge mode:
-
-```bash
-SERVO_MODE=rc RED_SQUARE_EXECUTE=true /home/cat/ros2_ws/start_target_vision.sh
 ```
 
 Useful target overrides:
@@ -54,12 +46,6 @@ RK-only mode uses:
 - ZP UART: `/dev/ttyS0`
 - no real servo readback; it uses last commanded targets plus explicit wait time
 
-RC mode uses:
-
-- launch: `red_square_grasp_rc.launch.py`
-- app: `target_vision_rc.py`
-- RCT6 bridge feedback path
-
 ## Servo Roles
 
 - `ID1`: arm height, lower tick means lower arm
@@ -67,7 +53,7 @@ RC mode uses:
 - `ID4`: lower splitter, yellow ball closes, other targets open to 1600
 - `ID5`: catcher, opens during retreat before dropping the object
 - `ID6`: image X correction, target right of center means decrease ID6
-- `ID7`: gripper, closed 1120, open 1500
+- `ID7`: gripper, closed 1120, open 1700
 
 ## RK-only Grasp Flow
 
@@ -92,11 +78,9 @@ Start with these when changing behavior:
 
 - `ros2_test1/ros2_test1/target_vision.py` for RK-only behavior
 - `ros2_test1/launch/red_square_grasp_rk_direct.launch.py` for RK launch parameters
-- `ros2_test1/ros2_test1/launch_common.py` for shared RK/RC launch defaults
+- `ros2_test1/ros2_test1/launch_common.py` for shared RK launch defaults
 - `ros2_test1/ros2_test1/arm_kinematics_common.py` for shared IK/math
 - `ros2_test1/ros2_test1/arm_kinematics.py` for RK IK/calibration
-
-Avoid editing `target_vision_rc.py` unless you are intentionally restoring or changing the RCT6 version.
 
 ## Legacy Area
 

@@ -1,1 +1,3 @@
-/home/cat/ros2_ws/build/ros2_test1/hooks/ament_prefix_path.sh
+# generated from colcon_core/shell/template/hook_prepend_value.sh.em
+
+_colcon_prepend_unique_value AMENT_PREFIX_PATH "$COLCON_CURRENT_PREFIX"
