@@ -28,6 +28,13 @@ case "$REQUESTED_MODE" in
     export DIRECT_ZP_TIME_MS="${DIRECT_ZP_TIME_MS:-350}"
     export DIRECT_ARM_TIME_MS="${DIRECT_ARM_TIME_MS:-600}"
     export DIRECT_SPLITTER_TIME_MS="${DIRECT_SPLITTER_TIME_MS:-250}"
+if [ -n "${RED_SQUARE_EXECUTE:-}" ] && [ -z "${ABCD_EXECUTE:-}" ]; then
+  ABCD_EXECUTE="$RED_SQUARE_EXECUTE"
+fi
+: "${ABCD_EXECUTE:=true}"
+: "${VISION_TARGET_COLOR:=red}"
+: "${VISION_TARGET_KIND:=letter}"
+: "${VISION_TARGET_LETTERS:=A,B,C,D}"
     ;;
   *)
     echo "Unknown SERVO_MODE=$REQUESTED_MODE. This project supports rk only."
@@ -68,7 +75,7 @@ fi
 
 echo "camera=$CAMERA_DEVICE display=$DISPLAY"
 echo "rk direct ports: arm85=$DIRECT_ARM_UART zp=$DIRECT_ZP_UART arm_time_ms=$DIRECT_ARM_TIME_MS zp_time_ms=$DIRECT_ZP_TIME_MS"
-echo "target color=${VISION_TARGET_COLOR:-red} kind=${VISION_TARGET_KIND:-any} execute=${RED_SQUARE_EXECUTE:-true}"
+echo "target color=$VISION_TARGET_COLOR kind=$VISION_TARGET_KIND letters=$VISION_TARGET_LETTERS execute=$ABCD_EXECUTE"
 
 XAUTH_FILE="$(find "$XDG_RUNTIME_DIR" -maxdepth 1 -name '.mutter-Xwaylandauth.*' -print -quit 2>/dev/null)"
 if [ -n "$XAUTH_FILE" ]; then
@@ -83,14 +90,11 @@ export CMAKE_PREFIX_PATH="/home/cat/ros2_ws/install/ros2_test1:${CMAKE_PREFIX_PA
 cd /home/cat/ros2_ws
 
 pkill -u "$(id -un)" -f "ros2_test1.target_vision|/ros2_test1/target_vision" 2>/dev/null || true
-pkill -INT -u "$(id -un)" -f "[t]arget_vision.*--enable-red-square-grasp" 2>/dev/null || true
+pkill -INT -u "$(id -un)" -f "[t]arget_vision.*--enable-letter-grasp" 2>/dev/null || true
 pkill -INT -u "$(id -un)" -f "/home/cat/bin/[s]ervo_slider_gui" 2>/dev/null || true
 pkill -u "$(id -un)" -f "[r]ed_square_grasp_rk_direct.launch.py|[r]ed_square_chassis_rk_direct.launch.py" 2>/dev/null || true
 pkill -u "$(id -un)" -f "/rviz2/rviz2.*arm_5.rviz" 2>/dev/null || true
 pkill -u "$(id -un)" -f "/robot_state_publisher/[r]obot_state_publisher" 2>/dev/null || true
 sleep 1
 
-exec ros2 launch ros2_test1 "$LAUNCH_FILE" \
-  execute:="${RED_SQUARE_EXECUTE:-true}" \
-  target_color:="${VISION_TARGET_COLOR:-red}" \
-  target_kind:="${VISION_TARGET_KIND:-any}"
+exec ros2 launch ros2_test1 "$LAUNCH_FILE" execute:="$ABCD_EXECUTE" target_color:="$VISION_TARGET_COLOR" target_kind:="$VISION_TARGET_KIND" target_letters:="$VISION_TARGET_LETTERS"

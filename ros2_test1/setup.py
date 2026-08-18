@@ -25,13 +25,10 @@ setup(
     ],
     install_requires=['setuptools'],
     include_package_data=True,
-    package_data={
-        package_name: ['assets/*.png'],
-    },
     zip_safe=True,
     maintainer='cat',
     maintainer_email='cat@lubancat',
-    description='Selected colored target and QR detection with OpenCV',
+    description='RoboCup ball, ring, and A/B/C/D letter target vision and arm control',
     license='Apache-2.0',
     entry_points={
         'console_scripts': CURRENT_CONSOLE_SCRIPTS,

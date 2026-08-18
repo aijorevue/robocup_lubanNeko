@@ -1,0 +1,6 @@
+source;share/abcd_detector/hook/pythonpath.ps1
+source;share/abcd_detector/hook/pythonpath.dsv
+source;share/abcd_detector/hook/pythonpath.sh
+source;../../build/abcd_detector/share/abcd_detector/hook/pythonpath_develop.ps1
+source;../../build/abcd_detector/share/abcd_detector/hook/pythonpath_develop.dsv
+source;../../build/abcd_detector/share/abcd_detector/hook/pythonpath_develop.sh

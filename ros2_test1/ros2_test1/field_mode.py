@@ -27,12 +27,12 @@ class FieldTargetPolicy:
         return frozenset((self.field.value, "yellow"))
 
     @property
-    def platform_color(self):
+    def platform_ring_color(self):
         return self.field.value
 
     @property
-    def column_color(self):
-        return self.field.value
+    def platform_color(self):
+        return self.platform_ring_color
 
     def matches_disc_ball(self, detection):
         return (
@@ -40,10 +40,21 @@ class FieldTargetPolicy:
             and detection.get("color") in self.disc_colors
         )
 
-    def matches_column_ball(self, detection):
+    def matches_platform_target(self, detection, target_kind, target_letters):
+        kind = detection.get("kind")
+        if target_kind not in {"any", kind}:
+            return False
+        if kind == "letter":
+            return detection.get("letter") in target_letters
+        if kind == "ring":
+            return detection.get("color") == self.platform_ring_color
+        return False
+
+    @staticmethod
+    def matches_column_letter(detection, target_letters):
         return (
-            detection.get("kind") == "ball"
-            and detection.get("color") == self.column_color
+            detection.get("kind") == "letter"
+            and detection.get("letter") in target_letters
         )
 
 

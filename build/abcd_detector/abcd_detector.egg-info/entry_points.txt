@@ -1,0 +1,2 @@
+[console_scripts]
+abcd_detector_node = abcd_detector.letter_detector_node:main

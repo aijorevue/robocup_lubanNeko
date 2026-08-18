@@ -1,0 +1,16 @@
+running develop
+running egg_info
+writing ros2_test1.egg-info/PKG-INFO
+writing dependency_links to ros2_test1.egg-info/dependency_links.txt
+writing entry points to ros2_test1.egg-info/entry_points.txt
+writing requirements to ros2_test1.egg-info/requires.txt
+writing top-level names to ros2_test1.egg-info/top_level.txt
+reading manifest file 'ros2_test1.egg-info/SOURCES.txt'
+writing manifest file 'ros2_test1.egg-info/SOURCES.txt'
+running build_ext
+Creating /home/aijokaren/Desktop/rk3588s/install/ros2_test1/lib/python3.12/site-packages/ros2-test1.egg-link (link to .)
+Installing target_vision script to /home/aijokaren/Desktop/rk3588s/install/ros2_test1/lib/ros2_test1
+
+Installed /home/aijokaren/Desktop/rk3588s/build/ros2_test1
+running symlink_data
+symbolically linking /home/aijokaren/Desktop/rk3588s/build/ros2_test1/resource/ros2_test1 -> /home/aijokaren/Desktop/rk3588s/install/ros2_test1/share/ament_index/resource_index/packages

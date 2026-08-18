@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Detect the selected colored targets and draw them on the camera view."""
+"""Detect RoboCup balls, rings, and selected A/B/C/D letter blocks."""
 
 from __future__ import annotations
 
@@ -31,6 +31,7 @@ except ImportError:  # Keeps detector and protocol tests runnable on Windows.
 
 import cv2
 import numpy as np
+from abcd_detector.detector import ABCDDetector, LETTERS
 from .arm_kinematics import (
     BASE_YAW_CENTER_TICK,
     BASE_YAW_HOME_TICK,
@@ -70,22 +71,15 @@ from .detectors.common import external_contours
 from .field_mode import FieldMode, FieldTargetPolicy, parse_field, policy_for
 from .white_line_alignment import WhiteLineAlignmentDetector
 
-try:
-    from pyzbar.pyzbar import ZBarSymbol, decode as zbar_decode
-except ImportError:  # Keep color detection usable if the QR decoder is missing.
-    ZBarSymbol = None
-    zbar_decode = None
-
 
 WINDOW_NAME = "Ros2_test1 Target Vision"
 
 BALL_DISTANCE_OFFSET_CM = -1.6072186919749336
 BALL_DISTANCE_SCALE_CM = 31.628878020276648
 GOLF_BALL_DIAMETER_MM = 42.67
-RED_CUBE_SIDE_MM = 30.0
+LETTER_CUBE_SIDE_MM = 30.0
 RED_RING_OUTER_DIAMETER_MM = 55.0
 RING_DISTANCE_EXTRA_CM = 6.0
-QR_DISPLAY_DISTANCE_OFFSET_CM = 2.0
 RING_DESCEND_BIAS_MM = 60.0
 GRASP_DESCEND_DEPTH_TABLE_CM_MM = (
     (10.0, 105.0),
@@ -152,11 +146,11 @@ GRASP_DISTANCE_CALIBRATION = (
 )
 GRASP_MIN_DISTANCE_CM = 10.0
 GRASP_MAX_DISTANCE_CM = 40.0
-SQUARE_DISTANCE_OFFSET_CM = BALL_DISTANCE_OFFSET_CM
-SQUARE_DISTANCE_SCALE_CM = (
+LETTER_DISTANCE_OFFSET_CM = BALL_DISTANCE_OFFSET_CM
+LETTER_DISTANCE_SCALE_CM = (
     BALL_DISTANCE_SCALE_CM
     * 2.0
-    * RED_CUBE_SIDE_MM
+    * LETTER_CUBE_SIDE_MM
     / (GOLF_BALL_DIAMETER_MM * np.sqrt(np.pi))
     * 1.20
 )
@@ -423,10 +417,10 @@ class DetectionSmoother:
 _PROCESS_DETECTOR = None
 
 
-def detection_process_worker(source_frame, detection_scale, qr_template_every=1):
+def detection_process_worker(source_frame, detection_scale):
     global _PROCESS_DETECTOR
     if _PROCESS_DETECTOR is None:
-        _PROCESS_DETECTOR = TargetDetector(qr_template_every=qr_template_every)
+        _PROCESS_DETECTOR = TargetDetector()
     detect_started = time.perf_counter()
     if detection_scale < 0.999:
         source_height, source_width = source_frame.shape[:2]
@@ -446,21 +440,6 @@ def detection_process_worker(source_frame, detection_scale, qr_template_every=1)
     else:
         result = _PROCESS_DETECTOR.detect(source_frame)
     return result, time.perf_counter() - detect_started
-
-QR_COLOR_ALIASES = {
-    "r": "red",
-    "red": "red",
-    "red square": "red",
-    "red_square": "red",
-    "hong": "red",
-    "hongse": "red",
-    "b": "blue",
-    "blue": "blue",
-    "blue square": "blue",
-    "blue_square": "blue",
-    "lan": "blue",
-    "lanse": "blue",
-}
 
 class FrameState:
     def __init__(self):
@@ -1287,7 +1266,7 @@ class DirectBusServoBridge:
         self.last_command_ok = False
 
 
-class RedSquareGraspController:
+class TargetGraspController:
     def __init__(
         self,
         enabled,
@@ -1334,6 +1313,7 @@ class RedSquareGraspController:
         id2_center_min=None,
         id2_center_max=None,
         field_mode=FieldMode.RED,
+        target_letters=LETTERS,
     ):
         self.enabled = enabled
         self.servo_bridge = servo_bridge
@@ -1346,6 +1326,7 @@ class RedSquareGraspController:
         self.id5 = CATCHER_HOME_TICK
         self.field_mode = parse_field(field_mode)
         self.target_policy = policy_for(self.field_mode)
+        self.target_letters = frozenset(target_letters) or frozenset(LETTERS)
         self.id4_closed = int(id4_closed)
         self.id4_open = int(id4_open)
         self.center_deadband_px = center_deadband_px
@@ -1457,7 +1438,7 @@ class RedSquareGraspController:
             or getattr(servo_bridge, "assumed_feedback", False)
         )
         self.state = "disabled" if not enabled else "searching"
-        self.status = "red-square grasp disabled" if not enabled else "red-square grasp ready"
+        self.status = "target grasp disabled" if not enabled else "letter target grasp ready"
 
         self._enforce_angle_gap()
         self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
@@ -2410,11 +2391,22 @@ class RedSquareGraspController:
 
         return max(allowed, key=lambda det: float(det.get("area_percent") or 0.0))
 
-    def _column_ball_visible(self, detections):
-        for det in detections:
-            if self.target_policy.matches_column_ball(det):
-                return det
-        return None
+    def _column_letter_visible(self, detections):
+        candidates = [
+            det
+            for det in detections
+            if self.target_policy.matches_column_letter(
+                det, self.target_letters
+            )
+        ]
+        return max(
+            candidates,
+            key=lambda det: (
+                float(det.get("confidence") or 0.0),
+                float(det.get("projected_area") or 0.0),
+            ),
+            default=None,
+        )
 
     def _finish_chassis_station_after_retract(self, reason):
         result = self.shutdown_contract()
@@ -2707,7 +2699,9 @@ class RedSquareGraspController:
 
     def _update_column_catch_station(self, detections, detection_fresh=True):
         now = time.monotonic()
-        ball = self._column_ball_visible(detections) if detection_fresh else None
+        letter_target = (
+            self._column_letter_visible(detections) if detection_fresh else None
+        )
 
         if self.splitter_id4 != COLUMN_CATCH_SPLITTER_TICK:
             if not self.servo_bridge.write_enabled:
@@ -2762,31 +2756,29 @@ class RedSquareGraspController:
                 return f"COLUMN_CATCH descend settling {self.chassis_station_deadline - now:.1f}s"
             self.chassis_station_stage = "column_detect"
             return (
-                f"COLUMN_CATCH detecting {self.field_mode.wire_name.lower()} "
-                "ball during orbit"
+                "COLUMN_CATCH detecting selected A/B/C/D letter during orbit"
             )
 
         if self.chassis_station_stage == "column_detect":
             self.state = (
-                f"COLUMN_CATCH detect {self.field_mode.wire_name.lower()} ball"
+                "COLUMN_CATCH detect selected letter"
             )
             if not detection_fresh:
                 return "COLUMN_CATCH waiting for fresh detection"
-            if ball is None:
+            if letter_target is None:
                 self.column_target_absent_frames += 1
                 if self.column_target_absent_frames >= 3:
                     self.column_target_armed = True
                 return (
-                    f"COLUMN_CATCH orbit detect; no "
-                    f"{self.field_mode.wire_name.lower()} ball"
+                    "COLUMN_CATCH orbit detect; no selected letter"
                 )
             self.column_target_absent_frames = 0
             if not self.column_target_armed:
-                return "COLUMN_CATCH waiting detected ball to leave before rearm"
+                return "COLUMN_CATCH waiting detected letter to leave before rearm"
             self.column_target_armed = False
             self.chassis_station_stage = "column_open"
             self.status = (
-                f"COLUMN_CATCH {ball.get('color')} ball detected; pulse ID7"
+                f"COLUMN_CATCH letter {letter_target.get('letter')} detected; pulse ID7"
             )
             print(f"CHASSIS STATION {self.status}", flush=True)
 
@@ -3138,7 +3130,7 @@ class RedSquareGraspController:
             return GOLF_BALL_DIAMETER_MM
         if target.get("kind") == "ring":
             return RED_RING_OUTER_DIAMETER_MM
-        return RED_CUBE_SIDE_MM
+        return LETTER_CUBE_SIDE_MM
 
     def _apply_ik_calibration(self, id1, id2, target_x_mm, target_z_mm):
         id1 = self._clamp(
@@ -3168,7 +3160,7 @@ class RedSquareGraspController:
         cx, cy = target.get("center", (width / 2.0, height / 2.0))
         _, _, bbox_w, bbox_h = target.get("bbox", (0, 0, 0, 0))
         apparent_side_px = max(1.0, float(max(bbox_w, bbox_h)))
-        target_size_mm = RedSquareGraspController._target_size_mm(target)
+        target_size_mm = TargetGraspController._target_size_mm(target)
         focal_px = apparent_side_px * distance_mm / target_size_mm
         lateral_mm = (float(cx) - (width / 2.0)) * distance_mm / focal_px
         vertical_mm = (float(cy) - (height / 2.0)) * distance_mm / focal_px
@@ -3179,7 +3171,7 @@ class RedSquareGraspController:
             "vertical_mm": vertical_mm,
             "center_x_px": float(cx),
             "center_y_px": float(cy),
-            "target_kind": target.get("kind", "square"),
+            "target_kind": target.get("kind", "letter"),
             "target_source": target.get("source"),
             "target_size_mm": target_size_mm,
         }
@@ -3323,9 +3315,9 @@ class RedSquareGraspController:
             else:
                 move_x_mm = -self.post_center_retreat_mm
                 move_z_mm = -descend_depth_mm
-            target_kind = offsets.get("target_kind", "square")
+            target_kind = offsets.get("target_kind", "letter")
             target_source = offsets.get("target_source")
-            target_size_mm = offsets.get("target_size_mm", RED_CUBE_SIDE_MM)
+            target_size_mm = offsets.get("target_size_mm", LETTER_CUBE_SIDE_MM)
         else:
             camera_to_target_mm = None
             camera_to_gripper_mm = self.camera_gripper_offset_mm
@@ -3335,9 +3327,9 @@ class RedSquareGraspController:
             descend_depth_mm = self.post_center_down_mm
             move_x_mm = -self.post_center_retreat_mm
             move_z_mm = -self.post_center_down_mm
-            target_kind = "square"
+            target_kind = "letter"
             target_source = None
-            target_size_mm = RED_CUBE_SIDE_MM
+            target_size_mm = LETTER_CUBE_SIDE_MM
 
         target_x_mm = current_x_mm + move_x_mm
         target_z_mm = current_z_mm - self.post_center_down_mm
@@ -4447,7 +4439,7 @@ class RedSquareGraspController:
             self.state = "target too small"
             self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
             return (
-                f"red square area below {self.min_target_area_percent:.2f}%; "
+                f"letter target area below {self.min_target_area_percent:.2f}%; "
                 "grasp disabled"
             )
         distance_cm = target.get("distance_cm")
@@ -4471,10 +4463,10 @@ class RedSquareGraspController:
         cx, cy = target["center"]
         error_x = cx - width / 2.0
         error_y = cy - height / 2.0
-        square_distance_mm = None if distance_cm is None else distance_cm * 10.0
+        target_distance_mm = None if distance_cm is None else distance_cm * 10.0
         gripper_distance_mm = None
-        if square_distance_mm is not None:
-            gripper_distance_mm = square_distance_mm - self.camera_gripper_offset_mm
+        if target_distance_mm is not None:
+            gripper_distance_mm = target_distance_mm - self.camera_gripper_offset_mm
 
         can_command = now - self.last_command_time >= self.command_interval_s
         if self.locked_target is None:
@@ -4677,7 +4669,7 @@ class ArmPreviewPublisher:
             target.id = 1
             # Debug visualization is intentionally larger than the real object
             # so it remains visible on the small RK screen.
-            real_target_size_m = plan.get("target_size_mm", RED_CUBE_SIDE_MM) / 1000.0
+            real_target_size_m = plan.get("target_size_mm", LETTER_CUBE_SIDE_MM) / 1000.0
             target_size_m = max(0.08, real_target_size_m * 1.8)
             target.type = (
                 self.Marker.SPHERE
@@ -4829,68 +4821,17 @@ class ArmPreviewPublisher:
 
 
 class TargetDetector:
-    def __init__(self, qr_template_every=1):
-        self.qr = cv2.QRCodeDetector()
-        self.templates = self._load_templates()
-        self.qr_feature_detector = None
-        self.qr_template_features = {}
-        self.qr_template_every = max(1, int(qr_template_every))
-        self._qr_fallback_counter = 0
-        self.qr_matcher = cv2.BFMatcher(cv2.NORM_L2)
-        # cv2.QRCodeDetector cannot decode without quirc; those paths only
-        # spam "Library QUIRC is not linked" and never return decoded text.
-        self._cv_qr_usable = bool(
-            re.search(r"QUIRC:\s*YES", cv2.getBuildInformation())
-        )
-        if hasattr(cv2, "SIFT_create"):
-            self.qr_feature_detector = cv2.SIFT_create(
-                nfeatures=2000,
-                contrastThreshold=0.02,
-            )
-            for label, template in self.templates.items():
-                keypoints, descriptors = self.qr_feature_detector.detectAndCompute(
-                    template,
-                    None,
-                )
-                if descriptors is not None and len(keypoints) >= 8:
-                    self.qr_template_features[label] = (
-                        template.shape,
-                        keypoints,
-                        descriptors,
-                    )
-
-    def _load_templates(self):
-        asset_dir = Path(__file__).resolve().parent / "assets"
-        templates = {}
-        for label in ("red", "blue"):
-            path = asset_dir / f"{label}.png"
-            img = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
-            if img is not None:
-                templates[label] = img
-        return templates
+    def __init__(self):
+        self.letter_detector = ABCDDetector()
 
     def detect(self, frame):
+        if frame is None or not isinstance(frame, np.ndarray) or frame.ndim != 3:
+            return []
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         rings = self._detect_rings(hsv)
-        colored_balls = []
-        for detector in BALL_DETECTORS:
-            colored_balls.extend(detector.detect(hsv, rings))
-        squares = self._detect_squares(hsv)
-        qr_detections = self._detect_qr(frame)
-        colored_balls = self._suppress_qr_overlap(
-            colored_balls,
-            qr_detections,
-            colors={"blue"},
-            kinds={"ball"},
-            min_overlap=0.34,
-        )
-        squares = self._suppress_qr_overlap(
-            squares,
-            qr_detections,
-            colors={"red", "blue"},
-            kinds={"square"},
-            min_overlap=0.40,
-        )
+        colored_balls = self._detect_balls(hsv, rings)
+        letters = self.letter_detector.detect(frame)
+        occupied = [*colored_balls, *rings, *letters]
         non_white_mask = cv2.bitwise_or(
             yellow.mask(hsv),
             cv2.bitwise_or(red.mask(hsv), blue.mask(hsv)),
@@ -4901,26 +4842,10 @@ class TargetDetector:
             np.array((180, 255, 255)),
         )
         non_white_mask = cv2.bitwise_and(non_white_mask, strong_color_mask)
-        white_balls = WHITE_DETECTOR.detect(
-            hsv,
-            [*colored_balls, *rings, *squares, *qr_detections],
-            non_white_mask,
-        )
-        white_balls = self._suppress_qr_overlap(
-            white_balls,
-            qr_detections,
-            colors={"white"},
-            kinds={"ball"},
-            min_overlap=0.24,
-        )
+        white_balls = WHITE_DETECTOR.detect(hsv, occupied, non_white_mask)
         if colored_balls and len(white_balls) > 1:
             white_balls = []
-        detections = []
-        detections.extend(colored_balls)
-        detections.extend(squares)
-        detections.extend(rings)
-        detections.extend(qr_detections)
-        detections.extend(white_balls)
+        detections = [*colored_balls, *rings, *letters, *white_balls]
         self._add_frame_ratios(detections, frame.shape)
         return detections
 
@@ -4942,7 +4867,7 @@ class TargetDetector:
                     RING_DISTANCE_OFFSET_CM,
                     RING_DISTANCE_SCALE_CM,
                 )
-            elif det.get("kind") == "square":
+            elif det.get("kind") == "letter":
                 x, y, w, h = det.get("bbox", (0, 0, 0, 0))
                 box_area = max(0.0, float(det.get("projected_area", 0.0)))
                 if box_area == 0.0:
@@ -4952,8 +4877,8 @@ class TargetDetector:
                 det["diameter_ratio"] = max(w, h) / short_side
                 det["distance_cm"] = TargetDetector._estimate_distance_cm(
                     det["area_percent"],
-                    SQUARE_DISTANCE_OFFSET_CM,
-                    SQUARE_DISTANCE_SCALE_CM,
+                    LETTER_DISTANCE_OFFSET_CM,
+                    LETTER_DISTANCE_SCALE_CM,
                 )
             elif det.get("kind") == "ring":
                 radius = float(det.get("outer_radius", 0))
@@ -4972,60 +4897,6 @@ class TargetDetector:
         if area_percent <= 0.0:
             return None
         return offset_cm + scale_cm / np.sqrt(area_percent)
-
-    def _suppress_qr_overlap(
-        self,
-        detections,
-        qr_detections,
-        colors=None,
-        kinds=None,
-        min_overlap=0.35,
-    ):
-        if not detections or not qr_detections:
-            return detections
-
-        colors = None if colors is None else set(colors)
-        kinds = None if kinds is None else set(kinds)
-        filtered = []
-        for det in detections:
-            if colors is not None and det.get("color") not in colors:
-                filtered.append(det)
-                continue
-            if kinds is not None and det.get("kind") not in kinds:
-                filtered.append(det)
-                continue
-
-            det_bbox = det.get("bbox")
-            if det_bbox is None:
-                filtered.append(det)
-                continue
-
-            blocked = any(
-                self._bbox_overlap_ratio(det_bbox, qr.get("bbox")) >= min_overlap
-                for qr in qr_detections
-            )
-            if not blocked:
-                filtered.append(det)
-        return filtered
-
-    @staticmethod
-    def _bbox_overlap_ratio(bbox_a, bbox_b):
-        if bbox_a is None or bbox_b is None:
-            return 0.0
-
-        ax, ay, aw, ah = bbox_a
-        bx, by, bw, bh = bbox_b
-        ix0 = max(ax, bx)
-        iy0 = max(ay, by)
-        ix1 = min(ax + aw, bx + bw)
-        iy1 = min(ay + ah, by + bh)
-        if ix1 <= ix0 or iy1 <= iy0:
-            return 0.0
-
-        intersection = (ix1 - ix0) * (iy1 - iy0)
-        area_a = max(1, aw * ah)
-        area_b = max(1, bw * bh)
-        return intersection / min(area_a, area_b)
 
     def draw(self, frame, detections):
         out = frame.copy()
@@ -5053,24 +4924,15 @@ class TargetDetector:
                 cv2.rectangle(out, (x, y), (x + w, y + h), bgr, 2)
                 cv2.circle(out, (cx, cy), radius, bgr, 2)
                 self._label(out, label, x, y, bgr)
-            elif det["kind"] == "square":
+            elif det["kind"] == "letter":
                 cv2.drawContours(out, [det["box"]], 0, bgr, 2)
                 x, y, w, h = det["bbox"]
                 cv2.rectangle(out, (x, y), (x + w, y + h), bgr, 1)
                 area_percent = det.get("area_percent", 0.0)
                 distance_cm = det.get("distance_cm")
-                if det.get("source") == "qr":
-                    confidence = det.get("confidence", 0)
-                    label = f"{color} QR conf {confidence:.0f}%"
-                    display_distance_cm = self._display_distance_cm(det)
-                    if distance_cm is None:
-                        label = f"{label} fill {area_percent:.2f}%"
-                    else:
-                        label = (
-                            f"{label} fill {area_percent:.2f}% "
-                            f"depth {display_distance_cm:.1f}cm"
-                        )
-                elif distance_cm is None:
+                confidence = det.get("confidence", 0.0)
+                label = f"white letter {det.get('letter', '?')} conf {confidence:.0f}%"
+                if distance_cm is None:
                     label = f"{label} fill {area_percent:.2f}%"
                 else:
                     label = f"{label} fill {area_percent:.2f}% d {distance_cm:.1f}cm"
@@ -5093,11 +4955,6 @@ class TargetDetector:
                         f"depth {distance_cm:.1f}cm"
                     )
                 self._label(out, label, x, y, bgr)
-            elif det["kind"] == "qr":
-                pts = det["points"].astype(np.int32)
-                cv2.polylines(out, [pts], True, bgr, 3)
-                x, y, _, _ = cv2.boundingRect(pts)
-                self._label(out, f"{color} QR", x, y, bgr)
 
         info = self.summary(detections)
         cv2.putText(out, info, (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (0, 255, 0), 2)
@@ -5115,19 +4972,15 @@ class TargetDetector:
             ("red", "ball"),
             ("blue", "ball"),
             ("white", "ball"),
-            ("red", "square"),
-            ("blue", "square"),
             ("red", "ring"),
             ("blue", "ring"),
-            ("red", "qr"),
-            ("blue", "qr"),
         ]
         parts = []
         for color, kind in order:
             matching = [
                 det
                 for det in detections
-                if det["color"] == color and det["kind"] == kind
+                if det.get("color") == color and det.get("kind") == kind
             ]
             count = len(matching)
             if count:
@@ -5137,14 +4990,19 @@ class TargetDetector:
                         for det in matching
                     )
                     parts.append(f"{color}-{kind}:{count} {measurements}")
-                elif kind == "square":
-                    measurements = ",".join(
-                        TargetDetector._format_area_measurement(det)
-                        for det in matching
-                    )
-                    parts.append(f"{color}-{kind}:{count} {measurements}")
                 else:
                     parts.append(f"{color}-{kind}:{count}")
+        for letter in LETTERS:
+            matching = [
+                det for det in detections
+                if det.get("kind") == "letter" and det.get("letter") == letter
+            ]
+            if matching:
+                measurements = ",".join(
+                    TargetDetector._format_area_measurement(det)
+                    for det in matching
+                )
+                parts.append(f"white-letter:{letter}:{len(matching)} {measurements}")
         return " | ".join(parts) if parts else "searching selected targets..."
 
     @staticmethod
@@ -5163,8 +5021,6 @@ class TargetDetector:
         distance_cm = det.get("distance_cm")
         if distance_cm is None:
             return None
-        if det.get("source") == "qr" or det.get("kind") == "qr":
-            return float(distance_cm) + QR_DISPLAY_DISTANCE_OFFSET_CM
         return float(distance_cm)
 
     def _mask(self, hsv, color):
@@ -5180,53 +5036,6 @@ class TargetDetector:
     def _detect_white_balls(self, hsv, occupied_detections=None, non_white_mask=None):
         occupied_detections = occupied_detections or []
         return WHITE_DETECTOR.detect(hsv, occupied_detections, non_white_mask)
-
-    def _detect_squares(self, hsv):
-        results = []
-        frame_height, frame_width = hsv.shape[:2]
-        edge_margin = max(12, int(min(frame_width, frame_height) * 0.015))
-        for color in SHAPE_COLORS:
-            contours = self._external_contours(self._mask(hsv, color))
-            for contour in contours:
-                area = cv2.contourArea(contour)
-                if area < 450:
-                    continue
-                contour_circularity = self._circularity(contour)
-                peri = cv2.arcLength(contour, True)
-                poly = cv2.approxPolyDP(contour, 0.035 * peri, True)
-                if len(poly) < 4 or len(poly) > 6:
-                    continue
-                if contour_circularity > 0.88:
-                    continue
-                rect = cv2.minAreaRect(contour)
-                (cx, cy), (w, h), angle = rect
-                if min(w, h) < 16:
-                    continue
-                fill = area / (w * h) if w * h > 0 else 0
-                aspect = max(w, h) / min(w, h) if min(w, h) else 999
-                if fill < 0.62 or aspect > 1.8:
-                    continue
-                box = cv2.boxPoints(rect).astype(np.int32)
-                x, y, bw, bh = cv2.boundingRect(box)
-                fully_visible = (
-                    x > edge_margin
-                    and y > edge_margin
-                    and x + bw < frame_width - edge_margin
-                    and y + bh < frame_height - edge_margin
-                )
-                results.append(
-                    {
-                        "kind": "square",
-                        "color": color,
-                        "center": (int(cx), int(cy)),
-                        "box": box,
-                        "bbox": (x, y, bw, bh),
-                        "projected_area": float(w * h),
-                        "fully_visible": fully_visible,
-                        "angle": round(angle, 1),
-                    }
-                )
-        return results
 
     def _detect_rings(self, hsv):
         results = []
@@ -5341,251 +5150,6 @@ class TargetDetector:
                 return True
         return False
 
-    def _detect_qr(self, frame):
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        results = []
-
-        def add_result(candidate):
-            for index, existing in enumerate(results):
-                overlap = self._bbox_overlap_ratio(
-                    candidate.get("bbox"),
-                    existing.get("bbox"),
-                )
-                if candidate.get("color") == existing.get("color") or overlap >= 0.45:
-                    if candidate.get("confidence", 0.0) > existing.get("confidence", 0.0):
-                        results[index] = candidate
-                    return
-            results.append(candidate)
-
-        if zbar_decode is not None:
-            symbols = [ZBarSymbol.QRCODE] if ZBarSymbol is not None else None
-            for barcode in zbar_decode(gray, symbols=symbols):
-                decoded = barcode.data.decode("utf-8", "replace")
-                color = self._color_from_qr_text(decoded)
-                if color not in ("red", "blue"):
-                    continue
-                points = self._barcode_points(barcode)
-                confidence = self._barcode_confidence(barcode, gray)
-                add_result(self._qr_as_square(color, points, decoded, confidence))
-            if {item["color"] for item in results} == {"red", "blue"}:
-                return results
-
-        if self._cv_qr_usable and hasattr(self.qr, "detectAndDecodeMulti"):
-            try:
-                ok, decoded_info, points, _ = self.qr.detectAndDecodeMulti(gray)
-                if ok and points is not None:
-                    for idx, qr_points in enumerate(points):
-                        decoded = decoded_info[idx] if idx < len(decoded_info) else ""
-                        color = self._color_from_qr_text(decoded)
-                        if color in ("red", "blue"):
-                            add_result(self._qr_as_square(color, qr_points, decoded, 100.0))
-            except cv2.error:
-                pass
-
-        if self._cv_qr_usable and {item["color"] for item in results} != {"red", "blue"}:
-            try:
-                decoded, points, _ = self.qr.detectAndDecode(gray)
-                if points is not None:
-                    color = self._color_from_qr_text(decoded)
-                    if color in ("red", "blue"):
-                        add_result(self._qr_as_square(color, points, decoded, 100.0))
-            except cv2.error:
-                pass
-
-        if {item["color"] for item in results} != {"red", "blue"}:
-            self._qr_fallback_counter += 1
-            if self._qr_fallback_counter >= self.qr_template_every:
-                self._qr_fallback_counter = 0
-                for candidate in self._detect_qr_templates(gray):
-                    add_result(candidate)
-
-        return results
-
-    def _detect_qr_templates(self, gray):
-        if self.qr_feature_detector is None or not self.qr_template_features:
-            return []
-        scene_keypoints, scene_descriptors = self.qr_feature_detector.detectAndCompute(
-            gray,
-            None,
-        )
-        if scene_descriptors is None or len(scene_keypoints) < 8:
-            return []
-
-        matcher = self.qr_matcher
-        frame_height, frame_width = gray.shape[:2]
-        frame_area = frame_height * frame_width
-        results = []
-        for label, (template_shape, template_keypoints, template_descriptors) in self.qr_template_features.items():
-            try:
-                matches = matcher.knnMatch(template_descriptors, scene_descriptors, k=2)
-            except cv2.error:
-                continue
-            good = [
-                first
-                for pair in matches
-                if len(pair) == 2
-                for first, second in [pair]
-                if first.distance < 0.72 * second.distance
-            ]
-            if len(good) < 8:
-                continue
-            source_points = np.float32(
-                [template_keypoints[item.queryIdx].pt for item in good]
-            )
-            target_points = np.float32(
-                [scene_keypoints[item.trainIdx].pt for item in good]
-            )
-            matrix, inlier_mask = cv2.findHomography(
-                source_points,
-                target_points,
-                cv2.RANSAC,
-                4.0,
-            )
-            if matrix is None or inlier_mask is None:
-                continue
-            inliers = int(inlier_mask.sum())
-            inlier_ratio = inliers / max(1, len(good))
-            if inliers < 8 or inlier_ratio < 0.35:
-                continue
-
-            template_height, template_width = template_shape[:2]
-            corners = np.float32(
-                [[
-                    [0, 0],
-                    [template_width - 1, 0],
-                    [template_width - 1, template_height - 1],
-                    [0, template_height - 1],
-                ]]
-            )
-            try:
-                projected = cv2.perspectiveTransform(corners, matrix)[0]
-            except cv2.error:
-                continue
-            if not np.isfinite(projected).all():
-                continue
-            contour = np.rint(projected).astype(np.int32)
-            area = abs(cv2.contourArea(contour))
-            if area < 400.0 or area > frame_area * 0.35:
-                continue
-            if not cv2.isContourConvex(contour):
-                continue
-            if (
-                projected[:, 0].min() < -12
-                or projected[:, 1].min() < -12
-                or projected[:, 0].max() > frame_width + 12
-                or projected[:, 1].max() > frame_height + 12
-            ):
-                continue
-            side_lengths = [
-                float(np.linalg.norm(projected[(index + 1) % 4] - projected[index]))
-                for index in range(4)
-            ]
-            if min(side_lengths) < 12.0 or max(side_lengths) / min(side_lengths) > 2.0:
-                continue
-            confidence = 100.0 * (
-                0.55 * min(1.0, inliers / 30.0)
-                + 0.45 * min(1.0, inlier_ratio)
-            )
-            results.append(
-                self._qr_as_square(
-                    label,
-                    projected,
-                    "R" if label == "red" else "B",
-                    confidence,
-                )
-            )
-        return results
-
-    @staticmethod
-    def _color_from_qr_text(text):
-        normalized = (text or "").strip().lower()
-        return QR_COLOR_ALIASES.get(normalized)
-
-    @staticmethod
-    def _barcode_points(barcode):
-        polygon = getattr(barcode, "polygon", None) or []
-        if len(polygon) >= 4:
-            pts = np.array([(p.x, p.y) for p in polygon], dtype=np.float32)
-            rect = cv2.minAreaRect(pts)
-            return cv2.boxPoints(rect)
-        rect = barcode.rect
-        x, y, w, h = rect.left, rect.top, rect.width, rect.height
-        return np.array([[x, y], [x + w, y], [x + w, y + h], [x, y + h]], dtype=np.float32)
-
-    @staticmethod
-    def _barcode_confidence(barcode, gray):
-        quality = getattr(barcode, "quality", None)
-        if quality is not None:
-            return max(0.0, min(100.0, float(quality)))
-
-        rect = barcode.rect
-        height, width = gray.shape[:2]
-        x0 = max(0, rect.left)
-        y0 = max(0, rect.top)
-        x1 = min(width, rect.left + rect.width)
-        y1 = min(height, rect.top + rect.height)
-        roi = gray[y0:y1, x0:x1]
-        if roi.size == 0:
-            return 60.0
-
-        sharpness = cv2.Laplacian(roi, cv2.CV_64F).var()
-        sharp_score = min(1.0, sharpness / 900.0)
-        size_score = min(1.0, max(rect.width, rect.height) / 180.0)
-        return 60.0 + 40.0 * (0.65 * sharp_score + 0.35 * size_score)
-
-    @staticmethod
-    def _qr_as_square(color, points, decoded, confidence):
-        points = np.asarray(points, dtype=np.float32).reshape(-1, 2)
-        if len(points) != 4:
-            points = cv2.boxPoints(cv2.minAreaRect(points))
-        box = points.astype(np.int32)
-        x, y, w, h = cv2.boundingRect(box)
-        center = (int(x + w / 2), int(y + h / 2))
-        contour_area = abs(float(cv2.contourArea(points)))
-        (_, _), (rect_w, rect_h), _ = cv2.minAreaRect(points)
-        rect_area = max(0.0, float(rect_w) * float(rect_h))
-        bbox_area = max(0.0, float(w) * float(h))
-        projected_area = max(contour_area, rect_area, bbox_area * 0.55)
-        return {
-            "kind": "square",
-            "color": color,
-            "source": "qr",
-            "decoded": decoded,
-            "confidence": float(confidence),
-            "center": center,
-            "box": box,
-            "bbox": (x, y, w, h),
-            "projected_area": projected_area,
-            "angle": 0.0,
-        }
-
-    def _match_qr_template(self, gray, points):
-        if not self.templates:
-            return None, 0.0
-
-        points = np.asarray(points, dtype=np.float32).reshape(4, 2)
-        side = 240
-        dst = np.array(
-            [[0, 0], [side - 1, 0], [side - 1, side - 1], [0, side - 1]],
-            dtype=np.float32,
-        )
-        try:
-            matrix = cv2.getPerspectiveTransform(points, dst)
-            roi = cv2.warpPerspective(gray, matrix, (side, side))
-        except cv2.error:
-            return None, 0.0
-
-        if roi.size == 0:
-            return None, 0.0
-        scores = {}
-        for label, template in self.templates.items():
-            resized = cv2.resize(template, (side, side))
-            score = cv2.matchTemplate(roi, resized, cv2.TM_CCOEFF_NORMED).max()
-            scores[label] = float(score)
-        best = max(scores, key=scores.get)
-        confidence = max(0.0, min(100.0, scores[best] * 100.0))
-        return (best, confidence) if scores[best] > 0.35 else (None, 0.0)
-
     @staticmethod
     def _external_contours(mask):
         return external_contours(mask)
@@ -5594,6 +5158,16 @@ class TargetDetector:
     def _circularity(contour):
         return contour_circularity(contour)
 
+
+def parse_target_letters(value, default=LETTERS):
+    if value is None:
+        return tuple(default)
+    if isinstance(value, (list, tuple, set, frozenset)):
+        letters = [str(item).strip().upper() for item in value]
+    else:
+        letters = [item.strip().upper() for item in str(value).split(",")]
+    allowed = [item for item in letters if item in LETTERS]
+    return tuple(dict.fromkeys(allowed)) or tuple(default)
 
 def parse_device(value):
     return int(value) if str(value).isdigit() else value
@@ -5781,14 +5355,6 @@ def build_arg_parser():
     parser.add_argument("--fps", type=int, default=30)
     parser.add_argument("--detect-every-n-frames", type=int, default=1)
     parser.add_argument("--detection-scale", type=float, default=1.0)
-    parser.add_argument(
-        "--qr-template-every",
-        type=int,
-        default=3,
-        help="run the SIFT QR-template fallback only every N detection passes "
-        "(1 restores the old always-on behavior); zbar QR decoding still runs "
-        "on every detection pass",
-    )
     parser.add_argument("--detection-smoothing-alpha", type=float, default=0.32)
     parser.add_argument("--detection-smoothing-match-px", type=float, default=90.0)
     parser.add_argument(
@@ -5819,20 +5385,21 @@ def build_arg_parser():
     parser.add_argument("--direct-zp-uart", default=os.environ.get("DIRECT_ZP_UART", os.environ.get("SERVO_ZP_UART", "/dev/ttyS0")))
     parser.add_argument("--trigger-command", default=os.environ.get("SERVO_TRIGGER_COMMAND", "linkstart"))
     parser.add_argument("--trigger-color", default="red", choices=BALL_COLORS)
-    parser.add_argument("--trigger-kind", default="square", choices=("ball", "square", "ring", "qr", "any"))
+    parser.add_argument("--trigger-kind", default="letter", choices=("ball", "letter", "ring", "any"))
     parser.add_argument("--trigger-stable-frames", type=int, default=3)
     parser.add_argument("--trigger-reset-frames", type=int, default=8)
     parser.add_argument("--trigger-cooldown", type=float, default=5.0)
+    parser.add_argument("--target-letters", default="A,B,C,D")
     parser.add_argument("--enable-arm-preview", action="store_true")
     parser.add_argument("--preview-id1", type=int, default=READY_ID1_TICK)
     parser.add_argument("--preview-id2", type=int, default=READY_ID2_TICK)
     parser.add_argument("--preview-id4", type=int, default=GRIPPER_CLOSED_TICK)
     parser.add_argument("--preview-id6", type=int, default=BASE_YAW_CENTER_TICK)
-    parser.add_argument("--enable-red-square-grasp", action="store_true")
+    parser.add_argument("--enable-letter-grasp", action="store_true")
     parser.add_argument(
-        "--execute-red-square-grasp",
+        "--execute-letter-grasp",
         action="store_true",
-        default=os.environ.get("RED_SQUARE_EXECUTE", "").lower() in {"1", "true", "yes"},
+        default=os.environ.get("ABCD_EXECUTE", os.environ.get("RED_SQUARE_EXECUTE", "")).lower() in {"1", "true", "yes"},
     )
     parser.add_argument("--skip-grasp-startup-sequence", action="store_true")
     parser.add_argument("--grasp-id1-ready", type=int, default=READY_ID1_TICK)
@@ -5945,8 +5512,9 @@ def main(argv=None):
         alpha=args.detection_smoothing_alpha,
         max_match_px=args.detection_smoothing_match_px,
     )
-    auto_grasp_enabled = args.enable_red_square_grasp
-    execute_auto_grasp = auto_grasp_enabled and args.execute_red_square_grasp
+    target_letters = parse_target_letters(args.target_letters)
+    auto_grasp_enabled = args.enable_letter_grasp
+    execute_auto_grasp = auto_grasp_enabled and args.execute_letter_grasp
     preview_id4 = (
         args.preview_id4
         if execute_auto_grasp
@@ -5997,7 +5565,7 @@ def main(argv=None):
             enabled=auto_grasp_enabled,
             write_enabled=execute_auto_grasp,
         )
-    grasp_controller = RedSquareGraspController(
+    grasp_controller = TargetGraspController(
         auto_grasp_enabled,
         servo_bridge,
         arm_preview,
@@ -6039,6 +5607,7 @@ def main(argv=None):
         id2_center_min=args.grasp_id2_center_min,
         id2_center_max=args.grasp_id2_center_max,
         field_mode=parse_field(args.trigger_color),
+        target_letters=target_letters,
     )
     chassis_link = ChassisArmLink(
         args.chassis_link,
@@ -6403,21 +5972,15 @@ def main(argv=None):
                     detection_process_worker,
                     detection_pending_frame,
                     detection_scale,
-                    args.qr_template_every,
                 )
             detection_frame_index += 1
             post_started = time.perf_counter()
-            target_color = grasp_controller.target_policy.platform_color
             selected_targets = [
-                det for det in detections
-                if det.get("color") == target_color
-                and det.get("observed", True)
-                and (
-                    (
-                        args.trigger_kind == "any"
-                        and det.get("kind") in {"square", "ring", "qr"}
-                    )
-                    or det.get("kind") == args.trigger_kind
+                det
+                for det in detections
+                if det.get("observed", True)
+                and grasp_controller.target_policy.matches_platform_target(
+                    det, args.trigger_kind, target_letters
                 )
             ]
             preview_target = max(
@@ -6427,18 +5990,11 @@ def main(argv=None):
                 default=None,
             )
             display_detections = [
-                det for det in detections
+                det
+                for det in detections
                 if det.get("observed", True)
-                and not (
-                    det.get("color") == target_color
-                    and det.get("observed", True)
-                    and (
-                        (
-                            args.trigger_kind == "any"
-                            and det.get("kind") in {"square", "ring", "qr"}
-                        )
-                        or det.get("kind") == args.trigger_kind
-                    )
+                and not grasp_controller.target_policy.matches_platform_target(
+                    det, args.trigger_kind, target_letters
                 )
             ]
             if preview_target is not None:
@@ -6524,12 +6080,12 @@ def main(argv=None):
                 info = f"{info} | {grasp_info}"
             elif preview_target is not None:
                 arm_preview.publish(
-                    f"{target_color} {args.trigger_kind} detected",
+                    f"{args.trigger_kind} detected",
                     preview_target,
                 )
             else:
                 arm_preview.publish(
-                    f"searching {target_color} {args.trigger_kind}"
+                    f"searching {args.trigger_kind}"
                 )
             if trigger_info:
                 info = f"{info} | {trigger_info}"

@@ -19,7 +19,7 @@ DESKTOP_ENV = {
 }
 
 COMMON_CAMERA_ARGS = [
-    "--enable-red-square-grasp",
+    "--enable-letter-grasp",
     "--enable-arm-preview",
     "--no-web",
     "--width",
@@ -43,6 +43,8 @@ COMMON_GRASP_ARGS = [
     "30",
     "--trigger-kind",
     LaunchConfiguration("target_kind"),
+    "--target-letters",
+    LaunchConfiguration("target_letters"),
     "--trigger-color",
     LaunchConfiguration("target_color"),
 ]
@@ -83,8 +85,6 @@ MODE_PROFILES = {
             "--direct-splitter-time-ms",
             "250",
             "--post-center-direct-descend",
-            "--qr-template-every",
-            "1",
             "--grasp-retrigger-cooldown",
             "1.2",
             "--detection-smoothing-alpha",
@@ -118,7 +118,8 @@ def generate_grasp_launch(mode):
     actions = [
         DeclareLaunchArgument("execute", default_value="false"),
         DeclareLaunchArgument("target_color", default_value="red"),
-        DeclareLaunchArgument("target_kind", default_value="square"),
+        DeclareLaunchArgument("target_kind", default_value="letter"),
+        DeclareLaunchArgument("target_letters", default_value="A,B,C,D"),
     ]
     if profile["kill_before_start"]:
         actions.append(
@@ -214,7 +215,7 @@ def _vision_node(profile):
         arguments=args,
         additional_env={
             **DESKTOP_ENV,
-            "RED_SQUARE_EXECUTE": LaunchConfiguration("execute"),
+            "ABCD_EXECUTE": LaunchConfiguration("execute"),
         },
         on_exit=Shutdown(reason="target vision window closed"),
         output="screen",

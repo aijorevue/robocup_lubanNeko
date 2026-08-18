@@ -1,0 +1,1 @@
+/home/aijokaren/Desktop/rk3588s/ABCD_detector/launch/letter_detector.launch.py

@@ -1,0 +1,1 @@
+/home/aijokaren/Desktop/rk3588s/ABCD_detector/setup.py

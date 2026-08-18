@@ -1,0 +1,30 @@
+[2.519s] Invoking command in '/home/aijokaren/Desktop/rk3588s/build/abcd_detector': DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/aijokaren/Desktop/rk3588s/build/abcd_detector/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/aijokaren/Desktop/rk3588s/install/abcd_detector/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/aijokaren/Desktop/rk3588s/build/abcd_detector/build --no-deps symlink_data
+[3.113s] running develop
+[3.471s] running egg_info
+[3.472s] creating abcd_detector.egg-info
+[3.505s] writing abcd_detector.egg-info/PKG-INFO
+[3.506s] writing dependency_links to abcd_detector.egg-info/dependency_links.txt
+[3.507s] writing entry points to abcd_detector.egg-info/entry_points.txt
+[3.507s] writing requirements to abcd_detector.egg-info/requires.txt
+[3.507s] writing top-level names to abcd_detector.egg-info/top_level.txt
+[3.508s] writing manifest file 'abcd_detector.egg-info/SOURCES.txt'
+[3.574s] reading manifest file 'abcd_detector.egg-info/SOURCES.txt'
+[3.576s] writing manifest file 'abcd_detector.egg-info/SOURCES.txt'
+[3.635s] running build_ext
+[3.635s] Creating /home/aijokaren/Desktop/rk3588s/install/abcd_detector/lib/python3.12/site-packages/abcd-detector.egg-link (link to .)
+[3.637s] Installing abcd_detector_node script to /home/aijokaren/Desktop/rk3588s/install/abcd_detector/lib/abcd_detector
+[3.638s] 
+[3.639s] Installed /home/aijokaren/Desktop/rk3588s/build/abcd_detector
+[3.639s] running symlink_data
+[3.639s] creating /home/aijokaren/Desktop/rk3588s/install/abcd_detector/share
+[3.640s] creating /home/aijokaren/Desktop/rk3588s/install/abcd_detector/share/ament_index
+[3.641s] creating /home/aijokaren/Desktop/rk3588s/install/abcd_detector/share/ament_index/resource_index
+[3.642s] creating /home/aijokaren/Desktop/rk3588s/install/abcd_detector/share/ament_index/resource_index/packages
+[3.642s] symbolically linking /home/aijokaren/Desktop/rk3588s/build/abcd_detector/resource/abcd_detector -> /home/aijokaren/Desktop/rk3588s/install/abcd_detector/share/ament_index/resource_index/packages
+[3.644s] creating /home/aijokaren/Desktop/rk3588s/install/abcd_detector/share/abcd_detector
+[3.644s] symbolically linking /home/aijokaren/Desktop/rk3588s/build/abcd_detector/package.xml -> /home/aijokaren/Desktop/rk3588s/install/abcd_detector/share/abcd_detector
+[3.644s] creating /home/aijokaren/Desktop/rk3588s/install/abcd_detector/share/abcd_detector/config
+[3.645s] symbolically linking /home/aijokaren/Desktop/rk3588s/build/abcd_detector/config/letter_detector.yaml -> /home/aijokaren/Desktop/rk3588s/install/abcd_detector/share/abcd_detector/config
+[3.645s] creating /home/aijokaren/Desktop/rk3588s/install/abcd_detector/share/abcd_detector/launch
+[3.646s] symbolically linking /home/aijokaren/Desktop/rk3588s/build/abcd_detector/launch/letter_detector.launch.py -> /home/aijokaren/Desktop/rk3588s/install/abcd_detector/share/abcd_detector/launch
+[3.705s] Invoked command in '/home/aijokaren/Desktop/rk3588s/build/abcd_detector' returned '0': DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/aijokaren/Desktop/rk3588s/build/abcd_detector/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/aijokaren/Desktop/rk3588s/install/abcd_detector/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/aijokaren/Desktop/rk3588s/build/abcd_detector/build --no-deps symlink_data

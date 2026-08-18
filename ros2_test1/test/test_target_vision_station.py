@@ -49,7 +49,7 @@ class FakeServoBridge:
 def make_controller(bridge=None, field_mode=target_vision.FieldMode.RED):
     bridge = bridge or FakeServoBridge()
     preview = FakeArmPreview()
-    controller = target_vision.RedSquareGraspController(
+    controller = target_vision.TargetGraspController(
         True,
         bridge,
         preview,
@@ -152,7 +152,7 @@ class ChassisStationSafetyTests(unittest.TestCase):
 
     def test_locked_grasp_advances_without_fresh_camera_frame(self):
         controller, bridge, _ = make_controller()
-        controller.locked_target = {"kind": "square", "color": "red"}
+        controller.locked_target = {"kind": "letter", "letter": "A", "color": "white"}
         controller.algorithm_stage = "close"
         controller.id4 = controller.id4_open
         controller.update(None, (600, 800, 3), detection_fresh=False)
@@ -256,6 +256,15 @@ class ChassisStationSafetyTests(unittest.TestCase):
         self.assertEqual(bridge.sent[-1]["id4"], 1120)
         self.assertEqual(bridge.sent[-1]["splitter_id4"], target_vision.SPLITTER_YELLOW_TICK)
 
+
+def test_platform_letter_policy_matches_selected_letters(self):
+    controller, _bridge, _ = make_controller()
+    policy = controller.target_policy
+    letter = {"kind": "letter", "letter": "B", "color": "white"}
+    ring = {"kind": "ring", "color": policy.platform_ring_color}
+    self.assertTrue(policy.matches_platform_target(letter, "letter", {"A", "B"}))
+    self.assertFalse(policy.matches_platform_target(letter, "letter", {"A", "C"}))
+    self.assertTrue(policy.matches_platform_target(ring, "ring", {"A", "C"}))
 
 if __name__ == "__main__":
     unittest.main()

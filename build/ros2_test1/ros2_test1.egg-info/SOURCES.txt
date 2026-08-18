@@ -22,8 +22,6 @@ ros2_test1.egg-info/entry_points.txt
 ros2_test1.egg-info/requires.txt
 ros2_test1.egg-info/top_level.txt
 ros2_test1.egg-info/zip-safe
-ros2_test1/assets/blue.png
-ros2_test1/assets/red.png
 ros2_test1/detectors/__init__.py
 ros2_test1/detectors/blue.py
 ros2_test1/detectors/common.py

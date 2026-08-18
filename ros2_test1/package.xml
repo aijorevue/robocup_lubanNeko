@@ -2,15 +2,15 @@
 <package format="3">
   <name>ros2_test1</name>
   <version>0.1.0</version>
-  <description>Selected colored target and QR detection using OpenCV and camera</description>
+  <description>RoboCup ball, ring, and A/B/C/D letter target vision and arm control</description>
   <maintainer email="cat@lubancat">cat</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_python</buildtool_depend>
+  <exec_depend>abcd_detector</exec_depend>
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>python3-opencv</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
-  <exec_depend>python3-pyzbar</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>rclpy</exec_depend>

@@ -1,0 +1,12 @@
+abcd_detector:
+  ros__parameters:
+    min_white_value: 105
+    max_white_saturation: 86
+    min_candidate_area: 500.0
+    max_candidate_area_ratio: 0.72
+    min_side_px: 28.0
+    max_aspect_ratio: 2.35
+    min_rectangularity: 0.54
+    min_glyph_occupancy: 0.025
+    max_glyph_occupancy: 0.46
+    min_confidence: 0.42

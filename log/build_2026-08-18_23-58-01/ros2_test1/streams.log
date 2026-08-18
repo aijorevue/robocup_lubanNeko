@@ -1,0 +1,33 @@
+[2.492s] Invoking command in '/home/aijokaren/Desktop/rk3588s/build/ros2_test1': DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/aijokaren/Desktop/rk3588s/build/ros2_test1/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/aijokaren/Desktop/rk3588s/install/ros2_test1/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/aijokaren/Desktop/rk3588s/build/ros2_test1/build --no-deps symlink_data
+[3.070s] running develop
+[3.450s] running egg_info
+[3.450s] creating ros2_test1.egg-info
+[3.483s] writing ros2_test1.egg-info/PKG-INFO
+[3.484s] writing dependency_links to ros2_test1.egg-info/dependency_links.txt
+[3.484s] writing entry points to ros2_test1.egg-info/entry_points.txt
+[3.485s] writing requirements to ros2_test1.egg-info/requires.txt
+[3.485s] writing top-level names to ros2_test1.egg-info/top_level.txt
+[3.485s] writing manifest file 'ros2_test1.egg-info/SOURCES.txt'
+[3.551s] reading manifest file 'ros2_test1.egg-info/SOURCES.txt'
+[3.554s] writing manifest file 'ros2_test1.egg-info/SOURCES.txt'
+[3.614s] running build_ext
+[3.614s] Creating /home/aijokaren/Desktop/rk3588s/install/ros2_test1/lib/python3.12/site-packages/ros2-test1.egg-link (link to .)
+[3.615s] Installing target_vision script to /home/aijokaren/Desktop/rk3588s/install/ros2_test1/lib/ros2_test1
+[3.618s] 
+[3.618s] Installed /home/aijokaren/Desktop/rk3588s/build/ros2_test1
+[3.618s] running symlink_data
+[3.619s] creating /home/aijokaren/Desktop/rk3588s/install/ros2_test1/share/ament_index
+[3.620s] creating /home/aijokaren/Desktop/rk3588s/install/ros2_test1/share/ament_index/resource_index
+[3.621s] creating /home/aijokaren/Desktop/rk3588s/install/ros2_test1/share/ament_index/resource_index/packages
+[3.621s] symbolically linking /home/aijokaren/Desktop/rk3588s/build/ros2_test1/resource/ros2_test1 -> /home/aijokaren/Desktop/rk3588s/install/ros2_test1/share/ament_index/resource_index/packages
+[3.622s] symbolically linking /home/aijokaren/Desktop/rk3588s/build/ros2_test1/package.xml -> /home/aijokaren/Desktop/rk3588s/install/ros2_test1/share/ros2_test1
+[3.622s] creating /home/aijokaren/Desktop/rk3588s/install/ros2_test1/share/ros2_test1/launch
+[3.622s] symbolically linking /home/aijokaren/Desktop/rk3588s/build/ros2_test1/launch/red_square_chassis_rk_direct.launch.py -> /home/aijokaren/Desktop/rk3588s/install/ros2_test1/share/ros2_test1/launch
+[3.623s] symbolically linking /home/aijokaren/Desktop/rk3588s/build/ros2_test1/launch/red_square_grasp_rk_direct.launch.py -> /home/aijokaren/Desktop/rk3588s/install/ros2_test1/share/ros2_test1/launch
+[3.623s] creating /home/aijokaren/Desktop/rk3588s/install/ros2_test1/share/ros2_test1/config
+[3.623s] symbolically linking /home/aijokaren/Desktop/rk3588s/build/ros2_test1/config/red_square_grasp_calibration.json -> /home/aijokaren/Desktop/rk3588s/install/ros2_test1/share/ros2_test1/config
+[3.624s] creating /home/aijokaren/Desktop/rk3588s/install/ros2_test1/share/ros2_test1/urdf
+[3.624s] symbolically linking /home/aijokaren/Desktop/rk3588s/build/ros2_test1/urdf/arm_5.urdf -> /home/aijokaren/Desktop/rk3588s/install/ros2_test1/share/ros2_test1/urdf
+[3.624s] creating /home/aijokaren/Desktop/rk3588s/install/ros2_test1/share/ros2_test1/rviz
+[3.624s] symbolically linking /home/aijokaren/Desktop/rk3588s/build/ros2_test1/rviz/arm_5.rviz -> /home/aijokaren/Desktop/rk3588s/install/ros2_test1/share/ros2_test1/rviz
+[3.750s] Invoked command in '/home/aijokaren/Desktop/rk3588s/build/ros2_test1' returned '0': DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/aijokaren/Desktop/rk3588s/build/ros2_test1/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/aijokaren/Desktop/rk3588s/install/ros2_test1/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/aijokaren/Desktop/rk3588s/build/ros2_test1/build --no-deps symlink_data
