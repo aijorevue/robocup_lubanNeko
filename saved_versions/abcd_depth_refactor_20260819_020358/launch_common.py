@@ -52,7 +52,7 @@ COMMON_GRASP_ARGS = [
 MODE_PROFILES = {
     "rk": {
         "executable": "target_vision",
-        "node_name": "abcd_letter_grasp_rk_direct_vision",
+        "node_name": "red_square_grasp_rk_direct_vision",
         "detect_every": "1",
         "preview_id4": "1120",
         "preview_id6": "570",

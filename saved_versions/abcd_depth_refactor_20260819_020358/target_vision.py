@@ -146,6 +146,14 @@ GRASP_DISTANCE_CALIBRATION = (
 )
 GRASP_MIN_DISTANCE_CM = 10.0
 GRASP_MAX_DISTANCE_CM = 40.0
+LETTER_DISTANCE_OFFSET_CM = BALL_DISTANCE_OFFSET_CM
+LETTER_DISTANCE_SCALE_CM = (
+    BALL_DISTANCE_SCALE_CM
+    * 2.0
+    * LETTER_CUBE_SIDE_MM
+    / (GOLF_BALL_DIAMETER_MM * np.sqrt(np.pi))
+    * 1.20
+)
 RING_DISTANCE_OFFSET_CM = BALL_DISTANCE_OFFSET_CM + RING_DISTANCE_EXTRA_CM
 RING_DISTANCE_SCALE_CM = (
     BALL_DISTANCE_SCALE_CM
@@ -4858,6 +4866,19 @@ class TargetDetector:
                     det["area_percent"],
                     RING_DISTANCE_OFFSET_CM,
                     RING_DISTANCE_SCALE_CM,
+                )
+            elif det.get("kind") == "letter":
+                x, y, w, h = det.get("bbox", (0, 0, 0, 0))
+                box_area = max(0.0, float(det.get("projected_area", 0.0)))
+                if box_area == 0.0:
+                    box_area = max(0, w * h)
+                det["area_ratio"] = box_area / frame_area
+                det["area_percent"] = det["area_ratio"] * 100.0
+                det["diameter_ratio"] = max(w, h) / short_side
+                det["distance_cm"] = TargetDetector._estimate_distance_cm(
+                    det["area_percent"],
+                    LETTER_DISTANCE_OFFSET_CM,
+                    LETTER_DISTANCE_SCALE_CM,
                 )
             elif det.get("kind") == "ring":
                 radius = float(det.get("outer_radius", 0))

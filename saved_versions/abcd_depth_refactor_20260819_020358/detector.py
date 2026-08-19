@@ -20,10 +20,6 @@ except ImportError:  # YOLO is optional; the template pipeline still works.
 
 
 LETTERS = ("A", "B", "C", "D")
-DEFAULT_DISTANCE_OFFSET_CM = -1.6072186919749336
-DEFAULT_DISTANCE_SCALE_CM = (
-    31.628878020276648 * 2.0 * 30.0 / (42.67 * np.sqrt(np.pi)) * 1.20
-)
 
 
 class ABCDDetector:
@@ -40,8 +36,6 @@ class ABCDDetector:
         self.min_glyph_occupancy = 0.025
         self.max_glyph_occupancy = 0.46
         self.min_confidence = 0.42
-        self.distance_offset_cm = DEFAULT_DISTANCE_OFFSET_CM
-        self.distance_scale_cm = DEFAULT_DISTANCE_SCALE_CM
         self.yolo_weights_path = os.environ.get("ABCD_YOLO_WEIGHTS", "")
         self.yolo_confidence = 0.45
         self._yolo_model = None
@@ -78,8 +72,6 @@ class ABCDDetector:
             "min_glyph_occupancy",
             "max_glyph_occupancy",
             "min_confidence",
-            "distance_offset_cm",
-            "distance_scale_cm",
             "yolo_confidence",
         ):
             if name in parameters:
@@ -183,33 +175,7 @@ class ABCDDetector:
         results = self._detect_yolo(frame)
         results.extend(self._detect_white_blocks(frame))
         results.extend(self._detect_dark_letters(frame))
-        detections = self._dedupe_detections(results)
-        self._add_depth_measurements(detections, frame.shape)
-        return detections
-
-    def _add_depth_measurements(self, detections, frame_shape):
-        height, width = frame_shape[:2]
-        frame_area = max(1, int(width) * int(height))
-        short_side = max(1, min(int(width), int(height)))
-        for detection in detections:
-            _, _, box_width, box_height = detection.get("bbox", (0, 0, 0, 0))
-            projected_area = max(0.0, float(detection.get("projected_area", 0.0)))
-            if projected_area <= 0.0:
-                projected_area = float(max(0, int(box_width) * int(box_height)))
-            area_ratio = projected_area / float(frame_area)
-            area_percent = area_ratio * 100.0
-            distance_cm = self._estimate_distance_cm(area_percent)
-            detection["area_ratio"] = area_ratio
-            detection["area_percent"] = area_percent
-            detection["diameter_ratio"] = max(int(box_width), int(box_height)) / float(short_side)
-            detection["distance_cm"] = distance_cm
-            detection["depth_cm"] = distance_cm
-            detection["depth_mm"] = None if distance_cm is None else distance_cm * 10.0
-
-    def _estimate_distance_cm(self, area_percent):
-        if area_percent <= 0.0:
-            return None
-        return self.distance_offset_cm + self.distance_scale_cm / np.sqrt(area_percent)
+        return self._dedupe_detections(results)
 
     def _detect_yolo(self, frame):
         if YOLO is None or not self.yolo_weights_path:

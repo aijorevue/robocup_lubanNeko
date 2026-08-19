@@ -10,5 +10,3 @@ abcd_detector:
     min_glyph_occupancy: 0.025
     max_glyph_occupancy: 0.46
     min_confidence: 0.42
-    distance_offset_cm: -1.6072186919749336
-    distance_scale_cm: 30.110551050402435

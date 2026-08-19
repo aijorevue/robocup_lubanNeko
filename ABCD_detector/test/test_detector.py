@@ -41,6 +41,16 @@ class ABCDDetectorTests(unittest.TestCase):
             self.assertEqual(detections[0]["kind"], "letter")
             self.assertEqual(detections[0]["letter"], letter)
             self.assertEqual(detections[0]["color"], "white")
+            self.assertGreater(detections[0]["area_percent"], 0.0)
+            self.assertIsNotNone(detections[0]["distance_cm"])
+            self.assertAlmostEqual(
+                detections[0]["depth_cm"],
+                detections[0]["distance_cm"],
+            )
+            self.assertAlmostEqual(
+                detections[0]["depth_mm"],
+                detections[0]["distance_cm"] * 10.0,
+            )
 
     def test_ignores_plain_white_square_without_glyph(self):
         detector = ABCDDetector()
@@ -55,6 +65,7 @@ class ABCDDetectorTests(unittest.TestCase):
             self.assertEqual(len(detections), 1, letter)
             self.assertEqual(detections[0]["kind"], "letter")
             self.assertEqual(detections[0]["letter"], letter)
+            self.assertIsNotNone(detections[0]["distance_cm"])
 
 
 if __name__ == "__main__":
