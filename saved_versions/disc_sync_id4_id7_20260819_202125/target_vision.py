@@ -758,15 +758,15 @@ class AbsoluteServoBridge:
         if id6 is not None:
             value = int(id6)
             commands.append((f"id6={value}", f"OK ID6 TARGET {value}", 2, 0.25, 0.25, 1))
-        if splitter_id4 is not None:
-            value = int(splitter_id4)
-            commands.append((f"zp4:{value}", f"OK ZP4 {value}", 4, 0.45, 0.45, 2))
         if id4 is not None:
             value = int(id4)
             commands.append((f"zp4:{value}", f"OK ZP4 {value}", 4, 0.45, 0.45, 2))
         if id5 is not None:
             value = int(id5)
             commands.append((f"zp5:{value}", f"OK ZP5 {value}", 4, 0.45, 0.45, 2))
+        if splitter_id4 is not None:
+            value = int(splitter_id4)
+            commands.append((f"zp4:{value}", f"OK ZP4 {value}", 4, 0.45, 0.45, 2))
         if not commands:
             return self.status
 
@@ -1046,11 +1046,7 @@ class DirectBusServoBridge:
             if gripper_time_ms is not None
             else self.zp_time_ms
         )
-        self.splitter_time_ms = (
-            int(splitter_time_ms)
-            if splitter_time_ms is not None
-            else self.gripper_time_ms
-        )
+        self.splitter_time_ms = int(splitter_time_ms) if splitter_time_ms is not None else int(zp_time_ms)
         self.repeat = max(1, min(8, int(repeat)))
         self.arm_fd = None
         self.zp_fd = None
@@ -1180,12 +1176,12 @@ class DirectBusServoBridge:
                 )
             )
             targets[servo_id] = value
-        if splitter_id4 is not None:
-            payloads.append((self.zp_fd, self.zp_device, direct_zp_move_packet(4, splitter_id4, self.splitter_time_ms)))
-            targets[4] = int(splitter_id4)
         if id4 is not None:
             payloads.append((self.zp_fd, self.zp_device, direct_zp_move_packet(7, id4, self.gripper_time_ms)))
             targets[7] = int(id4)
+        if splitter_id4 is not None:
+            payloads.append((self.zp_fd, self.zp_device, direct_zp_move_packet(4, splitter_id4, self.splitter_time_ms)))
+            targets[4] = int(splitter_id4)
         if id5 is not None:
             payloads.append((self.zp_fd, self.zp_device, direct_zp_move_packet(5, id5, self.zp_time_ms)))
             targets[5] = int(id5)
@@ -2061,39 +2057,6 @@ class TargetGraspController:
                 self.arm_preview.publish(self.status)
         return f"{reason}: id4={self.splitter_id4} | {self.status}"
 
-    def _send_disc_open_phase(self, splitter_target, reason):
-        previous_splitter = self.splitter_id4
-        previous_id7 = self.id7
-        splitter_target = int(splitter_target)
-        self.arm_preview.set_targets(self.id1, self.id2, self.id7_open, self.id6)
-        self.arm_preview.publish(reason)
-        print(
-            f"DISC OPEN reason={reason} ID1={self.id1} ID2={self.id2} ID6={self.id6} "
-            f"ID4={previous_splitter}->{splitter_target} ID7={previous_id7}->{self.id7_open}",
-            flush=True,
-        )
-        self.status = self.servo_bridge.send_targets(
-            splitter_id4=splitter_target,
-            id4=self.id7_open,
-        )
-        self.last_command_time = time.monotonic()
-        if self.servo_bridge.write_enabled and not self.servo_bridge.last_command_ok:
-            self.splitter_id4 = previous_splitter
-            self.id7 = previous_id7
-            self.state = "fault"
-            self.algorithm_stage = "fault"
-            self.feedback_pending = False
-            self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
-            self.status = f"automatic motion stopped: {self.servo_bridge.status}"
-            self.arm_preview.publish(self.status)
-            return self.status
-        self.splitter_id4 = splitter_target
-        self.id7 = self.id7_open
-        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
-        return (
-            f"{reason}: splitter_id4={self.splitter_id4} id7={self.id7} | {self.status}"
-        )
-
     def update_auxiliary(self, detections):
         if not self.enabled or not self.servo_bridge.write_enabled:
             return ""
@@ -2619,8 +2582,6 @@ class TargetGraspController:
             if now < self.chassis_station_deadline:
                 return f"DISC_CATCH descend settling {self.chassis_station_deadline - now:.1f}s"
             if ball is None:
-                self.disc_pulse_done = False
-                self.disc_last_pulsed_color = None
                 remaining = max(0.0, self.chassis_station_no_target_deadline - now)
                 return (
                     f"DISC_CATCH waiting {self.field_mode.wire_name.lower()}/yellow "
@@ -2634,10 +2595,7 @@ class TargetGraspController:
                     f"field {self.field_mode.wire_name}; waiting allowed color "
                     f"{remaining:.1f}s"
                 )
-            if self.disc_pulse_done and ball_color == self.disc_last_pulsed_color:
-                return (
-                    f"DISC_CATCH already pulsed {ball_color} ball; waiting new target"
-                )
+            self.disc_last_pulsed_color = ball_color
             splitter_target = (
                 DISC_CATCH_SPLITTER_YELLOW_TICK
                 if ball_color == "yellow"
@@ -2645,51 +2603,54 @@ class TargetGraspController:
             )
             self.status = (
                 f"DISC_CATCH {ball_color} ball detected at ID1={self.id1} "
-                f"ID2={self.id2}; sync ID4 with ID7 open"
+                f"ID2={self.id2}; immediately set ID4={splitter_target} and open ID7"
             )
             print(f"CHASSIS STATION {self.status}", flush=True)
             if not self.servo_bridge.write_enabled:
-                self.disc_last_pulsed_color = ball_color
-                self.disc_pulse_done = True
                 self.splitter_id4 = splitter_target
                 self.id7 = self.id7_open
                 self.chassis_station_stage = "disc_open_wait"
-                self.chassis_station_deadline = now + 0.10
+                self.chassis_station_deadline = now + 0.30
                 self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
                 return (
-                    f"preview DISC_CATCH sync ID4={self.splitter_id4} "
-                    "with ID7 open pulse"
+                    f"preview DISC_CATCH immediate ID4={self.splitter_id4} "
+                    "and open ID7 pulse"
                 )
-            trigger_status = self._send_disc_open_phase(
-                splitter_target,
-                "DISC_CATCH synchronized ID4/ID7 open phase",
+            if splitter_target != self.splitter_id4:
+                splitter_status = self._send_splitter_id4(
+                    splitter_target,
+                    "DISC_CATCH immediate splitter before ID7",
+                )
+                if not self.servo_bridge.last_command_ok:
+                    return splitter_status
+            open_status = self._send_gripper_id7(
+                self.id7_open,
+                "DISC_CATCH immediate open ID7 pulse",
             )
             if self.servo_bridge.last_command_ok:
-                self.disc_last_pulsed_color = ball_color
-                self.disc_pulse_done = True
                 self.chassis_station_stage = "disc_open_wait"
-                self.chassis_station_deadline = time.monotonic() + 0.10
-            return trigger_status
+                self.chassis_station_deadline = time.monotonic() + 0.30
+            return open_status
 
         if self.chassis_station_stage == "disc_open":
             self.state = "DISC_CATCH open claw"
             if not self.servo_bridge.write_enabled:
                 self.id7 = self.id7_open
                 self.chassis_station_stage = "disc_open_wait"
-                self.chassis_station_deadline = now + 0.10
+                self.chassis_station_deadline = now + 0.30
                 self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
                 return "preview DISC_CATCH open ID7 pulse"
             status = self._send_gripper_id7(self.id7_open, "DISC_CATCH open ID7 pulse")
             if self.servo_bridge.last_command_ok:
                 self.chassis_station_stage = "disc_open_wait"
-                self.chassis_station_deadline = time.monotonic() + 0.10
+                self.chassis_station_deadline = time.monotonic() + 0.30
             return status
 
         if self.chassis_station_stage == "disc_open_wait":
             self.state = "DISC_CATCH open wait"
             if now < self.chassis_station_deadline:
                 return f"DISC_CATCH open wait {self.chassis_station_deadline - now:.1f}s"
-            # Complete the synchronized ID4/ID7 open phase before closing ID7.
+            # Complete the fast ID7 open/close pulse before touching ID4.
             self.chassis_station_stage = "disc_close"
 
         if self.chassis_station_stage == "disc_close":
@@ -2697,13 +2658,13 @@ class TargetGraspController:
             if not self.servo_bridge.write_enabled:
                 self.id7 = self.id7_closed
                 self.chassis_station_stage = "disc_close_wait"
-                self.chassis_station_deadline = now + 0.10
+                self.chassis_station_deadline = now + 0.30
                 self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
                 return "preview DISC_CATCH close ID7 pulse"
             status = self._send_gripper_id7(self.id7_closed, "DISC_CATCH close ID7 pulse")
             if self.servo_bridge.last_command_ok:
                 self.chassis_station_stage = "disc_close_wait"
-                self.chassis_station_deadline = time.monotonic() + 0.10
+                self.chassis_station_deadline = time.monotonic() + 0.30
             return status
 
         if self.chassis_station_stage == "disc_close_wait":
@@ -2711,6 +2672,7 @@ class TargetGraspController:
             if now < self.chassis_station_deadline:
                 return f"DISC_CATCH close wait {self.chassis_station_deadline - now:.1f}s"
             self.chassis_station_stage = "disc_detect"
+            self.disc_pulse_done = False
             self.chassis_station_deadline = 0.0
             self.chassis_station_no_target_deadline = (
                 time.monotonic() + DISC_CATCH_TARGET_TIMEOUT_S

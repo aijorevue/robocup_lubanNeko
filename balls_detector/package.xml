@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>balls_detector</name>
+  <version>0.1.0</version>
+  <description>OpenCV detector for RoboCup red, blue, and yellow balls</description>
+  <maintainer email="cat@lubancat">cat</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

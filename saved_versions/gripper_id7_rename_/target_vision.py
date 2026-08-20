@@ -758,15 +758,15 @@ class AbsoluteServoBridge:
         if id6 is not None:
             value = int(id6)
             commands.append((f"id6={value}", f"OK ID6 TARGET {value}", 2, 0.25, 0.25, 1))
-        if splitter_id4 is not None:
-            value = int(splitter_id4)
-            commands.append((f"zp4:{value}", f"OK ZP4 {value}", 4, 0.45, 0.45, 2))
         if id4 is not None:
             value = int(id4)
             commands.append((f"zp4:{value}", f"OK ZP4 {value}", 4, 0.45, 0.45, 2))
         if id5 is not None:
             value = int(id5)
             commands.append((f"zp5:{value}", f"OK ZP5 {value}", 4, 0.45, 0.45, 2))
+        if splitter_id4 is not None:
+            value = int(splitter_id4)
+            commands.append((f"zp4:{value}", f"OK ZP4 {value}", 4, 0.45, 0.45, 2))
         if not commands:
             return self.status
 
@@ -1046,11 +1046,7 @@ class DirectBusServoBridge:
             if gripper_time_ms is not None
             else self.zp_time_ms
         )
-        self.splitter_time_ms = (
-            int(splitter_time_ms)
-            if splitter_time_ms is not None
-            else self.gripper_time_ms
-        )
+        self.splitter_time_ms = int(splitter_time_ms) if splitter_time_ms is not None else int(zp_time_ms)
         self.repeat = max(1, min(8, int(repeat)))
         self.arm_fd = None
         self.zp_fd = None
@@ -1180,12 +1176,12 @@ class DirectBusServoBridge:
                 )
             )
             targets[servo_id] = value
-        if splitter_id4 is not None:
-            payloads.append((self.zp_fd, self.zp_device, direct_zp_move_packet(4, splitter_id4, self.splitter_time_ms)))
-            targets[4] = int(splitter_id4)
         if id4 is not None:
             payloads.append((self.zp_fd, self.zp_device, direct_zp_move_packet(7, id4, self.gripper_time_ms)))
             targets[7] = int(id4)
+        if splitter_id4 is not None:
+            payloads.append((self.zp_fd, self.zp_device, direct_zp_move_packet(4, splitter_id4, self.splitter_time_ms)))
+            targets[4] = int(splitter_id4)
         if id5 is not None:
             payloads.append((self.zp_fd, self.zp_device, direct_zp_move_packet(5, id5, self.zp_time_ms)))
             targets[5] = int(id5)
@@ -1269,8 +1265,8 @@ class TargetGraspController:
         arm_preview,
         id1_ready,
         id2_ready,
-        id7_closed,
-        id7_open,
+        id4_closed,
+        id4_open,
         center_deadband_px,
         stable_frames,
         command_interval_s,
@@ -1315,17 +1311,15 @@ class TargetGraspController:
         self.arm_preview = arm_preview
         self.id1 = int(id1_ready)
         self.id2 = int(id2_ready)
-        self.id7 = int(id7_closed if initial_id4 is None else initial_id4)
+        self.id4 = int(id4_closed if initial_id4 is None else initial_id4)
         self.id6 = int(arm_preview.id6)
         self.splitter_id4 = SPLITTER_YELLOW_TICK
         self.id5 = CATCHER_HOME_TICK
         self.field_mode = parse_field(field_mode)
         self.target_policy = policy_for(self.field_mode)
         self.target_letters = frozenset(target_letters) or frozenset(LETTERS)
-        self.id7_closed = int(id7_closed)
-        self.id7_open = int(id7_open)
-        self.id4_closed = self.id7_closed  # legacy compatibility for older callers
-        self.id4_open = self.id7_open  # legacy compatibility for older callers
+        self.id4_closed = int(id4_closed)
+        self.id4_open = int(id4_open)
         self.center_deadband_px = center_deadband_px
         self.stable_frames_required = max(1, stable_frames)
         self.command_interval_s = command_interval_s
@@ -1438,7 +1432,7 @@ class TargetGraspController:
         self.status = "target grasp disabled" if not enabled else "letter target grasp ready"
 
         self._enforce_angle_gap()
-        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+        self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
         if self.enabled and self.servo_bridge.write_enabled:
             if self.startup_sequence:
                 if getattr(self.servo_bridge, "assumed_feedback", False):
@@ -1669,13 +1663,13 @@ class TargetGraspController:
                 self.id2 = target_id2
                 self.id6 = target_id6
                 self.last_preview_step_time = now
-            self.arm_preview.set_targets(target_id1, target_id2, self.id7, target_id6)
+            self.arm_preview.set_targets(target_id1, target_id2, self.id4, target_id6)
             return False, (
                 f"preview {label} dx={error_x:.0f} dy={error_y:.0f} "
                 f"ID2={target_id2} ID6={target_id6}"
             )
         if not can_command:
-            self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+            self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
             return False, f"waiting {label} dx={error_x:.0f} dy={error_y:.0f}"
 
         previous_id2 = self.id2
@@ -1871,7 +1865,7 @@ class TargetGraspController:
         self.synchronized = True
         self.feedback_pending = False
         self.feedback_failures = 0
-        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+        self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
         self.arm_preview.publish("measured servo feedback")
         return True
 
@@ -1897,17 +1891,17 @@ class TargetGraspController:
 
     def _send(self, reason, require_feedback=True):
         gap = self._enforce_angle_gap()
-        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+        self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
         self.arm_preview.publish(reason)
         print(
             f"GRASP COMMAND reason={reason} ID1={self.id1} "
-            f"ID2={self.id2} ID6={self.id6} ID7={self.id7} gap={gap:.1f}deg",
+            f"ID2={self.id2} ID6={self.id6} ID7={self.id4} gap={gap:.1f}deg",
             flush=True,
         )
         self.status = self.servo_bridge.send_targets(
             id1=self.id1,
             id2=self.id2,
-            id4=self.id7,
+            id4=self.id4,
             id6=self.id6,
         )
         self.last_command_time = time.monotonic()
@@ -1925,17 +1919,17 @@ class TargetGraspController:
                 self.feedback_pending = True
                 self.feedback_due = self.last_command_time + max(1.35, self.command_interval_s)
         gap_text = "" if gap is None else f" gap={gap:.1f}deg"
-        return f"{reason}: id1={self.id1} id2={self.id2} id6={self.id6} id7={self.id7}{gap_text} | {self.status}"
+        return f"{reason}: id1={self.id1} id2={self.id2} id6={self.id6} id7={self.id4}{gap_text} | {self.status}"
 
     def _send_retreat_with_catcher_open(self, reason, require_feedback=True):
         gap = self._enforce_angle_gap()
         self.id5 = CATCHER_RELEASE_READY_TICK
-        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+        self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
         self.arm_preview.publish(reason)
         print(
             f"GRASP COMMAND reason={reason} ID1={self.id1} "
             f"ID2={self.id2} ID6={self.id6} ID5={self.id5} "
-            f"ID7={self.id7} gap={gap:.1f}deg",
+            f"ID7={self.id4} gap={gap:.1f}deg",
             flush=True,
         )
         self.status = self.servo_bridge.send_targets(
@@ -1961,11 +1955,11 @@ class TargetGraspController:
         gap_text = "" if gap is None else f" gap={gap:.1f}deg"
         return (
             f"{reason}: id1={self.id1} id2={self.id2} id5={self.id5} "
-            f"id6={self.id6} id7={self.id7}{gap_text} | {self.status}"
+            f"id6={self.id6} id7={self.id4}{gap_text} | {self.status}"
         )
 
     def _send_center_correction(self, reason, send_id2, send_id6, require_feedback=False):
-        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+        self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
         self.arm_preview.publish(reason)
         print(
             f"CENTER COMMAND reason={reason} ID2={self.id2} ID6={self.id6}",
@@ -1993,32 +1987,30 @@ class TargetGraspController:
                 self.feedback_due = self.last_command_time + max(1.35, self.command_interval_s)
         return f"{reason}: id2={self.id2} id6={self.id6} | {self.status}"
 
-    # The UART protocol still names the claw channel id4, but this helper
-    # makes the task-one ZP20S gripper channel explicit.
     def _send_gripper_id7(self, target, reason):
-        previous_id7 = self.id7
+        previous_id4 = self.id4
         target = int(target)
         self.arm_preview.set_targets(self.id1, self.id2, target, self.id6)
         self.arm_preview.publish(reason)
         print(
             f"GRASP COMMAND reason={reason} ID1={self.id1} "
-            f"ID2={self.id2} ID6={self.id6} ID7={previous_id7}->{target}",
+            f"ID2={self.id2} ID6={self.id6} ID7={previous_id4}->{target}",
             flush=True,
         )
         self.status = self.servo_bridge.send_targets(id4=target)
         self.last_command_time = time.monotonic()
         if self.servo_bridge.write_enabled and not self.servo_bridge.last_command_ok:
-            self.id7 = previous_id7
+            self.id4 = previous_id4
             self.state = "fault"
             self.algorithm_stage = "fault"
             self.feedback_pending = False
-            self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+            self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
             self.status = f"automatic motion stopped: {self.servo_bridge.status}"
             self.arm_preview.publish(self.status)
             return self.status
-        self.id7 = target
-        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
-        return f"{reason}: id7={self.id7} | {self.status}"
+        self.id4 = target
+        self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
+        return f"{reason}: id7={self.id4} | {self.status}"
 
     def _send_id5(self, target, reason, critical=True):
         previous_id5 = self.id5
@@ -2060,39 +2052,6 @@ class TargetGraspController:
                 self.status = f"automatic motion stopped: {self.servo_bridge.status}"
                 self.arm_preview.publish(self.status)
         return f"{reason}: id4={self.splitter_id4} | {self.status}"
-
-    def _send_disc_open_phase(self, splitter_target, reason):
-        previous_splitter = self.splitter_id4
-        previous_id7 = self.id7
-        splitter_target = int(splitter_target)
-        self.arm_preview.set_targets(self.id1, self.id2, self.id7_open, self.id6)
-        self.arm_preview.publish(reason)
-        print(
-            f"DISC OPEN reason={reason} ID1={self.id1} ID2={self.id2} ID6={self.id6} "
-            f"ID4={previous_splitter}->{splitter_target} ID7={previous_id7}->{self.id7_open}",
-            flush=True,
-        )
-        self.status = self.servo_bridge.send_targets(
-            splitter_id4=splitter_target,
-            id4=self.id7_open,
-        )
-        self.last_command_time = time.monotonic()
-        if self.servo_bridge.write_enabled and not self.servo_bridge.last_command_ok:
-            self.splitter_id4 = previous_splitter
-            self.id7 = previous_id7
-            self.state = "fault"
-            self.algorithm_stage = "fault"
-            self.feedback_pending = False
-            self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
-            self.status = f"automatic motion stopped: {self.servo_bridge.status}"
-            self.arm_preview.publish(self.status)
-            return self.status
-        self.splitter_id4 = splitter_target
-        self.id7 = self.id7_open
-        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
-        return (
-            f"{reason}: splitter_id4={self.splitter_id4} id7={self.id7} | {self.status}"
-        )
 
     def update_auxiliary(self, detections):
         if not self.enabled or not self.servo_bridge.write_enabled:
@@ -2146,7 +2105,7 @@ class TargetGraspController:
             )
         self.state = "searching"
         self.status = status
-        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+        self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
         self.arm_preview.publish(status)
         return status
 
@@ -2204,21 +2163,21 @@ class TargetGraspController:
         self.id1 = READY_ID1_TICK
         self.id2 = READY_ID2_TICK
         self.id6 = BASE_YAW_CENTER_TICK
-        self.id7 = self.id7_closed
+        self.id4 = self.id4_closed
         self.id5 = CATCHER_HOME_TICK
         self.splitter_id4 = SPLITTER_YELLOW_TICK
         self._enforce_angle_gap()
-        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+        self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
         self.arm_preview.publish(f"chassis station {station} ready")
         if not self.servo_bridge.write_enabled:
             return (
                 f"preview chassis station {station} ready "
-                f"ID1={self.id1} ID2={self.id2} ID6={self.id6} ID7={self.id7}"
+                f"ID1={self.id1} ID2={self.id2} ID6={self.id6} ID7={self.id4}"
             )
         status = self.servo_bridge.send_targets(
             id1=self.id1,
             id2=self.id2,
-            id4=self.id7,
+            id4=self.id4,
             id6=self.id6,
             id5=self.id5,
             splitter_id4=self.splitter_id4,
@@ -2233,7 +2192,7 @@ class TargetGraspController:
         self.status = (
             f"chassis station {station} ready ID1={self.id1} ID2={self.id2} "
             f"ID4={self.splitter_id4} ID5={self.id5} "
-            f"ID6={self.id6} ID7={self.id7} | {status}"
+            f"ID6={self.id6} ID7={self.id4} | {status}"
         )
         print(f"CHASSIS STATION {station} READY {self.status}", flush=True)
         return self.status
@@ -2263,13 +2222,13 @@ class TargetGraspController:
         self.id1 = self._clamp(target_id1, self.id1_limits)
         self.id2 = self._clamp(target_id2, self.id2_limits)
         self.id6 = DISC_CATCH_ID6_TICK
-        self.id7 = self.id7_closed
+        self.id4 = self.id4_closed
         # PREP_HIGH is also the white-line observation pose. Keep the catcher
         # retracted while the chassis is still correcting its station pose.
         self.id5 = CATCHER_HOME_TICK
         self.splitter_id4 = DISC_CATCH_SPLITTER_READY_TICK
         self._enforce_angle_gap()
-        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+        self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
         self.arm_preview.publish("DISC_CATCH prep high")
         if not self.servo_bridge.write_enabled:
             return (
@@ -2279,7 +2238,7 @@ class TargetGraspController:
         status = self.servo_bridge.send_targets(
             id1=self.id1,
             id2=self.id2,
-            id4=self.id7,
+            id4=self.id4,
             id6=self.id6,
             id5=self.id5,
             splitter_id4=self.splitter_id4,
@@ -2305,7 +2264,7 @@ class TargetGraspController:
         self.id1 = DISC_CATCH_PREP_ID1_TICK
         self.id2 = DISC_CATCH_PREP_ID2_TICK
         self.id6 = DISC_CATCH_ID6_TICK
-        self.id7 = self.id7_closed
+        self.id4 = self.id4_closed
         self.id5 = DISC_CATCH_CATCHER_READY_TICK
         self.splitter_id4 = DISC_CATCH_SPLITTER_READY_TICK
         self._enforce_angle_gap()
@@ -2316,20 +2275,20 @@ class TargetGraspController:
         self.chassis_station_no_target_deadline = (
             time.monotonic() + DISC_CATCH_TARGET_TIMEOUT_S
         )
-        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+        self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
         self.arm_preview.publish("DISC_CATCH first expand")
         if not self.servo_bridge.write_enabled:
             self.chassis_station_deadline = time.monotonic() + self._arm_settle_s()
             self.status = (
                 f"preview DISC_CATCH first expand ID1={self.id1} "
                 f"ID2={self.id2} ID4={self.splitter_id4} ID5={self.id5} "
-                f"ID6={self.id6} ID7={self.id7}"
+                f"ID6={self.id6} ID7={self.id4}"
             )
             return self.status
         status = self.servo_bridge.send_targets(
             id1=self.id1,
             id2=self.id2,
-            id4=self.id7,
+            id4=self.id4,
             id6=self.id6,
             id5=self.id5,
             splitter_id4=self.splitter_id4,
@@ -2346,7 +2305,7 @@ class TargetGraspController:
         self.status = (
             f"DISC_CATCH first expand ID1={self.id1} ID2={self.id2} "
             f"ID4={self.splitter_id4} ID5={self.id5} "
-            f"ID6={self.id6} ID7={self.id7} | {status}"
+            f"ID6={self.id6} ID7={self.id4} | {status}"
         )
         print(f"CHASSIS STATION DISC_CATCH FIRST EXPAND {self.status}", flush=True)
         return self.status
@@ -2355,7 +2314,7 @@ class TargetGraspController:
         self.id1 = COLUMN_CATCH_READY_ID1_TICK
         self.id2 = COLUMN_CATCH_READY_ID2_TICK
         self.id6 = BASE_YAW_CENTER_TICK
-        self.id7 = self.id7_closed
+        self.id4 = self.id4_closed
         self.id5 = CATCHER_HOME_TICK
         self.splitter_id4 = COLUMN_CATCH_SPLITTER_TICK
         self._enforce_angle_gap()
@@ -2363,18 +2322,18 @@ class TargetGraspController:
         self.column_target_armed = True
         self.column_target_absent_frames = 0
         self.chassis_station_deadline = 0.0
-        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+        self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
         self.arm_preview.publish("COLUMN_CATCH ready")
         if not self.servo_bridge.write_enabled:
             self.status = (
                 f"preview COLUMN_CATCH ready ID1={self.id1} "
-                f"ID2={self.id2} ID6={self.id6} ID7={self.id7}"
+                f"ID2={self.id2} ID6={self.id6} ID7={self.id4}"
             )
             return self.status
         status = self.servo_bridge.send_targets(
             id1=self.id1,
             id2=self.id2,
-            id4=self.id7,
+            id4=self.id4,
             id6=self.id6,
             id5=self.id5,
             splitter_id4=self.splitter_id4,
@@ -2391,7 +2350,7 @@ class TargetGraspController:
         self.status = (
             f"COLUMN_CATCH ready ID1={self.id1} ID2={self.id2} "
             f"ID4={self.splitter_id4} ID5={self.id5} "
-            f"ID6={self.id6} ID7={self.id7} | {status}"
+            f"ID6={self.id6} ID7={self.id4} | {status}"
         )
         print(f"CHASSIS STATION COLUMN_CATCH READY {self.status}", flush=True)
         return self.status
@@ -2563,23 +2522,23 @@ class TargetGraspController:
             self.id1 = DISC_CATCH_READY_ID1_TICK
             self.id2 = DISC_CATCH_READY_ID2_TICK
             self.id6 = DISC_CATCH_ID6_TICK
-            self.id7 = self.id7_closed
+            self.id4 = self.id4_closed
             self.id5 = DISC_CATCH_CATCHER_READY_TICK
             self.splitter_id4 = DISC_CATCH_SPLITTER_READY_TICK
             self._enforce_angle_gap()
-            self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+            self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
             if not self.servo_bridge.write_enabled:
                 self.chassis_station_stage = "disc_second_expand_wait"
                 self.chassis_station_deadline = now + self._arm_settle_s()
                 return (
                     f"preview DISC_CATCH second expand ID1={self.id1} "
                     f"ID2={self.id2} ID4={self.splitter_id4} ID5={self.id5} "
-                    f"ID6={self.id6} ID7={self.id7}"
+                    f"ID6={self.id6} ID7={self.id4}"
                 )
             status = self.servo_bridge.send_targets(
                 id1=self.id1,
                 id2=self.id2,
-                id4=self.id7,
+                id4=self.id4,
                 id6=self.id6,
                 id5=self.id5,
                 splitter_id4=self.splitter_id4,
@@ -2597,7 +2556,7 @@ class TargetGraspController:
             self.status = (
                 f"DISC_CATCH second expand ID1={self.id1} ID2={self.id2} "
                 f"ID4={self.splitter_id4} ID5={self.id5} "
-                f"ID6={self.id6} ID7={self.id7} | {status}"
+                f"ID6={self.id6} ID7={self.id4} | {status}"
             )
             print(f"CHASSIS STATION DISC_CATCH SECOND EXPAND {self.status}", flush=True)
             return self.status
@@ -2619,8 +2578,6 @@ class TargetGraspController:
             if now < self.chassis_station_deadline:
                 return f"DISC_CATCH descend settling {self.chassis_station_deadline - now:.1f}s"
             if ball is None:
-                self.disc_pulse_done = False
-                self.disc_last_pulsed_color = None
                 remaining = max(0.0, self.chassis_station_no_target_deadline - now)
                 return (
                     f"DISC_CATCH waiting {self.field_mode.wire_name.lower()}/yellow "
@@ -2634,10 +2591,7 @@ class TargetGraspController:
                     f"field {self.field_mode.wire_name}; waiting allowed color "
                     f"{remaining:.1f}s"
                 )
-            if self.disc_pulse_done and ball_color == self.disc_last_pulsed_color:
-                return (
-                    f"DISC_CATCH already pulsed {ball_color} ball; waiting new target"
-                )
+            self.disc_last_pulsed_color = ball_color
             splitter_target = (
                 DISC_CATCH_SPLITTER_YELLOW_TICK
                 if ball_color == "yellow"
@@ -2645,65 +2599,68 @@ class TargetGraspController:
             )
             self.status = (
                 f"DISC_CATCH {ball_color} ball detected at ID1={self.id1} "
-                f"ID2={self.id2}; sync ID4 with ID7 open"
+                f"ID2={self.id2}; immediately set ID4={splitter_target} and open ID7"
             )
             print(f"CHASSIS STATION {self.status}", flush=True)
             if not self.servo_bridge.write_enabled:
-                self.disc_last_pulsed_color = ball_color
-                self.disc_pulse_done = True
                 self.splitter_id4 = splitter_target
-                self.id7 = self.id7_open
+                self.id4 = self.id4_open
                 self.chassis_station_stage = "disc_open_wait"
-                self.chassis_station_deadline = now + 0.10
-                self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+                self.chassis_station_deadline = now + 0.30
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
                 return (
-                    f"preview DISC_CATCH sync ID4={self.splitter_id4} "
-                    "with ID7 open pulse"
+                    f"preview DISC_CATCH immediate ID4={self.splitter_id4} "
+                    "and open ID7 pulse"
                 )
-            trigger_status = self._send_disc_open_phase(
-                splitter_target,
-                "DISC_CATCH synchronized ID4/ID7 open phase",
+            if splitter_target != self.splitter_id4:
+                splitter_status = self._send_splitter_id4(
+                    splitter_target,
+                    "DISC_CATCH immediate splitter before ID7",
+                )
+                if not self.servo_bridge.last_command_ok:
+                    return splitter_status
+            open_status = self._send_gripper_id7(
+                self.id4_open,
+                "DISC_CATCH immediate open ID7 pulse",
             )
             if self.servo_bridge.last_command_ok:
-                self.disc_last_pulsed_color = ball_color
-                self.disc_pulse_done = True
                 self.chassis_station_stage = "disc_open_wait"
-                self.chassis_station_deadline = time.monotonic() + 0.10
-            return trigger_status
+                self.chassis_station_deadline = time.monotonic() + 0.30
+            return open_status
 
         if self.chassis_station_stage == "disc_open":
             self.state = "DISC_CATCH open claw"
             if not self.servo_bridge.write_enabled:
-                self.id7 = self.id7_open
+                self.id4 = self.id4_open
                 self.chassis_station_stage = "disc_open_wait"
-                self.chassis_station_deadline = now + 0.10
-                self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+                self.chassis_station_deadline = now + 0.30
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
                 return "preview DISC_CATCH open ID7 pulse"
-            status = self._send_gripper_id7(self.id7_open, "DISC_CATCH open ID7 pulse")
+            status = self._send_gripper_id7(self.id4_open, "DISC_CATCH open ID7 pulse")
             if self.servo_bridge.last_command_ok:
                 self.chassis_station_stage = "disc_open_wait"
-                self.chassis_station_deadline = time.monotonic() + 0.10
+                self.chassis_station_deadline = time.monotonic() + 0.30
             return status
 
         if self.chassis_station_stage == "disc_open_wait":
             self.state = "DISC_CATCH open wait"
             if now < self.chassis_station_deadline:
                 return f"DISC_CATCH open wait {self.chassis_station_deadline - now:.1f}s"
-            # Complete the synchronized ID4/ID7 open phase before closing ID7.
+            # Complete the fast ID7 open/close pulse before touching ID4.
             self.chassis_station_stage = "disc_close"
 
         if self.chassis_station_stage == "disc_close":
             self.state = "DISC_CATCH close claw"
             if not self.servo_bridge.write_enabled:
-                self.id7 = self.id7_closed
+                self.id4 = self.id4_closed
                 self.chassis_station_stage = "disc_close_wait"
-                self.chassis_station_deadline = now + 0.10
-                self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+                self.chassis_station_deadline = now + 0.30
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
                 return "preview DISC_CATCH close ID7 pulse"
-            status = self._send_gripper_id7(self.id7_closed, "DISC_CATCH close ID7 pulse")
+            status = self._send_gripper_id7(self.id4_closed, "DISC_CATCH close ID7 pulse")
             if self.servo_bridge.last_command_ok:
                 self.chassis_station_stage = "disc_close_wait"
-                self.chassis_station_deadline = time.monotonic() + 0.10
+                self.chassis_station_deadline = time.monotonic() + 0.30
             return status
 
         if self.chassis_station_stage == "disc_close_wait":
@@ -2711,6 +2668,7 @@ class TargetGraspController:
             if now < self.chassis_station_deadline:
                 return f"DISC_CATCH close wait {self.chassis_station_deadline - now:.1f}s"
             self.chassis_station_stage = "disc_detect"
+            self.disc_pulse_done = False
             self.chassis_station_deadline = 0.0
             self.chassis_station_no_target_deadline = (
                 time.monotonic() + DISC_CATCH_TARGET_TIMEOUT_S
@@ -2745,7 +2703,7 @@ class TargetGraspController:
             if not self.servo_bridge.write_enabled:
                 self.chassis_station_stage = "column_descend_wait"
                 self.chassis_station_deadline = now + self._arm_settle_s()
-                self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
                 return (
                     f"preview COLUMN_CATCH descend ID1={self.id1} "
                     f"ID2={self.id2}"
@@ -2807,12 +2765,12 @@ class TargetGraspController:
         if self.chassis_station_stage == "column_open":
             self.state = "COLUMN_CATCH open claw"
             if not self.servo_bridge.write_enabled:
-                self.id7 = self.id7_open
+                self.id4 = self.id4_open
                 self.chassis_station_stage = "column_open_wait"
                 self.chassis_station_deadline = now + self._zp_settle_s()
-                self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
                 return "preview COLUMN_CATCH open ID7 pulse"
-            status = self._send_gripper_id7(self.id7_open, "COLUMN_CATCH open ID7 pulse")
+            status = self._send_gripper_id7(self.id4_open, "COLUMN_CATCH open ID7 pulse")
             if self.servo_bridge.last_command_ok:
                 self.chassis_station_stage = "column_open_wait"
                 self.chassis_station_deadline = time.monotonic() + self._zp_settle_s()
@@ -2827,12 +2785,12 @@ class TargetGraspController:
         if self.chassis_station_stage == "column_close":
             self.state = "COLUMN_CATCH close claw"
             if not self.servo_bridge.write_enabled:
-                self.id7 = self.id7_closed
+                self.id4 = self.id4_closed
                 self.chassis_station_stage = "column_close_wait"
                 self.chassis_station_deadline = now + self._zp_settle_s()
-                self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
                 return "preview COLUMN_CATCH close ID7 pulse"
-            status = self._send_gripper_id7(self.id7_closed, "COLUMN_CATCH close ID7 pulse")
+            status = self._send_gripper_id7(self.id4_closed, "COLUMN_CATCH close ID7 pulse")
             if self.servo_bridge.last_command_ok:
                 self.chassis_station_stage = "column_close_wait"
                 self.chassis_station_deadline = time.monotonic() + self._zp_settle_s()
@@ -2870,15 +2828,15 @@ class TargetGraspController:
     def shutdown_contract(self):
         if not self.enabled or not self.servo_bridge.write_enabled:
             return "shutdown contract skipped; servo writes disabled"
-        self.id7 = self.id7_closed
-        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+        self.id4 = self.id4_closed
+        self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
         self.arm_preview.publish("shutdown contract close claw")
         print(
             "SHUTDOWN CONTRACT close claw first "
-            f"ID7={self.id7}",
+            f"ID7={self.id4}",
             flush=True,
         )
-        claw_status = self.servo_bridge.send_targets(id4=self.id7)
+        claw_status = self.servo_bridge.send_targets(id4=self.id4)
         self.last_command_time = time.monotonic()
         if not self.servo_bridge.last_command_ok:
             self.status = f"shutdown contract close claw failed: {claw_status}"
@@ -2893,18 +2851,18 @@ class TargetGraspController:
         self.id5 = CATCHER_HOME_TICK
         self.splitter_id4 = SPLITTER_YELLOW_TICK
         self._enforce_angle_gap()
-        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+        self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
         self.arm_preview.publish("shutdown contract arm home")
         print(
             "SHUTDOWN CONTRACT "
             f"ID1={self.id1} ID2={self.id2} ID4={self.splitter_id4} "
-            f"ID5={self.id5} ID6={self.id6} ID7={self.id7}",
+            f"ID5={self.id5} ID6={self.id6} ID7={self.id4}",
             flush=True,
         )
         status = self.servo_bridge.send_targets(
             id1=self.id1,
             id2=self.id2,
-            id4=self.id7,
+            id4=self.id4,
             id6=self.id6,
             id5=self.id5,
             splitter_id4=self.splitter_id4,
@@ -2925,22 +2883,22 @@ class TargetGraspController:
         self.state = "fault"
         self.feedback_pending = False
         self.status = f"startup fault: {detail}"
-        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+        self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
         return self.status
 
     def _startup_send_targets(self, id1, id2, id4, label):
         self.id1 = int(id1)
         self.id2 = int(id2)
-        self.id7 = int(id4)
+        self.id4 = int(id4)
         self.id6 = BASE_YAW_CENTER_TICK
         self.splitter_id4 = SPLITTER_YELLOW_TICK
         self.id5 = CATCHER_HOME_TICK
         self._enforce_angle_gap()
-        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+        self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
         status = self.servo_bridge.send_targets(
             id1=self.id1,
             id2=self.id2,
-            id4=self.id7,
+            id4=self.id4,
             id6=self.id6,
             id5=self.id5,
             splitter_id4=self.splitter_id4,
@@ -2951,7 +2909,7 @@ class TargetGraspController:
         self.status = (
             f"{label} ACK ID1={self.id1} ID2={self.id2} "
             f"ID4={self.splitter_id4} ID5={self.id5} "
-            f"ID6={self.id6} ID7={self.id7}"
+            f"ID6={self.id6} ID7={self.id4}"
         )
         return self.status
 
@@ -2976,7 +2934,7 @@ class TargetGraspController:
             feedback = self.servo_bridge.command_arm_ready()
             if feedback is None:
                 return self._startup_fault(self.servo_bridge.status)
-            self.id7 = self.id7_closed
+            self.id4 = self.id4_closed
             self.id6 = BASE_YAW_CENTER_TICK
             self.splitter_id4 = SPLITTER_YELLOW_TICK
             self.id5 = CATCHER_HOME_TICK
@@ -2989,7 +2947,7 @@ class TargetGraspController:
             )
             if not self.servo_bridge.last_command_ok:
                 return self._startup_fault(f"startup auxiliaries home {aux_status}")
-            claw_status = self.servo_bridge.send_targets(id4=self.id7_closed)
+            claw_status = self.servo_bridge.send_targets(id4=self.id4_closed)
             if not self.servo_bridge.last_command_ok:
                 return self._startup_fault(f"startup claw close {claw_status}")
             if not self._apply_feedback(feedback):
@@ -3004,7 +2962,7 @@ class TargetGraspController:
                 self.status = (
                     f"startup_ready commands sent; settling ID1={self.id1} "
                     f"ID2={self.id2} ID4={self.splitter_id4} ID5={self.id5} "
-                    f"ID6={self.id6} ID7={self.id7}"
+                    f"ID6={self.id6} ID7={self.id4}"
                 )
                 return self.status
             self.startup_stage = "complete"
@@ -3012,7 +2970,7 @@ class TargetGraspController:
             self.status = (
                 f"startup_ready atomic ID1={self.id1} "
                 f"ID2={self.id2} ID4={self.splitter_id4} ID5={self.id5} "
-                f"ID6={self.id6} ID7={self.id7}"
+                f"ID6={self.id6} ID7={self.id4}"
             )
             return self.status
 
@@ -3025,7 +2983,7 @@ class TargetGraspController:
             self.status = (
                 f"startup_ready settled ID1={self.id1} ID2={self.id2} "
                 f"ID4={self.splitter_id4} ID5={self.id5} "
-                f"ID6={self.id6} ID7={self.id7}"
+                f"ID6={self.id6} ID7={self.id4}"
             )
             return self.status
 
@@ -3034,7 +2992,7 @@ class TargetGraspController:
             result = self._startup_send_targets(
                 HOME_ID1_TICK,
                 HOME_ID2_TICK,
-                self.id7_closed,
+                self.id4_closed,
                 "startup_home",
             )
             if self.startup_stage == "fault":
@@ -3062,7 +3020,7 @@ class TargetGraspController:
             result = self._startup_send_targets(
                 READY_ID1_TICK,
                 READY_ID2_TICK,
-                self.id7_closed,
+                self.id4_closed,
                 "startup_extend",
             )
             if self.startup_stage == "fault":
@@ -3088,7 +3046,7 @@ class TargetGraspController:
             feedback = self.servo_bridge.query_positions()
             self.startup_feedback_attempts += 1
             if self._startup_positions_ready(feedback):
-                self.id7 = self.id7_closed
+                self.id4 = self.id4_closed
                 if not self._apply_feedback(feedback):
                     return self._startup_fault(self.status)
                 self.startup_stage = "complete"
@@ -3096,7 +3054,7 @@ class TargetGraspController:
                 self.status = (
                     f"startup_ready ID1={self.id1} ID2={self.id2} "
                     f"ID4={self.splitter_id4} ID5={self.id5} "
-                    f"ID6={self.id6} ID7={self.id7}"
+                    f"ID6={self.id6} ID7={self.id4}"
                 )
                 return self.status
             if now >= self.startup_verify_deadline:
@@ -3496,12 +3454,12 @@ class TargetGraspController:
         if self.algorithm_stage == "open":
             self.state = "locked target open claw"
             if not self.servo_bridge.write_enabled:
-                next_id4 = min(self.id7_open, self.id7 + 20)
+                next_id4 = min(self.id4_open, self.id4 + 20)
                 if can_preview_step:
-                    self.id7 = next_id4
+                    self.id4 = next_id4
                     self.last_preview_step_time = now
-                if self.id7 >= self.id7_open:
-                    self.id7 = self.id7_open
+                if self.id4 >= self.id4_open:
+                    self.id4 = self.id4_open
                     if self.simple_vertical_grasp:
                         self.algorithm_stage = "vertical_wait_open"
                         self.stage_deadline = time.monotonic() + self._zp_settle_s()
@@ -3514,14 +3472,14 @@ class TargetGraspController:
                         self.next_stage_after_open = "post_lock_visual_confirm"
                         self.algorithm_stage = "open_wait"
                         self.stage_deadline = time.monotonic() + self._zp_settle_s()
-                self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
                 return (
                     f"preview locked target; opening claw "
-                    f"ID7={self.id7}->{self.id7_open}"
+                    f"ID7={self.id4}->{self.id4_open}"
                 )
             if can_command:
                 self.state = "claw_open_ack"
-                result = self._send_gripper_id7(self.id7_open, "locked target; open claw")
+                result = self._send_gripper_id7(self.id4_open, "locked target; open claw")
                 if self.servo_bridge.last_command_ok:
                     if self.simple_vertical_grasp:
                         self.algorithm_stage = "vertical_wait_open"
@@ -3579,7 +3537,7 @@ class TargetGraspController:
                 if plan["ik_error_mm"] > self.post_center_ik_error_mm:
                     self.state = "post-center unreachable"
                     self.algorithm_stage = "fault"
-                    self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+                    self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
                     return f"claw opened; locked target IK failed before ID2 retreat: {plan_text}"
             target_id1, target_id2, retreat_text = self._post_open_retreat_target()
             if target_id2 >= self.id2:
@@ -3593,10 +3551,10 @@ class TargetGraspController:
                     self.last_preview_step_time = now
                     self.algorithm_stage = "post_open_retreat_wait"
                     self.stage_deadline = time.monotonic() + self._arm_settle_s()
-                self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
                 return f"preview {retreat_text}"
             if not can_command:
-                self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
                 return f"waiting {retreat_text}"
             self.id1 = target_id1
             self.id2 = target_id2
@@ -3630,7 +3588,7 @@ class TargetGraspController:
             if accepted_target is None:
                 self.visual_confirm_frames = 0
                 if self.visual_lost_frames <= max(3, self.stable_frames_required):
-                    self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+                    self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
                     return f"post-lock visual confirm waiting: {reason}"
                 return self._abort_to_standby(f"post-lock visual confirm failed: {reason}")
             centered, message = self._visual_center_step(
@@ -3667,7 +3625,7 @@ class TargetGraspController:
             if plan["ik_error_mm"] > self.post_center_ik_error_mm:
                 self.state = "post-center unreachable"
                 self.algorithm_stage = "fault"
-                self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
                 return f"visual locked target IK failed: {plan_text}"
             self.visual_descend_start = (self.id1, self.id2)
             self.visual_descend_step_index = 0
@@ -3740,13 +3698,13 @@ class TargetGraspController:
                     self.last_preview_step_time = now
                     if self.visual_descend_step_index >= step_total:
                         self.algorithm_stage = "final_grab"
-                self.arm_preview.set_targets(target_id1, target_id2, self.id7, target_id6)
+                self.arm_preview.set_targets(target_id1, target_id2, self.id4, target_id6)
                 return (
                     f"preview visual descend step={step_index + 1}/{step_total} "
                     f"ID1={target_id1} ID2={target_id2} ID6={target_id6} | {visual_note}"
                 )
             if not can_command:
-                self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
                 return (
                     f"waiting visual descend step={step_index + 1}/{step_total} | "
                     f"{visual_note}"
@@ -3789,7 +3747,7 @@ class TargetGraspController:
                     self.id1 = target_id1
                     self.id2 = target_id2
                     self.last_preview_step_time = now
-                self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
                 self.algorithm_stage = "close"
                 return f"preview vertical descend ID1={self.id1} ID2={self.id2}"
             if can_command:
@@ -3847,7 +3805,7 @@ class TargetGraspController:
             if plan["ik_error_mm"] > self.post_center_ik_error_mm:
                 self.state = "post-center unreachable"
                 self.algorithm_stage = "fault"
-                self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
                 return f"claw opened; locked target IK failed: {plan_text}"
         elif self.algorithm_stage in ("overhead", "descend"):
             plan = self.locked_plan
@@ -3878,7 +3836,7 @@ class TargetGraspController:
                 if can_preview_step:
                     self.id1, self.id2 = next_id1, next_id2
                     self.last_preview_step_time = now
-                self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
                 if self.id1 == plan["id1"] and self.id2 == plan["id2"]:
                     if motion_stage == "overhead":
                         self.algorithm_stage = "descend"
@@ -3943,16 +3901,16 @@ class TargetGraspController:
         if self.algorithm_stage == "close":
             self.state = "locked target close claw"
             if not self.servo_bridge.write_enabled:
-                self.id7 = self.id7_closed
+                self.id4 = self.id4_closed
                 if self.post_center_direct_descend and not self.abort_after_return:
                     self.algorithm_stage = "post_grab_id2_retreat"
                 else:
                     self.algorithm_stage = "return"
-                self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
                 return "preview claw closed"
             if can_command:
                 self.state = "claw_close_ack"
-                result = self._send_gripper_id7(self.id7_closed, "locked target; close claw")
+                result = self._send_gripper_id7(self.id4_closed, "locked target; close claw")
                 if self.servo_bridge.last_command_ok:
                     self.algorithm_stage = "close_wait"
                     self.stage_deadline = time.monotonic() + self._zp_settle_s()
@@ -3986,7 +3944,7 @@ class TargetGraspController:
                 self.id6 = target_id6
                 self.id5 = CATCHER_RELEASE_READY_TICK
                 self.algorithm_stage = "release"
-                self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
                 return (
                     f"preview post-grab retreat ID1={self.id1} "
                     f"ID2={self.id2} ID5={self.id5} ID6={self.id6}"
@@ -4021,11 +3979,11 @@ class TargetGraspController:
                 self.id1 = target_id1
                 self.id2 = target_id2
                 self.id6 = target_id6
-                self.id7 = self.id7_closed
+                self.id4 = self.id4_closed
                 if self.abort_after_return:
                     return self._reset_cycle_for_search("preview abort returned to standby")
                 self.algorithm_stage = "complete"
-                self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
                 return "preview grasp complete; returned to standby"
             if self.return_attempts > 0:
                 error_id1 = abs(self.id1 - target_id1)
@@ -4038,10 +3996,10 @@ class TargetGraspController:
                         return self._reset_cycle_for_search("abort returned to standby")
                     self.algorithm_stage = "catcher"
                     self.state = "standby prepare catcher"
-                    self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+                    self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
                     return (
                         f"standby reached; preparing catcher ID1={self.id1} "
-                        f"ID2={self.id2} ID6={self.id6} ID7={self.id7}"
+                        f"ID2={self.id2} ID6={self.id6} ID7={self.id4}"
                     )
                 if self.return_attempts >= 3:
                     self.algorithm_stage = "fault"
@@ -4055,7 +4013,7 @@ class TargetGraspController:
                 self.id1 = target_id1
                 self.id2 = target_id2
                 self.id6 = target_id6
-                self.id7 = self.id7_closed
+                self.id4 = self.id4_closed
                 self.return_attempts += 1
                 result = self._send(
                     f"return standby attempt={self.return_attempts}/3",
@@ -4078,10 +4036,10 @@ class TargetGraspController:
                 return self._reset_cycle_for_search("abort returned to standby")
             self.algorithm_stage = "catcher"
             self.state = "standby prepare catcher"
-            self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+            self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
             return (
                 f"standby reached; preparing catcher ID1={self.id1} "
-                f"ID2={self.id2} ID6={self.id6} ID7={self.id7}"
+                f"ID2={self.id2} ID6={self.id6} ID7={self.id4}"
             )
 
         if self.algorithm_stage == "catcher":
@@ -4089,7 +4047,7 @@ class TargetGraspController:
             if not self.servo_bridge.write_enabled:
                 self.id5 = CATCHER_RELEASE_READY_TICK
                 self.algorithm_stage = "release"
-                self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
                 return "preview catcher ready; releasing next"
             if can_command:
                 result = self._send_id5(
@@ -4110,12 +4068,12 @@ class TargetGraspController:
             )
             self.state = release_reason
             if not self.servo_bridge.write_enabled:
-                self.id7 = self.id7_open
+                self.id4 = self.id4_open
                 self.algorithm_stage = "close_catcher_after_release"
-                self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
                 return "preview release target; closing catcher next"
             if can_command:
-                result = self._send_gripper_id7(self.id7_open, release_reason)
+                result = self._send_gripper_id7(self.id4_open, release_reason)
                 if self.servo_bridge.last_command_ok:
                     self.algorithm_stage = "release_wait"
                     self.stage_deadline = time.monotonic() + self._zp_settle_s() + 0.30
@@ -4151,14 +4109,14 @@ class TargetGraspController:
         if self.algorithm_stage == "reclose":
             self.state = "close claw for next search"
             if not self.servo_bridge.write_enabled:
-                self.id7 = self.id7_closed
+                self.id4 = self.id4_closed
                 self.id5 = CATCHER_HOME_TICK
                 return self._reset_cycle_for_search(
                     "preview ready for next target",
                     start_retrigger_cooldown=True,
                 )
             if can_command:
-                result = self._send_gripper_id7(self.id7_closed, "close claw for next search")
+                result = self._send_gripper_id7(self.id4_closed, "close claw for next search")
                 if self.servo_bridge.last_command_ok:
                     self.algorithm_stage = "reclose_wait"
                     self.stage_deadline = time.monotonic() + self._zp_settle_s()
@@ -4182,7 +4140,7 @@ class TargetGraspController:
                         return home_result
                 return self._reset_cycle_for_search(
                     f"ready for next target ID1={self.id1} ID2={self.id2} "
-                    f"ID5={self.id5} ID6={self.id6} ID7={self.id7}",
+                    f"ID5={self.id5} ID6={self.id6} ID7={self.id4}",
                     start_retrigger_cooldown=True,
                 )
 
@@ -4227,7 +4185,7 @@ class TargetGraspController:
                     return home_result
             return self._reset_cycle_for_search(
                 f"ready for next target ID1={self.id1} ID2={self.id2} "
-                f"ID5={self.id5} ID6={self.id6} ID7={self.id7}",
+                f"ID5={self.id5} ID6={self.id6} ID7={self.id4}",
                 start_retrigger_cooldown=True,
             )
 
@@ -4235,21 +4193,21 @@ class TargetGraspController:
             return self.status
 
         self.state = "algorithm grasp complete"
-        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+        self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
         return (
             f"algorithm grasp complete ID1={self.id1} "
-            f"ID2={self.id2} ID6={self.id6} ID7={self.id7}; camera ignored"
+            f"ID2={self.id2} ID6={self.id6} ID7={self.id4}; camera ignored"
         )
 
     def _update_one_shot(self, target, frame_shape):
         if self.one_shot_complete:
-            self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+            self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
             return "one-shot grasp complete; servos stopped"
 
         if self.one_shot_target is None:
             ready, reason = self._target_ready(target)
             if not ready:
-                self.arm_preview.set_targets(READY_ID1_TICK, READY_ID2_TICK, self.id7, self.id6)
+                self.arm_preview.set_targets(READY_ID1_TICK, READY_ID2_TICK, self.id4, self.id6)
                 return reason
             self.one_shot_target = self._copy_target(target)
             self.centered_frames = self.stable_frames_required
@@ -4259,29 +4217,29 @@ class TargetGraspController:
 
         if not self.servo_bridge.write_enabled:
             if plan is None:
-                self.arm_preview.set_targets(READY_ID1_TICK, READY_ID2_TICK, self.id7, self.id6)
+                self.arm_preview.set_targets(READY_ID1_TICK, READY_ID2_TICK, self.id4, self.id6)
                 return plan_text
-            self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+            self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
             self.arm_preview.publish_plan_marker(plan, plan_text)
             return f"preview one-shot {plan_text}"
 
         now = time.monotonic()
         can_command = now - self.last_command_time >= self.command_interval_s
         if not can_command:
-            self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+            self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
             return "one-shot waiting command interval"
 
-        if self.id7 != self.id7_open:
+        if self.id4 != self.id4_open:
             self.state = "one-shot open claw"
-            return self._send_gripper_id7(self.id7_open, "one-shot open claw")
+            return self._send_gripper_id7(self.id4_open, "one-shot open claw")
 
         if not self.one_shot_approach_sent:
             if plan is None:
-                self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
                 return plan_text
             if plan["ik_error_mm"] > self.max_one_shot_ik_error_mm:
                 self.state = "unreachable"
-                self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
                 self.arm_preview.publish_plan_marker(plan, plan_text)
                 return (
                     f"IK simulation failed: {plan_text}; "
@@ -4297,13 +4255,13 @@ class TargetGraspController:
                 require_feedback=True,
             )
 
-        if self.id7 != self.id7_closed:
+        if self.id4 != self.id4_closed:
             self.state = "one-shot close claw"
-            return self._send_gripper_id7(self.id7_closed, "one-shot close claw")
+            return self._send_gripper_id7(self.id4_closed, "one-shot close claw")
 
         self.one_shot_complete = True
         self.state = "one-shot complete"
-        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+        self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
         self.arm_preview.publish("one-shot grasp complete; servos stopped")
         if plan is None:
             return "one-shot grasp complete; servos stopped"
@@ -4329,7 +4287,7 @@ class TargetGraspController:
                     self.state = "read_only_sync"
                     self.status = (
                         f"read-only synchronized ID1={self.id1} ID2={self.id2} "
-                        f"ID7={self.id7} ID6={self.arm_preview.id6}"
+                        f"ID4={self.id4} ID6={self.arm_preview.id6}"
                     )
                 elif feedback is None:
                     self.status = f"read-only sync waiting | {self.servo_bridge.status}"
@@ -4425,7 +4383,7 @@ class TargetGraspController:
                 if can_preview_step:
                     self.id1, self.id2, self.id6 = expand_id1, expand_id2, expand_id6
                     self.last_preview_step_time = now
-                self.arm_preview.set_targets(expand_id1, expand_id2, self.id7, expand_id6)
+                self.arm_preview.set_targets(expand_id1, expand_id2, self.id4, expand_id6)
                 return (
                     f"preview {self.state}; slow expand "
                     f"ID1={expand_id1} ID2={expand_id2} ID6={expand_id6}"
@@ -4442,7 +4400,7 @@ class TargetGraspController:
                     else "searching red target; slow expand"
                 )
                 return self._send(reason, require_feedback=False)
-            self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+            self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
             if ignoring_new_target:
                 return (
                     f"post-grasp cooldown {max(0.0, cooldown_remaining):.1f}s; "
@@ -4454,12 +4412,12 @@ class TargetGraspController:
         if hold_reason is not None:
             self.centered_frames = 0
             self.state = "target unstable"
-            self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+            self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
             return hold_reason
         if target.get("area_percent", 0.0) < self.min_target_area_percent:
             self.centered_frames = 0
             self.state = "target too small"
-            self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+            self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
             return (
                 f"letter target area below {self.min_target_area_percent:.2f}%; "
                 "grasp disabled"
@@ -4473,7 +4431,7 @@ class TargetGraspController:
         ):
             self.centered_frames = 0
             self.state = "target outside calibrated range"
-            self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+            self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
             distance_text = "unknown" if distance_cm is None else f"{distance_cm:.1f}cm"
             return (
                 f"target distance {distance_text} outside calibrated "
@@ -4537,7 +4495,7 @@ class TargetGraspController:
                         self.id2 = target_id2
                         self.id6 = target_id6
                         self.last_preview_step_time = now
-                    self.arm_preview.set_targets(target_id1, target_id2, self.id7, target_id6)
+                    self.arm_preview.set_targets(target_id1, target_id2, self.id4, target_id6)
                     return (
                         f"preview centering dx={error_x:.0f} dy={error_y:.0f} "
                         f"ID2={target_id2} ID6={target_id6}"
@@ -4551,7 +4509,7 @@ class TargetGraspController:
                     send_id2 = self.id2 != previous_id2
                     send_id6 = self.id6 != previous_id6
                     if not send_id2 and not send_id6:
-                        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+                        self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
                         return (
                             f"centering blocked by servo limits dx={error_x:.0f} dy={error_y:.0f} "
                             f"ID2={self.id2} ID6={self.id6}"
@@ -4563,7 +4521,7 @@ class TargetGraspController:
                         send_id2=send_id2,
                         send_id6=send_id6,
                     )
-                self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
                 return f"waiting centering dx={error_x:.0f} dy={error_y:.0f}"
 
             self.centered_frames += 1
@@ -4571,7 +4529,7 @@ class TargetGraspController:
             self.horizontal_correction_done = True
             if self.centered_frames < self.stable_frames_required:
                 self.state = "confirming center"
-                self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+                self.arm_preview.set_targets(self.id1, self.id2, self.id4, self.id6)
                 distance_note = (
                     "unknown"
                     if median_distance_cm is None
@@ -4618,7 +4576,7 @@ class ArmPreviewPublisher:
         self.enabled = enabled
         self.id1 = id1
         self.id2 = id2
-        self.id7 = id4
+        self.id4 = id4
         self.id6 = id6
         self.rclpy = None
         self.String = None
@@ -4639,7 +4597,7 @@ class ArmPreviewPublisher:
     def set_targets(self, id1, id2, id4, id6=None):
         self.id1 = int(id1)
         self.id2 = int(id2)
-        self.id7 = int(id4)
+        self.id4 = int(id4)
         if id6 is not None:
             self.id6 = int(id6)
 
@@ -4792,14 +4750,14 @@ class ArmPreviewPublisher:
 
         try:
             now = time.monotonic()
-            joint_ticks = (self.id1, self.id2, self.id7, self.id6)
+            joint_ticks = (self.id1, self.id2, self.id4, self.id6)
             should_publish_joint = joint_ticks != self.last_joint_ticks
             if should_publish_joint:
                 msg = self.JointState()
                 msg.header.stamp = self.node.get_clock().now().to_msg()
                 msg.header.frame_id = "base_mount"
                 msg.name = JOINT_NAMES
-                msg.position = arm_joint_positions(self.id1, self.id2, self.id7, self.id6)
+                msg.position = arm_joint_positions(self.id1, self.id2, self.id4, self.id6)
                 self.joint_pub.publish(msg)
                 self.last_joint_ticks = joint_ticks
                 self.last_joint_publish_time = now
@@ -4809,7 +4767,7 @@ class ArmPreviewPublisher:
                 "detail": detail,
                 "id1": self.id1,
                 "id2": self.id2,
-                "id4": self.id7,
+                "id4": self.id4,
                 "id6": self.id6,
             }
             if target is not None:

@@ -1046,11 +1046,7 @@ class DirectBusServoBridge:
             if gripper_time_ms is not None
             else self.zp_time_ms
         )
-        self.splitter_time_ms = (
-            int(splitter_time_ms)
-            if splitter_time_ms is not None
-            else self.gripper_time_ms
-        )
+        self.splitter_time_ms = int(splitter_time_ms) if splitter_time_ms is not None else int(zp_time_ms)
         self.repeat = max(1, min(8, int(repeat)))
         self.arm_fd = None
         self.zp_fd = None
@@ -2654,7 +2650,7 @@ class TargetGraspController:
                 self.splitter_id4 = splitter_target
                 self.id7 = self.id7_open
                 self.chassis_station_stage = "disc_open_wait"
-                self.chassis_station_deadline = now + 0.10
+                self.chassis_station_deadline = now + 0.25
                 self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
                 return (
                     f"preview DISC_CATCH sync ID4={self.splitter_id4} "
@@ -2668,7 +2664,7 @@ class TargetGraspController:
                 self.disc_last_pulsed_color = ball_color
                 self.disc_pulse_done = True
                 self.chassis_station_stage = "disc_open_wait"
-                self.chassis_station_deadline = time.monotonic() + 0.10
+                self.chassis_station_deadline = time.monotonic() + 0.25
             return trigger_status
 
         if self.chassis_station_stage == "disc_open":
@@ -2676,13 +2672,13 @@ class TargetGraspController:
             if not self.servo_bridge.write_enabled:
                 self.id7 = self.id7_open
                 self.chassis_station_stage = "disc_open_wait"
-                self.chassis_station_deadline = now + 0.10
+                self.chassis_station_deadline = now + 0.25
                 self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
                 return "preview DISC_CATCH open ID7 pulse"
             status = self._send_gripper_id7(self.id7_open, "DISC_CATCH open ID7 pulse")
             if self.servo_bridge.last_command_ok:
                 self.chassis_station_stage = "disc_open_wait"
-                self.chassis_station_deadline = time.monotonic() + 0.10
+                self.chassis_station_deadline = time.monotonic() + 0.25
             return status
 
         if self.chassis_station_stage == "disc_open_wait":
