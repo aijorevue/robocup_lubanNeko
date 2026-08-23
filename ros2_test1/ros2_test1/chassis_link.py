@@ -45,6 +45,7 @@ class ChassisArmLink:
         self.pending_preps = []
         self.pending_aux_zp = []
         self.pending_white_line_queries = []
+        self.white_line_active = False
         self.reset_pending = False
         self.reset_in_progress = False
         self.last_reset_completed = 0.0
@@ -358,6 +359,7 @@ class ChassisArmLink:
             # H7 repeats queries until a fresh result arrives. Keep only the
             # newest request so a slow camera cannot build an obsolete queue.
             self.pending_white_line_queries[:] = [sequence]
+            self.white_line_active = True
             return
 
         if parts[0] == "FIELD":
@@ -371,6 +373,7 @@ class ChassisArmLink:
         if parts[:2] == ["ARM", "SYNC"]:
             requested = self._field_from_parts(parts[2:])
             if "RESET" in parts[2:]:
+                self.white_line_active = False
                 self._force_field_from_reset(requested)
                 now = time.monotonic()
                 if (
@@ -430,6 +433,7 @@ class ChassisArmLink:
                 )
                 return
             if self.active_task is None:
+                self.white_line_active = False
                 if requested is not None:
                     self._set_field_from_wire(requested, "ARM,PRESELECT")
                 now = time.monotonic()
@@ -504,6 +508,7 @@ class ChassisArmLink:
 
         if len(parts) >= 3 and parts[0] == "ARM" and parts[2] == "START":
             task = parts[1]
+            self.white_line_active = False
             if task not in self.VALID_TASKS:
                 self._send_task_state(task, "ERR", sequence, "REASON", "UNKNOWN_TASK")
                 return
@@ -810,6 +815,7 @@ class ChassisArmLink:
         self.pending_platform_slots.clear()
         self.pending_stops.clear()
         self.pending_white_line_queries.clear()
+        self.white_line_active = False
         if not success:
             self.status = f"CHASSIS reset failed: {reason}"
             self.send_line(
@@ -847,11 +853,18 @@ class ChassisArmLink:
         now = time.monotonic()
         self.station_started = now
         self.last_target_seen = now + max(0.0, float(delay_s))
-        print(
-            f"CHASSIS station {self.active_task} target watch started "
-            f"delay={max(0.0, float(delay_s)):.2f}s",
-            flush=True,
-        )
+        delay_s = max(0.0, float(delay_s))
+        if delay_s > 0.0:
+            print(
+                f"CHASSIS station {self.active_task} target watch started "
+                f"delay={delay_s:.2f}s",
+                flush=True,
+            )
+        else:
+            print(
+                f"CHASSIS station {self.active_task} target watch started",
+                flush=True,
+            )
         return True
 
     def no_target_timed_out(self, now, searching_for_target):

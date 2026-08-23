@@ -77,6 +77,15 @@ from .white_line_alignment import WhiteLineAlignmentDetector
 
 WINDOW_NAME = "Ros2_test1 Target Vision"
 
+# Keep only the detector family needed by the current route stage.  The
+# white-line detector is handled in the main loop and never shares a target
+# result with the ball/letter pipelines.
+DETECTION_MODE_IDLE = "idle"
+DETECTION_MODE_DISC_BALLS = "disc_balls"
+DETECTION_MODE_PLATFORM_TARGETS = "platform_targets"
+DETECTION_MODE_COLUMN_LETTERS = "column_letters"
+DETECTION_MODE_WHITE_LINE = "white_line"
+
 BALL_DISTANCE_OFFSET_CM = -1.6072186919749336
 BALL_DISTANCE_SCALE_CM = 31.628878020276648
 GOLF_BALL_DIAMETER_MM = 42.67
@@ -450,7 +459,13 @@ class DetectionSmoother:
 _PROCESS_DETECTOR = None
 
 
-def detection_process_worker(source_frame, detection_scale):
+def detection_process_worker(
+    source_frame,
+    detection_scale,
+    detection_mode=DETECTION_MODE_IDLE,
+    field_name="red",
+    target_letters=(),
+):
     global _PROCESS_DETECTOR
     if _PROCESS_DETECTOR is None:
         _PROCESS_DETECTOR = TargetDetector()
@@ -464,14 +479,24 @@ def detection_process_worker(source_frame, detection_scale):
             (detect_width, detect_height),
             interpolation=cv2.INTER_AREA,
         )
-        result = _PROCESS_DETECTOR.detect(detect_frame)
+        result = _PROCESS_DETECTOR.detect(
+            detect_frame,
+            mode=detection_mode,
+            field_name=field_name,
+            target_letters=target_letters,
+        )
         result = scale_detections(
             result,
             source_width / float(detect_width),
             source_height / float(detect_height),
         )
     else:
-        result = _PROCESS_DETECTOR.detect(source_frame)
+        result = _PROCESS_DETECTOR.detect(
+            source_frame,
+            mode=detection_mode,
+            field_name=field_name,
+            target_letters=target_letters,
+        )
     return result, time.perf_counter() - detect_started
 
 class FrameState:
@@ -2576,6 +2601,9 @@ class TargetGraspController:
         if station == "COLUMN_CATCH":
             return self._begin_column_catch_station()
         if station == "PLATFORM_PICK":
+            # A slot START is the explicit boundary after H7 white-line
+            # alignment; keep the arm high until that boundary arrives.
+            self.chassis_station_stage = None
             self.id1 = 600
             self.id2 = 600
             self.id6 = 640
@@ -2706,8 +2734,9 @@ class TargetGraspController:
             selected = tuple(sorted(self.platform_preselect_letters))[:2]
             self.platform_selected_letters = frozenset(selected)
             self.target_letters = self.platform_selected_letters
-            self.chassis_station_stage = None
-            self.active_chassis_station = None
+            # Keep the platform task active in an entry-hold state while
+            # H7 performs its lateral shift and white-line alignment.
+            self.chassis_station_stage = "platform_entry_hold"
             self.chassis_station_done_reason = (
                 f"PRESELECT_DONE:{selected[0]}:{selected[1]}"
             )
@@ -4860,8 +4889,22 @@ class TargetGraspController:
             return self._update_one_shot(target, frame_shape)
         if (
             self.active_chassis_station == "PLATFORM_PICK"
-            and self.chassis_station_stage == "platform_preselect"
+            and self.chassis_station_stage in {
+                "platform_preselect",
+                "platform_entry_hold",
+            }
         ):
+            if self.chassis_station_stage == "platform_entry_hold":
+                self.id1 = 600
+                self.id2 = 600
+                self.id6 = 640
+                self.id7 = self.id7_closed
+                self.id5 = CATCHER_HOME_TICK
+                self.splitter_id4 = DISC_CATCH_SPLITTER_READY_TICK
+                self._enforce_angle_gap()
+                self.arm_preview.set_targets(
+                    self.id1, self.id2, self.id7, self.id6
+                )
             return self.status
         live_target = target
         if self.locked_target is not None:
@@ -5366,15 +5409,49 @@ class ArmPreviewPublisher:
 
 class TargetDetector:
     def __init__(self):
-        self.letter_detector = ABCDDetector()
+        # Loading the ABCD model is unnecessary during task-one ball search.
+        # Create it only when a letter-capable mode is actually selected.
+        self.letter_detector = None
 
-    def detect(self, frame):
+    def _detect_letters(self, frame):
+        if self.letter_detector is None:
+            self.letter_detector = ABCDDetector()
+        return self.letter_detector.detect(frame)
+
+    def detect(
+        self,
+        frame,
+        mode=DETECTION_MODE_IDLE,
+        field_name="red",
+        target_letters=(),
+    ):
         if frame is None or not isinstance(frame, np.ndarray) or frame.ndim != 3:
             return []
+        if mode == DETECTION_MODE_WHITE_LINE:
+            return []
+
+        field_name = str(field_name or "red").strip().lower()
+        if field_name not in {"red", "blue"}:
+            field_name = "red"
+        target_letters = tuple(str(letter).upper() for letter in target_letters)
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        rings = self._detect_rings(hsv)
-        colored_balls = self._detect_balls(hsv, rings)
-        letters = self.letter_detector.detect(frame)
+        rings = []
+        colored_balls = []
+        letters = []
+        if mode == DETECTION_MODE_DISC_BALLS:
+            colored_balls = self._detect_balls(
+                hsv,
+                colors=(field_name, "yellow"),
+            )
+        elif mode == DETECTION_MODE_PLATFORM_TARGETS:
+            rings = self._detect_rings(hsv, colors=(field_name,))
+            letters = self._detect_letters(frame)
+        elif mode == DETECTION_MODE_COLUMN_LETTERS:
+            letters = self._detect_letters(frame)
+        else:
+            rings = self._detect_rings(hsv)
+            colored_balls = self._detect_balls(hsv, rings)
+            letters = self._detect_letters(frame)
         detections = [*colored_balls, *rings, *letters]
         self._add_frame_ratios(detections, frame.shape)
         return detections
@@ -5542,16 +5619,26 @@ class TargetDetector:
     def _mask(self, hsv, color):
         return MASK_BUILDERS[color](hsv)
 
-    def _detect_balls(self, hsv, rings=None):
+    def _detect_balls(self, hsv, rings=None, colors=None):
         results = []
         rings = rings or []
-        for detector in BALL_DETECTORS:
+        if colors is None:
+            detectors = BALL_DETECTORS
+        else:
+            wanted = {str(color).lower() for color in colors}
+            detectors = tuple(
+                detector
+                for detector in BALL_DETECTORS
+                if str(detector.COLOR_NAME).lower() in wanted
+            )
+        for detector in detectors:
             results.extend(detector.detect(hsv, rings))
         return results
 
-    def _detect_rings(self, hsv):
+    def _detect_rings(self, hsv, colors=None):
         results = []
-        for color in SHAPE_COLORS:
+        ring_colors = SHAPE_COLORS if colors is None else tuple(colors)
+        for color in ring_colors:
             mask = self._mask(hsv, color)
             contours, hierarchy = cv2.findContours(mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
             if hierarchy is None:
@@ -6252,6 +6339,10 @@ def main(argv=None):
         max_workers=1,
         mp_context=multiprocessing.get_context("spawn"),
     )
+    secondary_detection_executor = concurrent.futures.ProcessPoolExecutor(
+        max_workers=1,
+        mp_context=multiprocessing.get_context("spawn"),
+    )
     camera_executor = concurrent.futures.ThreadPoolExecutor(
         max_workers=1,
         thread_name_prefix="camera-open",
@@ -6259,9 +6350,29 @@ def main(argv=None):
     camera_open_future = None
     secondary_open_future = None
     detection_future = None
+    detection_future_mode = None
     detection_pending_frame = None
     detection_source_frame = None
     detection_epoch = 0
+    last_detection_mode = None
+    secondary_detection_future = None
+    secondary_detection_pending_frame = None
+
+    def current_detection_mode():
+        """Select the smallest detector set required by the current H7 phase."""
+
+        if chassis_link.white_line_active:
+            return DETECTION_MODE_WHITE_LINE
+        station = chassis_link.active_task
+        if station == "DISC_CATCH":
+            return DETECTION_MODE_DISC_BALLS
+        if station == "COLUMN_CATCH":
+            return DETECTION_MODE_COLUMN_LETTERS
+        if station == "PLATFORM_PICK":
+            if grasp_controller.chassis_station_stage == "platform_preselect":
+                return DETECTION_MODE_IDLE
+            return DETECTION_MODE_PLATFORM_TARGETS
+        return DETECTION_MODE_IDLE
 
     def close_secondary_camera(reason=None):
         nonlocal secondary_cap, secondary_reader
@@ -6276,12 +6387,34 @@ def main(argv=None):
             print(f"SECONDARY CAMERA LINK released reason={reason}", flush=True)
 
     def service_secondary_preselect():
-        nonlocal secondary_retry_at
+        nonlocal secondary_retry_at, secondary_detection_future
+        nonlocal secondary_detection_pending_frame
         if (
             grasp_controller.chassis_station_stage != "platform_preselect"
             or secondary_reader is None
         ):
+            if secondary_detection_future is not None and secondary_detection_future.done():
+                secondary_detection_future = None
+                secondary_detection_pending_frame = None
             return
+
+        if (
+            secondary_detection_future is not None
+            and secondary_detection_future.done()
+        ):
+            try:
+                secondary_detections, _ = secondary_detection_future.result()
+                preselect_info = grasp_controller.update_platform_preselect(
+                    secondary_detections,
+                    detection_fresh=True,
+                )
+                if preselect_info:
+                    resolve_station_outcome(preselect_info)
+            except Exception as exc:
+                print(f"secondary detection worker failed: {exc}", flush=True)
+            secondary_detection_future = None
+            secondary_detection_pending_frame = None
+
         secondary_ok, secondary_frame, _, secondary_error = secondary_reader.latest()
         if secondary_error is not None:
             print(
@@ -6300,13 +6433,16 @@ def main(argv=None):
                 (args.width, args.height),
                 interpolation=cv2.INTER_AREA,
             )
-        secondary_detections = detector.detect(secondary_frame)
-        preselect_info = grasp_controller.update_platform_preselect(
-            secondary_detections,
-            detection_fresh=True,
-        )
-        if preselect_info:
-            resolve_station_outcome(preselect_info)
+        if secondary_detection_future is None:
+            secondary_detection_pending_frame = secondary_frame.copy()
+            secondary_detection_future = secondary_detection_executor.submit(
+                detection_process_worker,
+                secondary_detection_pending_frame,
+                detection_scale,
+                DETECTION_MODE_COLUMN_LETTERS,
+                grasp_controller.field_mode.value,
+                tuple(grasp_controller.target_letters),
+            )
 
     def resolve_station_outcome(info):
         """Finish the H7 transaction after every station state-machine tick."""
@@ -6560,9 +6696,9 @@ def main(argv=None):
                         f"{station_status}; start abort={abort_status}"
                     )
                 else:
-                    chassis_link.restart_target_watch(
-                        grasp_controller._arm_settle_s()
-                    )
+                    # Start the station timer immediately.  The station
+                    # controller itself keeps its required pose-settle stage.
+                    chassis_link.restart_target_watch()
             for slot_request in platform_slot_requests:
                 if slot_request.get("task") != "PLATFORM_PICK":
                     continue
@@ -6688,6 +6824,7 @@ def main(argv=None):
                 if detection_future is not None:
                     detection_future.cancel()
                 detection_future = None
+                detection_future_mode = None
                 detection_pending_frame = None
                 detection_source_frame = None
                 detections = []
@@ -6698,30 +6835,61 @@ def main(argv=None):
                 continue
             _process_white_line_queries(frame, "frame available")
             service_secondary_preselect()
+            requested_detection_mode = current_detection_mode()
+            if requested_detection_mode != last_detection_mode:
+                print(
+                    "VISION MODE "
+                    f"{last_detection_mode or 'none'} -> {requested_detection_mode}",
+                    flush=True,
+                )
+                detection_smoother.tracks = []
+                detections = []
+                detection_source_frame = None
+                if detection_future is not None and not detection_future.done():
+                    detection_future.cancel()
+                last_detection_mode = requested_detection_mode
             detect_elapsed = 0.0
             if detection_future is not None and detection_future.done():
                 try:
-                    detections, detect_elapsed = detection_future.result()
-                    detections = detection_smoother.update(detections)
-                    perf_detect_frames += 1
-                    detection_source_frame = detection_pending_frame
-                    detection_epoch += 1
-                    for detection in detections:
-                        detection["detection_epoch"] = detection_epoch
-                    detection_fresh = True
+                    completed_mode = detection_future_mode
+                    result, detect_elapsed = detection_future.result()
+                    if completed_mode == requested_detection_mode:
+                        detections = detection_smoother.update(result)
+                        perf_detect_frames += 1
+                        detection_source_frame = detection_pending_frame
+                        detection_epoch += 1
+                        for detection in detections:
+                            detection["detection_epoch"] = detection_epoch
+                        detection_fresh = True
+                    else:
+                        print(
+                            "VISION stale result discarded "
+                            f"mode={completed_mode} current={requested_detection_mode}",
+                            flush=True,
+                        )
                 except Exception as exc:
                     print(f"detection worker failed: {exc}", flush=True)
                 detection_future = None
+                detection_future_mode = None
                 detection_pending_frame = None
             if (
                 detection_frame_index % detection_interval == 0
                 and detection_future is None
+                and requested_detection_mode
+                not in {DETECTION_MODE_IDLE, DETECTION_MODE_WHITE_LINE}
             ):
                 detection_pending_frame = frame.copy()
+                detection_future_mode = requested_detection_mode
                 detection_future = detection_executor.submit(
                     detection_process_worker,
                     detection_pending_frame,
                     detection_scale,
+                    requested_detection_mode,
+                    grasp_controller.field_mode.value,
+                    tuple(
+                        grasp_controller.platform_selected_letters
+                        or target_letters
+                    ),
                 )
             detection_frame_index += 1
             post_started = time.perf_counter()
@@ -6948,6 +7116,7 @@ def main(argv=None):
     finally:
         state.running = False
         detection_executor.shutdown(wait=False, cancel_futures=True)
+        secondary_detection_executor.shutdown(wait=False, cancel_futures=True)
         if camera_open_future is not None:
             camera_open_future.cancel()
         camera_executor.shutdown(wait=False, cancel_futures=True)
