@@ -18,6 +18,10 @@ from .field_mode import FieldMode, parse_field
 class ChassisArmLink:
     VALID_TASKS = {"DISC_CATCH", "PLATFORM_PICK", "COLUMN_CATCH"}
     MAX_LINE_BUFFER = 4096
+    SERVO_ADAPTER_GLOBS = (
+        "/dev/serial/by-id/usb-1a86_USB_Single_Serial_*",
+        "/dev/serial/by-id/usb-1a86_USB_Serial-*",
+    )
 
     def __init__(self, enabled, device, baudrate, no_target_timeout_s):
         self.enabled = bool(enabled)
@@ -28,14 +32,18 @@ class ChassisArmLink:
         self.device = None
         self.active_task = None
         self.active_sequence = None
+        self.active_slot = None
         self.field_mode = FieldMode.RED
         self.station_started = 0.0
         self.last_target_seen = 0.0
         self.line_buffer = ""
         self.status = "chassis link disabled"
         self.pending_starts = []
+        self.pending_preselects = []
+        self.pending_platform_slots = []
         self.pending_stops = []
         self.pending_preps = []
+        self.pending_aux_zp = []
         self.pending_white_line_queries = []
         self.reset_pending = False
         self.reset_in_progress = False
@@ -47,6 +55,9 @@ class ChassisArmLink:
         self.last_completed_sequence = None
         self.last_completed_outcome = None
         self.last_completed_reason = None
+        self.last_completed_details = ()
+        self.last_aux_sequence = None
+        self.last_aux_success = False
         self.last_backpressure_log = 0.0
         self.last_open_failure_log = 0.0
         if self.enabled:
@@ -55,7 +66,37 @@ class ChassisArmLink:
     def _candidate_devices(self):
         if self.device_arg and self.device_arg != "auto":
             return [self.device_arg]
-        return sorted(glob.glob("/dev/ttyACM*") + glob.glob("/dev/ttyUSB*"))
+        candidates = []
+        if os.path.exists("/dev/h7_chassis"):
+            candidates.append("/dev/h7_chassis")
+        candidates.extend(
+            device
+            for device in sorted(glob.glob("/dev/ttyACM*") + glob.glob("/dev/ttyUSB*"))
+            if not self._is_servo_adapter_device(device)
+        )
+        candidates.extend(
+            device
+            for device in sorted(glob.glob("/dev/serial/by-id/*"))
+            if not self._is_servo_adapter_device(device)
+        )
+        return list(dict.fromkeys(candidates))
+
+    @classmethod
+    def _is_servo_adapter_device(cls, device):
+        """Keep both USB servo boards out of H7 USB CDC auto-discovery."""
+
+        device_text = str(device)
+        if (
+            "usb-1a86_USB_Single_Serial_" in device_text
+            or "usb-1a86_USB_Serial-" in device_text
+        ):
+            return True
+        real_device = os.path.realpath(device)
+        for pattern in cls.SERVO_ADAPTER_GLOBS:
+            for adapter in glob.glob(pattern):
+                if os.path.realpath(adapter) == real_device:
+                    return True
+        return False
 
     def _open(self):
         now = time.monotonic()
@@ -104,7 +145,13 @@ class ChassisArmLink:
                     print(self.status, flush=True)
                     self.last_open_failure_log = now
         if self.device_arg == "auto":
-            self.status = "CHASSIS LINK waiting for /dev/ttyACM* or /dev/ttyUSB*"
+            self.status = (
+                "CHASSIS LINK waiting for /dev/h7_chassis or an H7 USB CDC "
+                "device (Hiwonder/ZL servo boards excluded)"
+            )
+            if now - self.last_open_failure_log >= 10.0:
+                print(self.status, flush=True)
+                self.last_open_failure_log = now
         return False
 
     def _close_fd(self):
@@ -167,6 +214,13 @@ class ChassisArmLink:
 
     def _send_task_state(self, task, state, sequence=None, *details):
         return self.send_line(self._task_line(task, state, sequence, *details))
+
+    def _send_aux_state(self, state, sequence=None, *details):
+        parts = ["RK", "AUX_ZP", state]
+        if sequence is not None:
+            parts.extend(("SEQ", str(sequence)))
+        parts.extend(str(detail) for detail in details)
+        return self.send_line(",".join(parts))
 
     def _replay_last_outcome(self):
         if self.last_completed_task is None or self.last_completed_outcome is None:
@@ -291,6 +345,16 @@ class ChassisArmLink:
             if sequence is None:
                 self.send_line("RK,VISION,WHITE_LINE,ERR,REASON,BAD_SEQ")
                 return
+            phase = None
+            for index, item in enumerate(parts[:-1]):
+                if item == "PHASE":
+                    phase = parts[index + 1]
+                    break
+            if phase not in {"TASK1_AFTER_ARC", "TASK2_AFTER_SECONDARY_SHIFT"}:
+                self.send_line(
+                    "RK,VISION,WHITE_LINE,ERR,REASON,INVALID_PHASE"
+                )
+                return
             # H7 repeats queries until a fresh result arrives. Keep only the
             # newest request so a slow camera cannot build an obsolete queue.
             self.pending_white_line_queries[:] = [sequence]
@@ -340,6 +404,71 @@ class ChassisArmLink:
                 )
             else:
                 self._announce_ready()
+            return
+
+        if (
+            len(parts) >= 3
+            and parts[0] == "ARM"
+            and parts[1] == "PLATFORM_PICK"
+            and parts[2] == "PRESELECT"
+        ):
+            if not self.ready_to_run:
+                self._send_task_state(
+                    "PLATFORM_PICK", "BUSY", sequence, "REASON", "STARTUP"
+                )
+                return
+            if self.reset_pending or self.reset_in_progress:
+                self._send_task_state(
+                    "PLATFORM_PICK", "BUSY", sequence, "REASON", "RESET"
+                )
+                return
+            count = self._int_from_parts(parts, "COUNT")
+            requested = self._field_from_parts(parts[3:])
+            if count != 2:
+                self._send_task_state(
+                    "PLATFORM_PICK", "ERR", sequence, "REASON", "COUNT_MUST_BE_2"
+                )
+                return
+            if self.active_task is None:
+                if requested is not None:
+                    self._set_field_from_wire(requested, "ARM,PRESELECT")
+                now = time.monotonic()
+                self.active_task = "PLATFORM_PICK"
+                self.active_sequence = sequence
+                self.station_started = now
+                self.last_target_seen = now
+                self.pending_preselects.append(
+                    {"task": "PLATFORM_PICK", "sequence": sequence, "count": count}
+                )
+                self.status = (
+                    f"CHASSIS platform preselect seq={sequence or 'legacy'} "
+                    f"field={self.field_mode.wire_name} count={count}"
+                )
+                print(self.status, flush=True)
+            elif self.active_task != "PLATFORM_PICK" or not self._same_sequence(
+                sequence, self.active_sequence
+            ):
+                self._send_task_state(
+                    "PLATFORM_PICK",
+                    "BUSY",
+                    sequence,
+                    "ACTIVE",
+                    self.active_task,
+                    "ACTIVE_SEQ",
+                    self.active_sequence
+                    if self.active_sequence is not None
+                    else "LEGACY",
+                )
+                return
+            self._send_task_state(
+                "PLATFORM_PICK",
+                "PRESELECT_ACK",
+                self.active_sequence,
+                "FIELD",
+                self.field_mode.wire_name,
+                "COUNT",
+                2,
+            )
             return
 
         if len(parts) >= 3 and parts[0] == "ARM" and parts[2] == "STATUS":
@@ -398,9 +527,22 @@ class ChassisArmLink:
                 now = time.monotonic()
                 self.active_task = task
                 self.active_sequence = sequence
+                self.active_slot = (
+                    self._int_from_parts(parts[3:], "SLOT")
+                    if task == "PLATFORM_PICK"
+                    else None
+                )
                 self.station_started = now
                 self.last_target_seen = now
                 self.pending_starts.append(task)
+                if task == "PLATFORM_PICK":
+                    self.pending_platform_slots.append(
+                        {
+                            "task": task,
+                            "sequence": sequence,
+                            "slot": self._int_from_parts(parts[3:], "SLOT"),
+                        }
+                    )
                 self.status = (
                     f"CHASSIS station {task} seq={sequence or 'legacy'} "
                     f"active field={self.field_mode.wire_name}"
@@ -450,6 +592,49 @@ class ChassisArmLink:
                     "id2": self._int_from_parts(parts, "ID2"),
                 }
             )
+            return
+
+        if len(parts) >= 3 and parts[:3] == ["ARM", "AUX_ZP", "SET"]:
+            channel = self._int_from_parts(parts, "CHANNEL")
+            servo_id = self._int_from_parts(parts, "SERVO_ID")
+            pulse = self._int_from_parts(parts, "PULSE")
+            time_ms = self._int_from_parts(parts, "TIME")
+            requested = self._field_from_parts(parts[3:])
+            channel_valid = channel in {12, 23} and servo_id is None
+            servo_valid = channel is None and servo_id == 3
+            request_valid = (
+                (channel_valid or servo_valid)
+                and pulse is not None
+                and 500 <= pulse <= 2500
+                and time_ms is not None
+                and 0 <= time_ms <= 9999
+            )
+            if not request_valid:
+                self._send_aux_state(
+                    "ERR", sequence, "REASON", "BAD_REQUEST",
+                    "FIELD", self.field_mode.wire_name,
+                )
+                return
+            if requested is not None and self.active_task is None:
+                self.field_mode = requested
+            if sequence is not None and sequence == self.last_aux_sequence:
+                self._send_aux_state("ACK", sequence, "FIELD", self.field_mode.wire_name)
+                if self.last_aux_success:
+                    self._send_aux_state("DONE", sequence, "FIELD", self.field_mode.wire_name)
+                return
+            if sequence is None or not any(
+                item.get("sequence") == sequence for item in self.pending_aux_zp
+            ):
+                self.pending_aux_zp.append(
+                    {
+                        "sequence": sequence,
+                        "channel": channel,
+                        "servo_id": servo_id,
+                        "pulse": pulse,
+                        "time_ms": time_ms,
+                    }
+                )
+                self._send_aux_state("ACK", sequence, "FIELD", self.field_mode.wire_name)
             return
 
         if len(parts) >= 3 and parts[0] == "ARM" and parts[2] == "STOP":
@@ -536,6 +721,32 @@ class ChassisArmLink:
         self.pending_preps = []
         return preps
 
+    def consume_aux_zp(self):
+        requests = self.pending_aux_zp
+        self.pending_aux_zp = []
+        return requests
+
+    def complete_aux_zp(self, request, success, reason=""):
+        sequence = request.get("sequence")
+        self.last_aux_sequence = sequence
+        self.last_aux_success = bool(success)
+        if success:
+            return self._send_aux_state("DONE", sequence, "FIELD", self.field_mode.wire_name)
+        return self._send_aux_state(
+            "ERR", sequence, "REASON", reason or "AUX_WRITE_FAILED",
+            "FIELD", self.field_mode.wire_name,
+        )
+
+    def consume_preselects(self):
+        preselects = self.pending_preselects
+        self.pending_preselects = []
+        return preselects
+
+    def consume_platform_slots(self):
+        slots = self.pending_platform_slots
+        self.pending_platform_slots = []
+        return slots
+
     def complete_prep(self, prep, success, reason=""):
         task = prep.get("task", "DISC_CATCH")
         sequence = prep.get("sequence")
@@ -594,6 +805,9 @@ class ChassisArmLink:
         self.reset_in_progress = False
         self.pending_starts.clear()
         self.pending_preps.clear()
+        self.pending_aux_zp.clear()
+        self.pending_preselects.clear()
+        self.pending_platform_slots.clear()
         self.pending_stops.clear()
         self.pending_white_line_queries.clear()
         if not success:
@@ -605,6 +819,7 @@ class ChassisArmLink:
             return False
         self.active_task = None
         self.active_sequence = None
+        self.active_slot = None
         self.last_completed_task = None
         self.last_completed_sequence = None
         self.last_completed_outcome = None
@@ -646,7 +861,7 @@ class ChassisArmLink:
             return False
         return (now - self.last_target_seen) >= self.no_target_timeout_s
 
-    def _complete_active(self, outcome, reason):
+    def _complete_active(self, outcome, reason, *details):
         if self.active_task is None:
             return False
         task = self.active_task
@@ -659,6 +874,7 @@ class ChassisArmLink:
             reason,
             "FIELD",
             self.field_mode.wire_name,
+            *details,
         )
         self.status = (
             f"CHASSIS station {task} seq={sequence or 'legacy'} "
@@ -671,15 +887,54 @@ class ChassisArmLink:
         self.last_completed_sequence = sequence
         self.last_completed_outcome = outcome
         self.last_completed_reason = reason
+        self.last_completed_details = tuple(details)
         self.station_started = 0.0
         self.last_target_seen = 0.0
         return True
 
     def finish_active(self, reason):
+        if self.active_task == "PLATFORM_PICK" and self.active_slot is not None:
+            return self._complete_active(
+                "DONE",
+                reason,
+                "SLOT",
+                self.active_slot,
+            )
         return self._complete_active("DONE", reason)
+
+    def finish_preselect(self, letters):
+        selected = tuple(sorted(set(str(letter).upper() for letter in letters)))
+        if len(selected) != 2 or self.active_task != "PLATFORM_PICK":
+            return False
+        return self._complete_active(
+            "PRESELECT_DONE",
+            "SELECTED",
+            "COUNT",
+            2,
+            "LETTER1",
+            selected[0],
+            "LETTER2",
+            selected[1],
+        )
 
     def fail_active(self, reason):
         return self._complete_active("ERR", reason)
+
+    def recover_active(self, reason):
+        """Complete a task-one error only after RK has returned the arm home.
+
+        H7 may continue the route after this response because the arm state is
+        explicit. A home failure remains an ERR and is handled as a hard stop.
+        """
+        if self.active_task != "DISC_CATCH":
+            return False
+        safe_reason = str(reason or "RECOVERED_ERROR").replace(",", "_")
+        return self._complete_active(
+            "DONE",
+            f"RECOVERED_{safe_reason}",
+            "ARM_HOME",
+            "OK",
+        )
 
     def close(self):
         self._close_fd()

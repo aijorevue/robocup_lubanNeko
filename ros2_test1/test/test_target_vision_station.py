@@ -55,8 +55,8 @@ def make_controller(bridge=None, field_mode=target_vision.FieldMode.RED):
         preview,
         550,
         300,
-        1120,
-        1700,
+        1300,
+        1710,
         35,
         3,
         0.2,
@@ -68,7 +68,7 @@ def make_controller(bridge=None, field_mode=target_vision.FieldMode.RED):
         0.0,
         50.0,
         0.0,
-        10.0,
+        5.0,
         24,
         target_vision.ID1_SAFE_LIMITS,
         target_vision.ID2_SAFE_LIMITS,
@@ -89,7 +89,7 @@ def make_controller(bridge=None, field_mode=target_vision.FieldMode.RED):
 
 
 class ChassisStationSafetyTests(unittest.TestCase):
-    def test_direct_bridge_executes_each_multi_servo_target_immediately(self):
+    def test_mixed_bridge_routes_85kg_targets_to_htd85_binary(self):
         bridge = target_vision.DirectBusServoBridge(
             "/dev/missing", 115200, enabled=False, write_enabled=False
         )
@@ -99,28 +99,32 @@ class ChassisStationSafetyTests(unittest.TestCase):
         bridge.zp_fd = 11
         writes = []
         bridge._write_payload = lambda fd, payload, repeat=None: writes.append((fd, payload))
-
-        bridge.send_targets(id1=500, id2=600, id6=570)
+        bridge.send_targets(id1=600, id2=500, id6=670)
 
         self.assertTrue(bridge.last_command_ok)
-        self.assertEqual(len(writes), 3)
-        self.assertTrue(
-            all(
-                packet[1][4] == target_vision.DIRECT_CMD_MOVE_TIME_WRITE
-                for packet in writes
-            )
+        self.assertEqual(
+            [
+                (10, target_vision.htd85_move_packet(1, 600, bridge.arm_time_ms)),
+                (10, target_vision.htd85_move_packet(2, 500, bridge.arm_time_ms)),
+                (10, target_vision.htd85_move_packet(6, 670, bridge.arm_time_ms)),
+            ],
+            writes,
         )
 
-    def test_disc_prep_high_keeps_id6_at_570_and_is_idempotent(self):
+    def test_disc_prep_high_keeps_id6_at_670_and_is_idempotent(self):
         controller, bridge, _ = make_controller()
-        prep = {"task": "DISC_CATCH", "id1": 500, "id2": 600}
-        with mock.patch.object(target_vision.time, "sleep"):
+        prep = {"task": "DISC_CATCH", "id1": 600, "id2": 600}
+        with mock.patch.object(target_vision.time, "sleep") as sleep_mock:
             controller.prepare_chassis_station_high(prep)
             first_command_count = len(bridge.sent)
             controller.prepare_chassis_station_high(prep)
 
-        self.assertEqual(controller.id6, 570)
-        self.assertEqual(bridge.sent[-1]["id6"], 570)
+        self.assertEqual(controller.id6, 670)
+        self.assertEqual(bridge.sent[-2]["id1"], 600)
+        self.assertEqual(bridge.sent[-2]["id6"], 670)
+        self.assertNotIn("id2", bridge.sent[-2])
+        self.assertEqual(bridge.sent[-1], {"id2": 600})
+        sleep_mock.assert_called_once_with(target_vision.ARM_JOINT_SEQUENCE_DELAY_S)
         self.assertEqual(len(bridge.sent), first_command_count)
 
     def test_chassis_ready_requires_writable_servo_link(self):
@@ -171,11 +175,15 @@ class ChassisStationSafetyTests(unittest.TestCase):
             controller.update_chassis_station(
                 "DISC_CATCH", [], (600, 800, 3), detection_fresh=False
             )
-            clock[0] = 110.36
+            clock[0] = 100.5
             controller.update_chassis_station(
                 "DISC_CATCH", [], (600, 800, 3), detection_fresh=False
             )
-            clock[0] = 120.5
+            clock[0] = 100.8
+            controller.update_chassis_station(
+                "DISC_CATCH", [], (600, 800, 3), detection_fresh=False
+            )
+            clock[0] = 111.0
             controller.update_chassis_station(
                 "DISC_CATCH", [], (600, 800, 3), detection_fresh=False
             )
@@ -183,11 +191,15 @@ class ChassisStationSafetyTests(unittest.TestCase):
         self.assertIsNone(controller.active_chassis_station)
         self.assertEqual(
             controller.consume_chassis_station_done(),
-            "NO_RED_OR_YELLOW_BALL_10.0S",
+            "NO_RED_OR_YELLOW_BALL_5.0S",
         )
+        self.assertEqual(bridge.sent[-2]["id2"], target_vision.HOME_ID2_TICK)
         self.assertEqual(bridge.sent[-1]["id1"], target_vision.HOME_ID1_TICK)
-        self.assertEqual(bridge.sent[-1]["id2"], target_vision.HOME_ID2_TICK)
-        self.assertEqual(bridge.sent[-1]["id5"], target_vision.CATCHER_HOME_TICK)
+        self.assertNotIn("id2", bridge.sent[-1])
+        self.assertEqual(
+            bridge.sent[-1]["id5"],
+            target_vision.DISC_CATCH_CATCHER_READY_TICK,
+        )
 
 
     def test_disc_red_field_rejects_blue_ball(self):
@@ -204,6 +216,69 @@ class ChassisStationSafetyTests(unittest.TestCase):
 
         self.assertIsNone(controller._disc_catch_ball_visible([red_ball]))
         self.assertIs(controller._disc_catch_ball_visible([blue_ball]), blue_ball)
+
+    def test_disc_close_completion_immediately_rearms_same_color(self):
+        controller, bridge, _ = make_controller(field_mode=target_vision.FieldMode.RED)
+        red_ball = {
+            "kind": "ball",
+            "color": "red",
+            "center": (320, 240),
+            "area_percent": 1.0,
+        }
+        controller.active_chassis_station = "DISC_CATCH"
+        controller.chassis_station_stage = "disc_close_wait"
+        controller.chassis_station_deadline = 100.0
+        controller.chassis_station_no_target_deadline = 110.0
+        controller.disc_pulse_done = True
+        controller.disc_last_pulsed_color = "red"
+
+        clock = [100.0]
+        with mock.patch.object(target_vision.time, "monotonic", lambda: clock[0]):
+            result = controller.update_chassis_station(
+                "DISC_CATCH", [red_ball], (600, 800, 3), detection_fresh=True
+            )
+            self.assertIn("ready for next target frame", result)
+            self.assertFalse(controller.disc_pulse_done)
+            self.assertIsNone(controller.disc_last_pulsed_color)
+            self.assertEqual(controller.chassis_station_stage, "disc_detect")
+
+            clock[0] = 100.01
+            controller.update_chassis_station(
+                "DISC_CATCH", [red_ball], (600, 800, 3), detection_fresh=True
+            )
+
+        self.assertEqual(controller.chassis_station_stage, "disc_open_wait")
+        self.assertEqual(
+            bridge.sent[-1]["splitter_id4"],
+            target_vision.DISC_CATCH_SPLITTER_FIELD_TICK,
+        )
+        self.assertEqual(bridge.sent[-1]["id4"], controller.id7_open)
+
+    def test_disc_station_starts_with_app_low_pose(self):
+        controller, bridge, _ = make_controller()
+        controller.id1 = target_vision.DISC_CATCH_PREP_ID1_TICK
+        controller.id2 = target_vision.DISC_CATCH_PREP_ID2_TICK
+        controller.id6 = target_vision.DISC_CATCH_ID6_TICK
+        with mock.patch.object(target_vision.time, "monotonic", return_value=100.0), mock.patch.object(
+            target_vision.time, "sleep"
+        ) as sleep_mock:
+            controller.begin_chassis_station("DISC_CATCH")
+
+        self.assertEqual(controller.chassis_station_stage, "disc_app_low_settle")
+        self.assertEqual(controller.id1, target_vision.DISC_CATCH_READY_ID1_TICK)
+        self.assertEqual(controller.id2, target_vision.DISC_CATCH_READY_ID2_TICK)
+        self.assertEqual(controller.id6, target_vision.DISC_CATCH_ID6_TICK)
+        self.assertEqual(controller.id5, target_vision.DISC_CATCH_CATCHER_READY_TICK)
+        self.assertEqual(controller.splitter_id4, target_vision.DISC_CATCH_SPLITTER_READY_TICK)
+        self.assertEqual(bridge.sent[-2]["id2"], 550)
+        self.assertNotIn("id1", bridge.sent[-2])
+        self.assertEqual(bridge.sent[-2]["id4"], 1300)
+        self.assertEqual(bridge.sent[-2]["id5"], 1110)
+        self.assertEqual(bridge.sent[-2]["splitter_id4"], 1300)
+        self.assertEqual(bridge.sent[-1]["id1"], 460)
+        self.assertEqual(bridge.sent[-1]["id6"], 670)
+        self.assertNotIn("id2", bridge.sent[-1])
+        sleep_mock.assert_called_once_with(target_vision.ARM_JOINT_SEQUENCE_DELAY_S)
 
     def test_control_fault_attempts_home_before_reporting_error(self):
         controller, bridge, _ = make_controller()
@@ -253,7 +328,7 @@ class ChassisStationSafetyTests(unittest.TestCase):
             "STOPPED_BY_CHASSIS",
         )
         self.assertIsNone(controller.active_chassis_station)
-        self.assertEqual(bridge.sent[-1]["id4"], 1120)
+        self.assertEqual(bridge.sent[-1]["id4"], 1300)
         self.assertEqual(bridge.sent[-1]["splitter_id4"], target_vision.SPLITTER_YELLOW_TICK)
 
 

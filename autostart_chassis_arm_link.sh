@@ -9,7 +9,11 @@ echo "==== $(date '+%F %T') autostart chassis arm link ===="
 export RED_SQUARE_EXECUTE="${RED_SQUARE_EXECUTE:-true}"
 export VISION_TARGET_COLOR="${VISION_TARGET_COLOR:-red}"
 export VISION_TARGET_KIND="${VISION_TARGET_KIND:-any}"
-export CAMERA_DEVICE="${CAMERA_DEVICE:-/dev/video20}"
+# Main camera: the arm-mounted USB camera. Keep this as a stable V4L2 by-path
+# path so adding the future secondary camera cannot renumber the main camera.
+export CAMERA_DEVICE="${CAMERA_DEVICE:-/dev/v4l/by-path/platform-fc800000.usb-usb-0:1:1.0-video-index0}"
+# The secondary camera is used only for task-two letter preselection.
+export SECONDARY_CAMERA_DEVICE="${SECONDARY_CAMERA_DEVICE:-/dev/v4l/by-path/platform-fc880000.usb-usb-0:1.3:1.0-video-index0}"
 
 BOOT_DELAY_S="${CHASSIS_ARM_BOOT_DELAY_S:-0}"
 echo "boot delay ${BOOT_DELAY_S}s; camera=$CAMERA_DEVICE"

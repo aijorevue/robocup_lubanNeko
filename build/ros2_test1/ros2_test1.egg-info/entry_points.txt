@@ -1,2 +1,0 @@
-[console_scripts]
-target_vision = ros2_test1.target_vision:main

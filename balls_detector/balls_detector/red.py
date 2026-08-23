@@ -3,16 +3,16 @@ from .common import build_mask, detect_color_balls
 
 COLOR_NAME = "red"
 COLOR_RANGES = [
-    ((0, 80, 80), (10, 255, 255)),
-    ((160, 80, 80), (180, 255, 255)),
+    ((0, 80, 70), (10, 255, 255)),
+    ((165, 80, 70), (180, 255, 255)),
 ]
-MASK_SETTINGS = {"kernel_size": 5, "close_iterations": 2}
+MASK_SETTINGS = {"kernel_size": 3, "close_iterations": 1}
 BALL_SETTINGS = {
-    "min_area": 180,
+    "min_area": 900,
     "min_circularity": 0.68,
     "min_radius": 8,
-    "min_fill": 0.64,
-    "min_center_fill": 0.52,
+    "min_fill": 0.58,
+    "min_center_fill": 0.45,
 }
 DRAW_COLOR = (0, 0, 255)
 

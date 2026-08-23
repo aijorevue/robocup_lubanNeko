@@ -9,9 +9,6 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 import math
 
-import numpy as np
-
-
 JOINT_NAMES = [
     "servo_base_yaw",
     "servo_blue",
@@ -134,98 +131,6 @@ class ArmKinematicsModel:
         )
         return x_mm, z_mm
 
-    def solve_gripper_position(
-        self,
-        target_x_mm,
-        target_z_mm,
-        seed_id1,
-        seed_id2,
-        id1_limits=None,
-        id2_limits=None,
-        minimum_gap_degrees=None,
-    ):
-        if id1_limits is None:
-            id1_limits = self.profile.ID1_SAFE_LIMITS
-        if id2_limits is None:
-            id2_limits = self.profile.ID2_SAFE_LIMITS
-        if minimum_gap_degrees is None:
-            minimum_gap_degrees = self.profile.MIN_ANGLE_GAP_DEG
-
-        coarse_id1 = np.arange(id1_limits[0], id1_limits[1] + 1, 4, dtype=float)
-        coarse_id2 = np.arange(id2_limits[0], id2_limits[1] + 1, 4, dtype=float)
-        grid_id1, grid_id2 = np.meshgrid(coarse_id1, coarse_id2, indexing="ij")
-        best = self._best_grid_target(
-            grid_id1,
-            grid_id2,
-            target_x_mm,
-            target_z_mm,
-            seed_id1,
-            seed_id2,
-            minimum_gap_degrees,
-        )
-
-        refine_id1 = np.arange(
-            max(id1_limits[0], best[0] - 5),
-            min(id1_limits[1], best[0] + 5) + 1,
-            dtype=float,
-        )
-        refine_id2 = np.arange(
-            max(id2_limits[0], best[1] - 5),
-            min(id2_limits[1], best[1] + 5) + 1,
-            dtype=float,
-        )
-        grid_id1, grid_id2 = np.meshgrid(refine_id1, refine_id2, indexing="ij")
-        return self._best_grid_target(
-            grid_id1,
-            grid_id2,
-            target_x_mm,
-            target_z_mm,
-            seed_id1,
-            seed_id2,
-            minimum_gap_degrees,
-        )
-
-    def _best_grid_target(
-        self,
-        grid_id1,
-        grid_id2,
-        target_x_mm,
-        target_z_mm,
-        seed_id1,
-        seed_id2,
-        minimum_gap_degrees,
-    ):
-        orange = np.deg2rad(self.id1_degrees(grid_id1))
-        blue = np.deg2rad(self.id2_degrees(grid_id2))
-        x_mm = (
-            self.profile.BLUE_ACTIVE_LENGTH_MM * np.cos(blue)
-            - self.profile.ORANGE_EXTENSION_LENGTH_MM * np.cos(orange)
-            + self.profile.LEVEL_TIP_LENGTH_MM
-        )
-        z_mm = (
-            self.profile.BASE_HEIGHT_MM
-            + self.profile.BLUE_ACTIVE_LENGTH_MM * np.sin(blue)
-            - self.profile.ORANGE_EXTENSION_LENGTH_MM * np.sin(orange)
-        )
-        gap = np.abs(self.id1_degrees(grid_id1) - self.id2_degrees(grid_id2))
-        position_error = np.square(x_mm - target_x_mm) + np.square(
-            z_mm - target_z_mm
-        )
-        seed_cost = 0.002 * (
-            np.square(grid_id1 - seed_id1) + np.square(grid_id2 - seed_id2)
-        )
-        if minimum_gap_degrees <= 0.0:
-            cost = position_error + seed_cost
-        else:
-            cost = np.where(
-                gap > minimum_gap_degrees, position_error + seed_cost, np.inf
-            )
-        index = np.unravel_index(np.argmin(cost), cost.shape)
-        id1_tick = int(grid_id1[index])
-        id2_tick = int(grid_id2[index])
-        error_mm = math.sqrt(float(position_error[index]))
-        return id1_tick, id2_tick, error_mm
-
     def joint_positions(self, id1_tick, id2_tick, id4_tick, id6_tick=None):
         if id6_tick is None:
             id6_tick = self.profile.BASE_YAW_CENTER_TICK
@@ -270,7 +175,6 @@ def build_exports(profile: ArmKinematicsProfile):
             "has_safe_angle_gap": model.has_safe_angle_gap,
             "enforce_angle_gap": model.enforce_angle_gap,
             "gripper_position_mm": model.gripper_position_mm,
-            "solve_gripper_position": model.solve_gripper_position,
             "joint_positions": model.joint_positions,
         }
     )

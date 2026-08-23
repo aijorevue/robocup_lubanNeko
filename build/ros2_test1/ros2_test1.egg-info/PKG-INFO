@@ -1,7 +1,0 @@
-Metadata-Version: 2.1
-Name: ros2-test1
-Version: 0.1.0
-Summary: RoboCup ball, ring, and A/B/C/D letter target vision and arm control
-Maintainer: cat
-Maintainer-email: cat@lubancat
-License: Apache-2.0

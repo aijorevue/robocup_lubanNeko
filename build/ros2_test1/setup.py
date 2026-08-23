@@ -1,1 +1,0 @@
-/home/aijokaren/Desktop/rk3588s/ros2_test1/setup.py

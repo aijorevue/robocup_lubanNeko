@@ -1,1 +1,0 @@
-/home/cat/ros2_ws/src/stm32_bridge/launch/bridge.launch.py

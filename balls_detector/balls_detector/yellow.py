@@ -5,7 +5,7 @@ COLOR_NAME = "yellow"
 COLOR_RANGES = [((15, 55, 55), (42, 255, 255))]
 MASK_SETTINGS = {"kernel_size": 3, "close_iterations": 1}
 BALL_SETTINGS = {
-    "min_area": 120,
+    "min_area": 900,
     "min_circularity": 0.58,
     "min_radius": 7,
     "min_fill": 0.50,

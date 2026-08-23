@@ -1,0 +1,21 @@
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# ROS 2 generated outputs
+build/
+install/
+log/
+logs/
+
+# Runtime logs and transient control files
+*.log
+*.nohup
+arm_tune_command.txt
+arm_tune_result.txt
+
+# Local snapshots and generated backups
+saved_versions/
+backups/
+restore_backup_*/

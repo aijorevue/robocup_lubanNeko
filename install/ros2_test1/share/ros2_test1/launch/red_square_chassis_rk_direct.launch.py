@@ -1,1 +1,0 @@
-/home/aijokaren/Desktop/rk3588s/build/ros2_test1/launch/red_square_chassis_rk_direct.launch.py

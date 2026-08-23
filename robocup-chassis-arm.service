@@ -1,0 +1,19 @@
+[Unit]
+Description=RoboCup RK chassis arm link
+After=graphical-session.target
+
+[Service]
+Type=simple
+Environment=VISION_PROFILE=chassis
+Environment=SERVO_MODE=rk
+Environment=RED_SQUARE_EXECUTE=true
+Environment=VISION_TARGET_KIND=any
+ExecStart=/home/cat/ros2_ws/start_chassis_arm_link.sh
+Restart=always
+RestartSec=3
+WorkingDirectory=/home/cat/ros2_ws
+StandardOutput=append:/home/cat/ros2_ws/chassis_arm_link_autostart.log
+StandardError=append:/home/cat/ros2_ws/chassis_arm_link_autostart.log
+
+[Install]
+WantedBy=default.target

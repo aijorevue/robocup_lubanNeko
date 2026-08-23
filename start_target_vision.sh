@@ -23,11 +23,11 @@ case "$REQUESTED_MODE" in
         ;;
     esac
     export DIRECT_SERVO_BUS=1
-    export DIRECT_ZP_UART="${DIRECT_ZP_UART:-/dev/ttyS0}"
-    export DIRECT_ARM_UART="${DIRECT_ARM_UART:-/dev/ttyS9}"
-    export DIRECT_ZP_TIME_MS="${DIRECT_ZP_TIME_MS:-350}"
+    export DIRECT_ZP_UART="${DIRECT_ZP_UART:-/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0}"
+    export DIRECT_ARM_UART="${DIRECT_ARM_UART:-/dev/serial/by-id/usb-1a86_USB_Single_Serial_5C82109853-if00}"
+    export DIRECT_ZP_TIME_MS="${DIRECT_ZP_TIME_MS:-300}"
     export DIRECT_ARM_TIME_MS="${DIRECT_ARM_TIME_MS:-600}"
-    export DIRECT_SPLITTER_TIME_MS="${DIRECT_SPLITTER_TIME_MS:-250}"
+    export DIRECT_SPLITTER_TIME_MS="${DIRECT_SPLITTER_TIME_MS:-500}"
 if [ -n "${RED_SQUARE_EXECUTE:-}" ] && [ -z "${ABCD_EXECUTE:-}" ]; then
   ABCD_EXECUTE="$RED_SQUARE_EXECUTE"
 fi
@@ -45,10 +45,12 @@ esac
 LOCK=/tmp/robocup_target_vision.lock
 exec 9>"$LOCK"
 if ! flock -n 9; then
-  msg="target vision is already running; requested profile=$PROFILE; log: $LOG"
+  msg="target vision is already running; waiting for the owner; profile=$PROFILE"
   echo "$msg"
   echo "==== $(date '+%F %T') $msg ====" >>"$LOG"
-  exit 0
+  while ! flock -n 9; do
+    sleep 2
+  done
 fi
 
 exec >>"$LOG" 2>&1
@@ -57,7 +59,10 @@ echo "==== $(date '+%F %T') start target vision mode=$MODE profile=$PROFILE laun
 export DISPLAY="${DISPLAY:-:0}"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=${XDG_RUNTIME_DIR}/bus}"
-export CAMERA_DEVICE="${CAMERA_DEVICE:-/dev/video20}"
+# Main camera is the camera currently mounted for the robot's main view.
+# Keep both physical paths stable across USB enumeration changes.
+export CAMERA_DEVICE="${CAMERA_DEVICE:-/dev/v4l/by-path/platform-fc800000.usb-usb-0:1:1.0-video-index0}"
+export SECONDARY_CAMERA_DEVICE="${SECONDARY_CAMERA_DEVICE:-/dev/v4l/by-path/platform-fc880000.usb-usb-0:1.3:1.0-video-index0}"
 export PYTHONUNBUFFERED=1
 
 wait_for_device() {
@@ -73,7 +78,7 @@ if [ "$MODE" = "rk" ] && [ "$PROFILE" = "chassis" ]; then
   wait_for_device "$DIRECT_ZP_UART"
 fi
 
-echo "camera=$CAMERA_DEVICE display=$DISPLAY"
+echo "camera=$CAMERA_DEVICE secondary_camera=$SECONDARY_CAMERA_DEVICE display=$DISPLAY"
 echo "rk direct ports: arm85=$DIRECT_ARM_UART zp=$DIRECT_ZP_UART arm_time_ms=$DIRECT_ARM_TIME_MS zp_time_ms=$DIRECT_ZP_TIME_MS"
 echo "target color=$VISION_TARGET_COLOR kind=$VISION_TARGET_KIND letters=$VISION_TARGET_LETTERS execute=$ABCD_EXECUTE"
 
@@ -89,7 +94,7 @@ export AMENT_PREFIX_PATH="/home/cat/ros2_ws/install/ros2_test1:${AMENT_PREFIX_PA
 export CMAKE_PREFIX_PATH="/home/cat/ros2_ws/install/ros2_test1:${CMAKE_PREFIX_PATH:-}"
 cd /home/cat/ros2_ws
 
-pkill -u "$(id -un)" -f "ros2_test1.target_vision|/ros2_test1/target_vision" 2>/dev/null || true
+pkill -u "$(id -un)" -f "ros2_test1.[t]arget_vision|/ros2_test1/[t]arget_vision" 2>/dev/null || true
 pkill -INT -u "$(id -un)" -f "[t]arget_vision.*--enable-letter-grasp" 2>/dev/null || true
 pkill -INT -u "$(id -un)" -f "/home/cat/bin/[s]ervo_slider_gui" 2>/dev/null || true
 pkill -u "$(id -un)" -f "[r]ed_square_grasp_rk_direct.launch.py|[r]ed_square_chassis_rk_direct.launch.py" 2>/dev/null || true
@@ -97,4 +102,10 @@ pkill -u "$(id -un)" -f "/rviz2/rviz2.*arm_5.rviz" 2>/dev/null || true
 pkill -u "$(id -un)" -f "/robot_state_publisher/[r]obot_state_publisher" 2>/dev/null || true
 sleep 1
 
-exec ros2 launch ros2_test1 "$LAUNCH_FILE" execute:="$ABCD_EXECUTE" target_color:="$VISION_TARGET_COLOR" target_kind:="$VISION_TARGET_KIND" target_letters:="$VISION_TARGET_LETTERS"
+exec ros2 launch ros2_test1 "$LAUNCH_FILE" \
+  execute:="$ABCD_EXECUTE" \
+  camera_device:="$CAMERA_DEVICE" \
+  secondary_camera_device:="$SECONDARY_CAMERA_DEVICE" \
+  target_color:="$VISION_TARGET_COLOR" \
+  target_kind:="$VISION_TARGET_KIND" \
+  target_letters:="$VISION_TARGET_LETTERS"

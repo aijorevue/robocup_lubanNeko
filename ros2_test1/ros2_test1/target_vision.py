@@ -52,7 +52,11 @@ from .arm_kinematics import (
     id2_degrees,
     id2_tick_from_degrees,
     joint_positions,
-    solve_gripper_position,
+)
+from .grasp_calibration import (
+    GRASP_MAX_DISTANCE_CM,
+    GRASP_MIN_DISTANCE_CM,
+    calibrated_grasp_ticks,
 )
 from .chassis_link import ChassisArmLink
 from balls_detector import (
@@ -78,19 +82,7 @@ BALL_DISTANCE_SCALE_CM = 31.628878020276648
 GOLF_BALL_DIAMETER_MM = 42.67
 LETTER_CUBE_SIDE_MM = 30.0
 RED_RING_OUTER_DIAMETER_MM = 55.0
-RING_DISTANCE_EXTRA_CM = 6.0
-RING_DESCEND_BIAS_MM = 60.0
-GRASP_DESCEND_DEPTH_TABLE_CM_MM = (
-    (10.0, 105.0),
-    (20.0, 128.0),
-    (24.0, 153.0),
-    (25.0, 190.0),
-    (29.0, 235.0),
-    (30.0, 251.0),
-    (40.0, 251.0),
-)
-GRASP_ID1_CALIBRATION_TICKS = -5
-GRASP_DESCEND_ID2_BIAS_TICKS = 15
+RING_DISTANCE_EXTRA_CM = 0.5
 POST_CENTER_REFERENCE_DISTANCE_MM = 235.0
 POST_CENTER_MIN_DOWN_MM = 105.0
 POST_CENTER_MAX_DOWN_MM = 210.0
@@ -106,22 +98,27 @@ CENTERING_SLOW_ID6_GAIN = 0.045
 CENTERING_SLOW_ID2_MAX_STEP_TICKS = 12
 CENTERING_SLOW_ID6_MAX_STEP_TICKS = 6
 CENTERING_VECTOR_COMPONENT_DEADBAND_PX = 5.0
-SPLITTER_YELLOW_TICK = 1120
+SPLITTER_YELLOW_TICK = 1300
 SPLITTER_OTHER_BALL_TICK = 1600
-CATCHER_HOME_TICK = 800
+CATCHER_HOME_TICK = 900
 CATCHER_RELEASE_READY_TICK = 1100
 POST_GRAB_ID2_RETREAT_TICK = 100
-DISC_CATCH_PREP_ID1_TICK = 500
+DISC_CATCH_PREP_ID1_TICK = 600
 DISC_CATCH_PREP_ID2_TICK = 600
-DISC_CATCH_READY_ID1_TICK = 420
-DISC_CATCH_READY_ID2_TICK = 520
-DISC_CATCH_ID6_TICK = 570
-DISC_CATCH_CATCHER_READY_TICK = 1200
-DISC_CATCH_SPLITTER_READY_TICK = 1200
+DISC_CATCH_READY_ID1_TICK = 460
+DISC_CATCH_READY_ID2_TICK = 550
+DISC_CATCH_ID6_TICK = 640
+DISC_CATCH_CATCHER_READY_TICK = 1110
+DISC_CATCH_SPLITTER_READY_TICK = 1300
 DISC_CATCH_DESCEND_ID1_TICK = 520
-DISC_CATCH_TARGET_TIMEOUT_S = 10.0
-DISC_CATCH_SPLITTER_FIELD_TICK = 800
-DISC_CATCH_SPLITTER_YELLOW_TICK = 1500
+DISC_CATCH_TARGET_TIMEOUT_S = 5.0
+DISC_CATCH_SPLITTER_FIELD_TICK = 1100
+DISC_CATCH_SPLITTER_YELLOW_TICK = 1600
+DISC_CATCH_SPLITTER_RESET_TICK = 1300
+DISC_CATCH_YELLOW_COOLDOWN_S = 0.5
+DISC_CATCH_OPEN_HOLD_MARGIN_S = 0.1
+DISC_CATCH_CLOSE_CONFIRM_DELAY_S = 0.05
+ARM_JOINT_SEQUENCE_DELAY_S = 0.2
 ARM_TUNE_COMMAND_PATH = Path("/home/cat/ros2_ws/arm_tune_command.txt")
 ARM_TUNE_RESULT_PATH = Path("/home/cat/ros2_ws/arm_tune_result.txt")
 ARM_TUNE_POLL_INTERVAL_S = 0.10
@@ -136,15 +133,8 @@ ARM_TUNE_ZP_LIMITS = {
     7: (500, 2500),
 }
 COLUMN_CATCH_READY_ID1_TICK = 600
-COLUMN_CATCH_READY_ID2_TICK = 350
-COLUMN_CATCH_SPLITTER_TICK = 800
-GRASP_DISTANCE_CALIBRATION = (
-    (10.0, (551, 460), (470, 461)),
-    (15.0, (551, 460), (413, 466)),
-    (30.0, (551, 460), (242, 481)),
-)
-GRASP_MIN_DISTANCE_CM = 10.0
-GRASP_MAX_DISTANCE_CM = 40.0
+COLUMN_CATCH_READY_ID2_TICK = 600
+COLUMN_CATCH_SPLITTER_TICK = 1300
 RING_DISTANCE_OFFSET_CM = BALL_DISTANCE_OFFSET_CM + RING_DISTANCE_EXTRA_CM
 RING_DISTANCE_SCALE_CM = (
     BALL_DISTANCE_SCALE_CM
@@ -156,32 +146,38 @@ POSITION_REPORT_RE = re.compile(
     r"ID1=(-?\d+)\s+ID2=(-?\d+)(?:\s+ID6=(-?\d+|ERR))?"
 )
 ARM_READY_REPORT_RE = re.compile(r"OK\s+ARMREADY\s+ID1=(-?\d+)\s+ID2=(-?\d+)")
-DIRECT_85KG_IDS = {1, 2, 6}
-DIRECT_ZP_IDS = {4, 5, 7}
-DIRECT_CMD_MOVE_TIME_WRITE = 0x01
+HTD85_MOVE_COMMAND = 0x01
+HTD85_POSITION_READ_COMMAND = 0x1C
+HTD85_FRAME_HEADER = b"\x55\x55"
+HTD85_MIN_POSITION = 0
+HTD85_MAX_POSITION = 1000
 
 
-def direct_servo_checksum(body):
-    return (~(sum(body) & 0xFF)) & 0xFF
+def htd85_checksum(body):
+    return (~sum(body)) & 0xFF
 
 
-def direct_servo_packet(servo_id, command, params=b""):
-    body = bytes([servo_id, len(params) + 3, command]) + bytes(params)
-    return b"\x55\x55" + body + bytes([direct_servo_checksum(body)])
-
-
-def direct_85kg_move_packet(servo_id, position, time_ms):
-    position = max(0, min(1000, int(position)))
+def htd85_move_packet(servo_id, position, time_ms):
+    servo_id = int(servo_id)
+    position = max(HTD85_MIN_POSITION, min(HTD85_MAX_POSITION, int(position)))
     time_ms = max(0, min(30000, int(time_ms)))
-    params = bytes(
-        [
+    body = bytes(
+        (
+            servo_id,
+            7,
+            HTD85_MOVE_COMMAND,
             position & 0xFF,
             (position >> 8) & 0xFF,
             time_ms & 0xFF,
             (time_ms >> 8) & 0xFF,
-        ]
+        )
     )
-    return direct_servo_packet(servo_id, DIRECT_CMD_MOVE_TIME_WRITE, params)
+    return HTD85_FRAME_HEADER + body + bytes((htd85_checksum(body),))
+
+
+def htd85_position_read_packet(servo_id):
+    body = bytes((int(servo_id), 3, HTD85_POSITION_READ_COMMAND))
+    return HTD85_FRAME_HEADER + body + bytes((htd85_checksum(body),))
 
 
 def direct_zp_move_packet(servo_id, position, time_ms):
@@ -190,35 +186,81 @@ def direct_zp_move_packet(servo_id, position, time_ms):
     return f"#{servo_id:03d}P{position:04d}T{time_ms:04d}!".encode("ascii")
 
 
+ZP_GROUP_NAME = "G0000"
+
+# Fixed SG90 outputs on the ZL 24-channel board.  These channels are shared
+# with the formal route but are not task-arm joints, so every route keeps them
+# at the configured pulses instead of allowing an auxiliary request to drift.
+AUX_ZP_HOLD_TARGETS = ((12, 600, 800), (23, 1000, 800))
+
+
+def direct_zp_group_packet(targets):
+    """Build the multi-servo frame used by the standalone ball app."""
+
+    commands = "".join(
+        direct_zp_move_packet(servo_id, position, time_ms).decode("ascii")
+        for servo_id, position, time_ms in targets
+    )
+    return f"{{{ZP_GROUP_NAME}{commands}}}".encode("ascii")
+
+
+def htd85_read_position(fd, servo_id, timeout_s=0.25):
+    termios_timeout = max(0.0, float(timeout_s))
+    try:
+        os.write(fd, htd85_position_read_packet(servo_id))
+    except OSError:
+        return None
+    deadline = time.monotonic() + termios_timeout
+    received = bytearray()
+
+    while time.monotonic() < deadline:
+        remaining = max(0.0, deadline - time.monotonic())
+        readable, _, _ = select.select([fd], [], [], remaining)
+        if not readable:
+            break
+        try:
+            chunk = os.read(fd, 64)
+        except BlockingIOError:
+            continue
+        if not chunk:
+            continue
+        received.extend(chunk)
+
+        while True:
+            header = received.find(HTD85_FRAME_HEADER)
+            if header < 0:
+                received.clear()
+                break
+            if header:
+                del received[:header]
+            if len(received) < 4:
+                break
+            frame_size = int(received[3]) + 3
+            if frame_size < 6 or frame_size > 64:
+                del received[0]
+                continue
+            if len(received) < frame_size:
+                break
+            frame = bytes(received[:frame_size])
+            del received[:frame_size]
+            body = frame[2:-1]
+            if (
+                frame[2] == int(servo_id)
+                and frame[4] == HTD85_POSITION_READ_COMMAND
+                and frame[-1] == htd85_checksum(body)
+            ):
+                if len(frame) >= 7:
+                    return frame[5] | (frame[6] << 8)
+
+    return None
+
+
 def load_last_id4_target(default):
     try:
         state = json.loads((Path.home() / ".servo_zp_state.json").read_text())
         return max(500, min(2500, int(state.get("zp4_target", default))))
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         return int(default)
-
-
-def calibrated_grasp_ticks(distance_cm, phase):
-    target_index = 1 if phase == "overhead" else 2
-    distance_cm = float(distance_cm)
-    if distance_cm <= GRASP_DISTANCE_CALIBRATION[0][0]:
-        return GRASP_DISTANCE_CALIBRATION[0][target_index]
-    if distance_cm >= GRASP_DISTANCE_CALIBRATION[-1][0]:
-        return GRASP_DISTANCE_CALIBRATION[-1][target_index]
-
-    for lower, upper in zip(
-        GRASP_DISTANCE_CALIBRATION,
-        GRASP_DISTANCE_CALIBRATION[1:],
-    ):
-        if lower[0] <= distance_cm <= upper[0]:
-            ratio = (distance_cm - lower[0]) / (upper[0] - lower[0])
-            lower_ticks = lower[target_index]
-            upper_ticks = upper[target_index]
-            return tuple(
-                int(math.floor(start + (end - start) * ratio + 0.5))
-                for start, end in zip(lower_ticks, upper_ticks)
-            )
-    return GRASP_DISTANCE_CALIBRATION[-1][target_index]
 
 
 def scale_detections(detections, scale_x, scale_y):
@@ -817,7 +859,7 @@ class AbsoluteServoBridge:
             return False
         text = self._read_text(timeout_s)
         if "ARM UART READY" in text:
-            self.status = "RCT6 ARM UART READY"
+            self.status = "ARM UART READY"
             return True
         return False
 
@@ -1027,8 +1069,8 @@ class DirectBusServoBridge:
         write_enabled=True,
         arm_device=None,
         zp_device=None,
-        arm_time_ms=1200,
-        zp_time_ms=1000,
+        arm_time_ms=600,
+        zp_time_ms=300,
         gripper_time_ms=None,
         splitter_time_ms=None,
         repeat=1,
@@ -1049,7 +1091,7 @@ class DirectBusServoBridge:
         self.splitter_time_ms = (
             int(splitter_time_ms)
             if splitter_time_ms is not None
-            else self.gripper_time_ms
+            else 500
         )
         self.repeat = max(1, min(8, int(repeat)))
         self.arm_fd = None
@@ -1058,7 +1100,9 @@ class DirectBusServoBridge:
         self.last_command_ok = False
         self.last_ack = {}
         self.assumed_feedback = True
-        self.status = "direct bus servo bridge disabled"
+        self._arm_io_lock = threading.RLock()
+        self._zp_io_lock = threading.RLock()
+        self.status = "dual servo-board bridge disabled"
         if self.enabled:
             self._open()
 
@@ -1099,18 +1143,19 @@ class DirectBusServoBridge:
             else:
                 self.zp_fd = self._open_device(self.zp_device)
             self.status = (
-                f"direct bus servo bridge arm={self.arm_device} "
-                f"zp={self.zp_device} "
+                f"dual servo boards htd85-binary={self.arm_device} "
+                f"zp20s-ascii={self.zp_device} "
                 f"zp_time={self.zp_time_ms}ms splitter_time={self.splitter_time_ms}ms "
-                "arm_multi=immediate "
                 "exclusive=yes"
             )
             print(self.status)
+            if self.write_enabled:
+                self._send_aux_hold_targets()
         except (OSError, subprocess.CalledProcessError) as exc:
             self.close()
             self.enabled = False
             self.write_enabled = False
-            self.status = f"direct bus servo open failed: {exc}"
+            self.status = f"dual servo-board open failed: {exc}"
             print(self.status)
 
     def _write_payload(self, fd, payload, repeat=None):
@@ -1145,10 +1190,162 @@ class DirectBusServoBridge:
             pass
         return " ".join(f"{byte:02X}" for byte in payload)
 
+    def _send_zp_targets(self, zp_targets, repeat=None):
+        """Write ZP20S targets as one group frame when more than one is present."""
+
+        if not zp_targets:
+            return True, ""
+        payload = (
+            direct_zp_group_packet(zp_targets)
+            if len(zp_targets) > 1
+            else direct_zp_move_packet(*zp_targets[0])
+        )
+        try:
+            with self._zp_io_lock:
+                self._write_payload(self.zp_fd, payload, repeat=repeat)
+        except (OSError, TimeoutError) as exc:
+            warning = f"ZP20S UART write failed: {exc}"
+            print(warning, flush=True)
+            return False, warning
+        label = "group" if len(zp_targets) > 1 else "single"
+        print(
+            f"DIRECT SERVO TX zp20s-ascii={self.zp_device} mode={label} "
+            f"{self._format_payload(payload)} "
+            f"physical_ids={','.join(f'ID{sid}' for sid, _, _ in zp_targets)}",
+            flush=True,
+        )
+        return True, (
+            "ZP20S TX "
+            + ",".join(f"ID{sid}={value}" for sid, value, _ in zp_targets)
+            + f" mode={label}"
+        )
+
+    def _send_aux_hold_targets(self):
+        """Set the fixed S12/S23 outputs after opening the ZP bus."""
+        if not self.write_enabled or self.zp_fd is None:
+            return False
+        try:
+            with self._zp_io_lock:
+                for channel, pulse, time_ms in AUX_ZP_HOLD_TARGETS:
+                    payload = direct_zp_move_packet(channel, pulse, time_ms)
+                    self._write_payload(self.zp_fd, payload, repeat=1)
+                    print(
+                        f"DIRECT SERVO TX zp20s-ascii={self.zp_device} "
+                        f"AUX_HOLD S{channel}={pulse} T={time_ms}ms "
+                        f"{self._format_payload(payload)}",
+                        flush=True,
+                    )
+                    time.sleep(0.003)
+            return True
+        except (OSError, TimeoutError) as exc:
+            print(f"ZP20S AUX_HOLD write failed: {exc}", flush=True)
+            return False
+
+    def send_zp_aux(self, channel=None, servo_id=None, pulse=1500, time_ms=300, repeat=None):
+        """Write a formal-route auxiliary target on the ZL ZP20S bus."""
+        target = channel if channel is not None else servo_id
+        if channel is not None:
+            fixed = {12: 600, 23: 1000}.get(int(channel))
+            if fixed is not None:
+                if int(pulse) != fixed:
+                    print(
+                        f"ZP20S AUX_HOLD override S{int(channel)} "
+                        f"requested={int(pulse)} fixed={fixed}",
+                        flush=True,
+                    )
+                pulse = fixed
+        if (
+            not self.enabled
+            or self.zp_fd is None
+            or target is None
+            or not 1 <= int(target) <= 255
+            or not 500 <= int(pulse) <= 2500
+            or not 0 <= int(time_ms) <= 9999
+        ):
+            self.last_command_ok = False
+            return self.status
+        if not self.write_enabled:
+            self.last_command_ok = False
+            self.status = "direct bus servo read-only; auxiliary target not sent"
+            return self.status
+        self.last_command_ok = False
+        ok, status = self._send_zp_targets(
+            [(int(target), int(pulse), int(time_ms))], repeat=repeat
+        )
+        self.last_command_ok = bool(ok)
+        if ok:
+            label = f"S{int(channel)}" if channel is not None else f"ID{int(servo_id)}"
+            self.status = f"ZP20S AUX TX {label}={int(pulse)} T={int(time_ms)}ms"
+        else:
+            self.status = status
+        return self.status
+
+    def _send_htd85_targets(self, arm_targets, repeat=None):
+        """Write 85KG targets through the Hiwonder USB servo board."""
+        if not arm_targets:
+            return True, ""
+        try:
+            with self._arm_io_lock:
+                sent = []
+                for servo_id, value in arm_targets:
+                    value = max(HTD85_MIN_POSITION, min(HTD85_MAX_POSITION, int(value)))
+                    payload = htd85_move_packet(
+                        servo_id,
+                        value,
+                        self.arm_time_ms,
+                    )
+                    self._write_payload(self.arm_fd, payload, repeat=repeat)
+                    sent.append(f"ID{servo_id}={value}")
+                    print(
+                        f"DIRECT SERVO TX htd85-binary={self.arm_device} "
+                        f"{self._format_payload(payload)} "
+                        f"physical_id={servo_id} target={value} "
+                        f"time={self.arm_time_ms}ms",
+                        flush=True,
+                    )
+                    # Keep adjacent joint commands separate without waiting for
+                    # a servo reply or delaying the chassis/RK handoff.
+                    time.sleep(0.003)
+        except (OSError, TimeoutError) as exc:
+            warning = f"HTD85 UART write failed: {exc}"
+            print(warning, flush=True)
+            return False, warning
+        return True, "HTD85 TX " + ",".join(sent) + " feedback=OPTIONAL"
+
+    def _read_htd85_position(self, servo_id, timeout_s=0.25):
+        if self.arm_fd is None:
+            return None
+        with self._arm_io_lock:
+            try:
+                if termios is not None:
+                    termios.tcflush(self.arm_fd, termios.TCIFLUSH)
+                payload = htd85_position_read_packet(servo_id)
+                print(
+                    f"DIRECT SERVO TX htd85-binary={self.arm_device} "
+                    f"{self._format_payload(payload)} read=ID{servo_id}",
+                    flush=True,
+                )
+                position = htd85_read_position(
+                    self.arm_fd,
+                    servo_id,
+                    timeout_s=timeout_s,
+                )
+                if position is not None:
+                    print(
+                        f"DIRECT SERVO RX htd85-binary={self.arm_device} "
+                        f"ID{servo_id} position={position}",
+                        flush=True,
+                    )
+                return position
+            except (OSError, TimeoutError) as exc:
+                print(f"HTD85 position read failed ID{servo_id}: {exc}", flush=True)
+                return None
+
     def send_targets(
         self,
         id1=None,
         id2=None,
+        id3=None,
         id4=None,
         id6=None,
         id5=None,
@@ -1161,46 +1358,48 @@ class DirectBusServoBridge:
         if not self.write_enabled:
             return "direct bus servo read-only; targets not sent"
 
-        payloads = []
+        zp_targets = []
         targets = {}
         arm_targets = []
         if id1 is not None:
             arm_targets.append((1, int(id1)))
         if id2 is not None:
             arm_targets.append((2, int(id2)))
+        if id3 is not None:
+            arm_targets.append((3, int(id3)))
         if id6 is not None:
             arm_targets.append((6, int(id6)))
 
         for servo_id, value in arm_targets:
-            payloads.append(
-                (
-                    self.arm_fd,
-                    self.arm_device,
-                    direct_85kg_move_packet(servo_id, value, self.arm_time_ms),
-                )
-            )
             targets[servo_id] = value
         if splitter_id4 is not None:
-            payloads.append((self.zp_fd, self.zp_device, direct_zp_move_packet(4, splitter_id4, self.splitter_time_ms)))
+            zp_targets.append((4, int(splitter_id4), self.splitter_time_ms))
             targets[4] = int(splitter_id4)
         if id4 is not None:
-            payloads.append((self.zp_fd, self.zp_device, direct_zp_move_packet(7, id4, self.gripper_time_ms)))
+            # Legacy keyword id4 is retained for callers, but means the
+            # physical ZP20S gripper ID7 in this bridge.
+            zp_targets.append((7, int(id4), self.gripper_time_ms))
             targets[7] = int(id4)
         if id5 is not None:
-            payloads.append((self.zp_fd, self.zp_device, direct_zp_move_packet(5, id5, self.zp_time_ms)))
+            zp_targets.append((5, int(id5), self.zp_time_ms))
             targets[5] = int(id5)
-        if not payloads:
+        if not zp_targets and not arm_targets:
             return self.status
 
         self.last_command_ok = False
         try:
-            for fd, device, payload in payloads:
-                self._write_payload(fd, payload, repeat=repeat)
-                print(
-                    f"DIRECT SERVO TX {device}={self._format_payload(payload)}",
-                    flush=True,
-                )
-                time.sleep(0.005)
+            arm_ok, arm_status = self._send_htd85_targets(arm_targets, repeat=repeat)
+            if not arm_ok:
+                self.status = arm_status
+                print(self.status, flush=True)
+                return self.status
+            if arm_status:
+                print(f"DIRECT SERVO TX htd85={arm_status}", flush=True)
+            zp_ok, zp_status = self._send_zp_targets(zp_targets, repeat=repeat)
+            if not zp_ok:
+                self.status = zp_status
+                print(self.status, flush=True)
+                return self.status
             previous = self.last_feedback or (READY_ID1_TICK, READY_ID2_TICK, None)
             self.last_feedback = (
                 targets.get(1, previous[0]),
@@ -1208,9 +1407,14 @@ class DirectBusServoBridge:
                 targets.get(6, previous[2] if len(previous) > 2 else None),
             )
             self.last_command_ok = True
-            self.status = "direct TX " + ",".join(f"ID{k}={v}" for k, v in targets.items())
-        except OSError as exc:
-            self.status = f"direct bus servo write failed: {exc}"
+            self.status = (
+                "dual-board TX htd85="
+                + ",".join(f"ID{k}={v}" for k, v in targets.items() if k in {1, 2, 3, 6})
+                + " zp20s="
+                + ",".join(f"ID{k}={v}" for k, v in targets.items() if k in {4, 5, 7})
+            )
+        except (OSError, TimeoutError) as exc:
+            self.status = f"dual servo-board write failed: {exc}"
             print(self.status)
         return self.status
 
@@ -1224,26 +1428,65 @@ class DirectBusServoBridge:
         )
 
     def wait_ready(self, timeout_s=0.2):
-        self.status = "direct bus servo ready without RCT6 feedback"
-        return self.enabled and self.arm_fd is not None and self.zp_fd is not None
+        if not self.enabled or self.arm_fd is None or self.zp_fd is None:
+            return False
+        feedback = self.query_positions(timeout_s=max(0.12, float(timeout_s)))
+        if feedback is None:
+            self.status = f"Hiwonder HTD85 board probe timeout on {self.arm_device}"
+            return False
+        self.status = (
+            f"Hiwonder HTD85 board ready on {self.arm_device} "
+            f"ID1={feedback[0]} ID2={feedback[1]}"
+        )
+        return True
 
     def command_arm_ready(self, timeout_s=4.0):
-        status = self.send_targets(id1=READY_ID1_TICK, id2=READY_ID2_TICK)
-        if not self.last_command_ok:
-            self.status = f"direct ARMREADY failed: {status}"
+        if not self.enabled or self.arm_fd is None or not self.write_enabled:
             return None
+        feedback = self.query_positions(timeout_s=min(0.8, max(0.2, float(timeout_s))))
+        if feedback is None:
+            self.last_command_ok = False
+            self.status = f"Hiwonder HTD85 position readback failed on {self.arm_device}"
+            return None
+        self.last_feedback = feedback
+        self.last_command_ok = True
+        self.status = (
+            f"HTD85 ARMREADY readback ID1={self.last_feedback[0]} "
+            f"ID2={self.last_feedback[1]}"
+        )
         return self.last_feedback
 
     def query_positions(self, timeout_s=0.90):
         if not self.enabled or self.arm_fd is None or self.zp_fd is None:
             return None
-        if self.last_feedback is None:
-            self.last_feedback = (READY_ID1_TICK, READY_ID2_TICK, None)
+        positions = {}
+        per_servo_timeout = max(0.08, min(0.30, float(timeout_s) / 3.0))
+        for servo_id in (1, 2, 6):
+            position = self._read_htd85_position(servo_id, per_servo_timeout)
+            if position is not None:
+                positions[servo_id] = int(position)
+        if 1 in positions and 2 in positions:
+            self.last_feedback = (
+                positions[1],
+                positions[2],
+                positions.get(6),
+            )
+            self.last_command_ok = True
+            self.status = (
+                f"HTD85 feedback ID1={self.last_feedback[0]} "
+                f"ID2={self.last_feedback[1]}"
+                + (
+                    ""
+                    if self.last_feedback[2] is None
+                    else f" ID6={self.last_feedback[2]}"
+                )
+            )
+            return self.last_feedback
         self.status = (
-            f"direct assumed feedback ID1={self.last_feedback[0]} "
-            f"ID2={self.last_feedback[1]}"
+            f"HTD85 feedback incomplete on {self.arm_device}: "
+            + ",".join(f"ID{sid}={positions.get(sid, 'timeout')}" for sid in (1, 2, 6))
         )
-        return self.last_feedback
+        return None
 
     def close(self):
         if self.zp_fd is not None and self.zp_fd != self.arm_fd:
@@ -1298,8 +1541,6 @@ class TargetGraspController:
         min_target_area_percent=0.4,
         min_target_distance_cm=GRASP_MIN_DISTANCE_CM,
         max_target_distance_cm=GRASP_MAX_DISTANCE_CM,
-        use_calibrated_grasp_table=False,
-        use_post_center_tick_bias=False,
         post_center_direct_descend=False,
         simple_vertical_grasp=False,
         vertical_grasp_id1=HOME_ID1_TICK,
@@ -1347,8 +1588,6 @@ class TargetGraspController:
         self.min_target_area_percent = max(0.0, float(min_target_area_percent))
         self.min_target_distance_cm = float(min_target_distance_cm)
         self.max_target_distance_cm = float(max_target_distance_cm)
-        self.use_calibrated_grasp_table = bool(use_calibrated_grasp_table)
-        self.use_post_center_tick_bias = bool(use_post_center_tick_bias)
         self.post_center_direct_descend = bool(post_center_direct_descend)
         self.simple_vertical_grasp = bool(simple_vertical_grasp)
         self.vertical_grasp_id1 = int(vertical_grasp_id1)
@@ -1419,6 +1658,9 @@ class TargetGraspController:
         self.disc_prep_high_active = False
         self.column_target_armed = True
         self.column_target_absent_frames = 0
+        self.platform_selected_letters = frozenset()
+        self.platform_preselect_letters = set()
+        self.platform_preselect_count = 2
         self.approach_feedback_tolerance = 10
         self.stage_deadline = 0.0
         self.next_stage_after_open = None
@@ -1448,13 +1690,13 @@ class TargetGraspController:
                 else:
                     self.startup_stage = "wait_ready"
                     self.state = "startup_wait_ready"
-                    self.status = "waiting for RCT6 ARM UART READY"
+                    self.status = "waiting for Hiwonder HTD85 board ready"
             else:
                 self.state = "waiting servo feedback"
-                self.status = "waiting for RCT6 position synchronization"
+                self.status = "waiting for Hiwonder HTD85 position synchronization"
         elif self.read_only_sync:
             self.state = "read_only_sync"
-            self.status = "waiting for read-only RCT6 position synchronization"
+            self.status = "waiting for read-only HTD85 position synchronization"
 
     def set_field_mode(self, field_mode):
         """Apply a new field only while no chassis station is active."""
@@ -1487,6 +1729,31 @@ class TargetGraspController:
         return max(
             0.12,
             getattr(self.servo_bridge, "gripper_time_ms", 450) / 1000.0 + 0.05,
+        )
+
+    def _gripper_motion_s(self):
+        return max(
+            0.10,
+            getattr(self.servo_bridge, "gripper_time_ms", 450) / 1000.0,
+        )
+
+    def _disc_low_pose_settle_s(self):
+        return max(
+            0.15,
+            max(
+                getattr(self.servo_bridge, "arm_time_ms", 700),
+                getattr(self.servo_bridge, "zp_time_ms", 450),
+                getattr(self.servo_bridge, "gripper_time_ms", 450),
+            )
+            / 1000.0
+            + 0.15,
+        )
+
+    def _disc_open_hold_s(self):
+        return max(
+            self._gripper_settle_s(),
+            getattr(self.servo_bridge, "gripper_time_ms", 450) / 1000.0
+            + DISC_CATCH_OPEN_HOLD_MARGIN_S,
         )
 
     def _splitter_settle_s(self):
@@ -1927,6 +2194,112 @@ class TargetGraspController:
         gap_text = "" if gap is None else f" gap={gap:.1f}deg"
         return f"{reason}: id1={self.id1} id2={self.id2} id6={self.id6} id7={self.id7}{gap_text} | {self.status}"
 
+    def _send_fixed_arm_pose_staged(
+        self,
+        target_id1,
+        target_id2,
+        target_id6,
+        reason,
+        *,
+        raising,
+        id7=None,
+        id5=None,
+        splitter_id4=None,
+    ):
+        """Move fixed poses without letting ID1 and ID2 load each other."""
+
+        target_id1 = self._clamp(target_id1, self.id1_limits)
+        target_id2 = self._clamp(target_id2, self.id2_limits)
+        target_id1, target_id2 = enforce_angle_gap(
+            target_id1,
+            target_id2,
+            self.id2_limits,
+            self.angle_gap_degrees,
+        )
+        target_id6 = max(HTD85_MIN_POSITION, min(HTD85_MAX_POSITION, int(target_id6)))
+        target_id7 = self.id7 if id7 is None else int(id7)
+        target_id5 = self.id5 if id5 is None else int(id5)
+        target_splitter = (
+            self.splitter_id4 if splitter_id4 is None else int(splitter_id4)
+        )
+
+        if not self.servo_bridge.write_enabled:
+            self.id1 = target_id1
+            self.id2 = target_id2
+            self.id6 = target_id6
+            self.id7 = target_id7
+            self.id5 = target_id5
+            self.splitter_id4 = target_splitter
+            self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+            return (
+                f"preview {reason} staged={'ID1->ID2' if raising else 'ID2->ID1'} "
+                f"ID1={self.id1} ID2={self.id2} ID6={self.id6}"
+            )
+
+        if raising:
+            self.id1 = target_id1
+            self.id6 = target_id6
+            first_targets = {
+                "id1": self.id1,
+                "id6": self.id6,
+                "id4": target_id7,
+                "id5": target_id5,
+                "splitter_id4": target_splitter,
+            }
+            second_targets = {"id2": target_id2}
+            first_label, second_label = "ID1", "ID2"
+        else:
+            self.id2 = target_id2
+            first_targets = {
+                "id2": self.id2,
+                "id4": target_id7,
+                "id5": target_id5,
+                "splitter_id4": target_splitter,
+            }
+            second_targets = {"id1": target_id1, "id6": target_id6}
+            first_label, second_label = "ID2", "ID1"
+
+        self.id7 = target_id7
+        self.id5 = target_id5
+        self.splitter_id4 = target_splitter
+        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+        self.arm_preview.publish(f"{reason} phase 1 {first_label}")
+        print(
+            f"ARM STAGED reason={reason} phase=1 joint={first_label} "
+            f"delay_ms={int(ARM_JOINT_SEQUENCE_DELAY_S * 1000)}",
+            flush=True,
+        )
+        first_status = self.servo_bridge.send_targets(**first_targets)
+        self.last_command_time = time.monotonic()
+        if not self.servo_bridge.last_command_ok:
+            self.status = f"{reason} phase 1 {first_label} failed: {first_status}"
+            return self.status
+
+        time.sleep(ARM_JOINT_SEQUENCE_DELAY_S)
+        self.id1 = target_id1
+        self.id2 = target_id2
+        self.id6 = target_id6
+        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+        self.arm_preview.publish(f"{reason} phase 2 {second_label}")
+        print(
+            f"ARM STAGED reason={reason} phase=2 joint={second_label} "
+            f"after_ms={int(ARM_JOINT_SEQUENCE_DELAY_S * 1000)}",
+            flush=True,
+        )
+        second_status = self.servo_bridge.send_targets(**second_targets)
+        self.last_command_time = time.monotonic()
+        if not self.servo_bridge.last_command_ok:
+            self.status = f"{reason} phase 2 {second_label} failed: {second_status}"
+            return self.status
+
+        self.status = (
+            f"{reason} staged={first_label}->{second_label} "
+            f"delay_ms={int(ARM_JOINT_SEQUENCE_DELAY_S * 1000)} "
+            f"ID1={self.id1} ID2={self.id2} ID6={self.id6}; "
+            f"phase1={first_status}; phase2={second_status}"
+        )
+        return self.status
+
     def _send_retreat_with_catcher_open(self, reason, require_feedback=True):
         gap = self._enforce_angle_gap()
         self.id5 = CATCHER_RELEASE_READY_TICK
@@ -2186,6 +2559,7 @@ class TargetGraspController:
         return (
             self.startup_stage == "complete"
             and self.active_chassis_station == "PLATFORM_PICK"
+            and self.chassis_station_stage is None
             and self.locked_target is None
             and self.algorithm_stage == "centering"
         )
@@ -2201,12 +2575,19 @@ class TargetGraspController:
             return self._begin_disc_catch_station()
         if station == "COLUMN_CATCH":
             return self._begin_column_catch_station()
-        self.id1 = READY_ID1_TICK
-        self.id2 = READY_ID2_TICK
-        self.id6 = BASE_YAW_CENTER_TICK
+        if station == "PLATFORM_PICK":
+            self.id1 = 600
+            self.id2 = 600
+            self.id6 = 640
+            self.id5 = CATCHER_HOME_TICK
+            self.splitter_id4 = DISC_CATCH_SPLITTER_READY_TICK
+        else:
+            self.id1 = READY_ID1_TICK
+            self.id2 = READY_ID2_TICK
+            self.id6 = BASE_YAW_CENTER_TICK
+            self.id5 = CATCHER_HOME_TICK
+            self.splitter_id4 = SPLITTER_YELLOW_TICK
         self.id7 = self.id7_closed
-        self.id5 = CATCHER_HOME_TICK
-        self.splitter_id4 = SPLITTER_YELLOW_TICK
         self._enforce_angle_gap()
         self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
         self.arm_preview.publish(f"chassis station {station} ready")
@@ -2215,15 +2596,16 @@ class TargetGraspController:
                 f"preview chassis station {station} ready "
                 f"ID1={self.id1} ID2={self.id2} ID6={self.id6} ID7={self.id7}"
             )
-        status = self.servo_bridge.send_targets(
-            id1=self.id1,
-            id2=self.id2,
-            id4=self.id7,
-            id6=self.id6,
+        status = self._send_fixed_arm_pose_staged(
+            self.id1,
+            self.id2,
+            self.id6,
+            f"chassis station {station} ready",
+            raising=True,
+            id7=self.id7,
             id5=self.id5,
             splitter_id4=self.splitter_id4,
         )
-        self.last_command_time = time.monotonic()
         if not self.servo_bridge.last_command_ok:
             self.state = "fault"
             self.algorithm_stage = "fault"
@@ -2237,6 +2619,109 @@ class TargetGraspController:
         )
         print(f"CHASSIS STATION {station} READY {self.status}", flush=True)
         return self.status
+
+    def begin_platform_preselect(self, count=2):
+        self._reset_cycle_for_search("platform preselect start")
+        self.active_chassis_station = "PLATFORM_PICK"
+        self.chassis_station_done_reason = None
+        self.chassis_station_error_reason = None
+        self.chassis_station_stage = "platform_preselect"
+        self.platform_preselect_count = 2
+        self.platform_preselect_letters = set()
+        self.id1 = 600
+        self.id2 = 600
+        self.id6 = 640
+        self.id7 = self.id7_closed
+        self.id5 = CATCHER_HOME_TICK
+        self.splitter_id4 = DISC_CATCH_SPLITTER_READY_TICK
+        self._enforce_angle_gap()
+        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+        self.arm_preview.publish(
+            "PLATFORM_PICK preselect; secondary camera; collecting 2 distinct letters"
+        )
+        if not self.servo_bridge.write_enabled:
+            self.chassis_station_deadline = time.monotonic() + self._arm_settle_s()
+            return (
+                "preview PLATFORM_PICK preselect "
+                f"ID1={self.id1} ID2={self.id2} ID6={self.id6}"
+            )
+        status = self._send_fixed_arm_pose_staged(
+            self.id1,
+            self.id2,
+            self.id6,
+            "PLATFORM_PICK preselect high",
+            raising=True,
+            id7=self.id7,
+            id5=self.id5,
+            splitter_id4=self.splitter_id4,
+        )
+        if not self.servo_bridge.last_command_ok:
+            self.chassis_station_stage = None
+            self.state = "fault"
+            self.algorithm_stage = "fault"
+            self.status = f"PLATFORM_PICK preselect arm pose failed: {status}"
+            return self.status
+        self.chassis_station_deadline = time.monotonic() + self._arm_settle_s()
+        self.status = (
+            f"PLATFORM_PICK preselect ID1={self.id1} ID2={self.id2} "
+            f"ID6={self.id6}; waiting secondary letters | {status}"
+        )
+        print(f"CHASSIS STATION {self.status}", flush=True)
+        return self.status
+
+    def update_platform_preselect(self, detections, detection_fresh=True):
+        if self.chassis_station_stage != "platform_preselect":
+            return None
+        now = time.monotonic()
+        if now < self.chassis_station_deadline:
+            return (
+                "PLATFORM_PICK preselect settling "
+                f"{self.chassis_station_deadline - now:.1f}s"
+            )
+        if detection_fresh:
+            candidates = [
+                det for det in detections
+                if det.get("kind") == "letter"
+                and det.get("letter") in LETTERS
+            ]
+            candidates.sort(
+                key=lambda det: (
+                    float(det.get("confidence") or 0.0),
+                    float(det.get("projected_area") or 0.0),
+                ),
+                reverse=True,
+            )
+            for det in candidates:
+                letter = str(det.get("letter")).upper()
+                if letter not in self.platform_preselect_letters:
+                    self.platform_preselect_letters.add(letter)
+                    print(
+                        "PLATFORM PRESELECT secondary letter="
+                        f"{letter} count={len(self.platform_preselect_letters)}/2",
+                        flush=True,
+                    )
+                    if len(self.platform_preselect_letters) >= self.platform_preselect_count:
+                        break
+        if len(self.platform_preselect_letters) >= self.platform_preselect_count:
+            selected = tuple(sorted(self.platform_preselect_letters))[:2]
+            self.platform_selected_letters = frozenset(selected)
+            self.target_letters = self.platform_selected_letters
+            self.chassis_station_stage = None
+            self.active_chassis_station = None
+            self.chassis_station_done_reason = (
+                f"PRESELECT_DONE:{selected[0]}:{selected[1]}"
+            )
+            self.arm_preview.publish(
+                f"PLATFORM_PICK letters locked {selected[0]},{selected[1]}"
+            )
+            return (
+                "PLATFORM_PICK preselect done "
+                f"letters={selected[0]},{selected[1]}"
+            )
+        return (
+            "PLATFORM_PICK preselect waiting secondary letters "
+            f"{','.join(sorted(self.platform_preselect_letters)) or '-'}"
+        )
 
     def prepare_chassis_station_high(self, prep):
         if not isinstance(prep, dict) or prep.get("task") != "DISC_CATCH":
@@ -2260,38 +2745,38 @@ class TargetGraspController:
             self.id2_limits,
             self.angle_gap_degrees,
         )
-        self.id1 = self._clamp(target_id1, self.id1_limits)
-        self.id2 = self._clamp(target_id2, self.id2_limits)
-        self.id6 = DISC_CATCH_ID6_TICK
         self.id7 = self.id7_closed
         # PREP_HIGH is also the white-line observation pose. Keep the catcher
         # retracted while the chassis is still correcting its station pose.
         self.id5 = CATCHER_HOME_TICK
         self.splitter_id4 = DISC_CATCH_SPLITTER_READY_TICK
-        self._enforce_angle_gap()
-        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+        self.arm_preview.set_targets(target_id1, target_id2, self.id7, DISC_CATCH_ID6_TICK)
         self.arm_preview.publish("DISC_CATCH prep high")
         if not self.servo_bridge.write_enabled:
+            self.id1 = target_id1
+            self.id2 = target_id2
+            self.id6 = DISC_CATCH_ID6_TICK
+            self.disc_prep_high_active = True
             return (
                 f"preview DISC_CATCH prep high ID1={self.id1} "
                 f"ID2={self.id2} ID6={self.id6}"
             )
-        status = self.servo_bridge.send_targets(
-            id1=self.id1,
-            id2=self.id2,
-            id4=self.id7,
-            id6=self.id6,
+        status = self._send_fixed_arm_pose_staged(
+            target_id1,
+            target_id2,
+            DISC_CATCH_ID6_TICK,
+            "DISC_CATCH prep high",
+            raising=True,
+            id7=self.id7,
             id5=self.id5,
             splitter_id4=self.splitter_id4,
         )
-        self.last_command_time = time.monotonic()
         if not self.servo_bridge.last_command_ok:
             self.state = "fault"
             self.algorithm_stage = "fault"
             self.status = f"DISC_CATCH prep high failed: {status}"
             self.arm_preview.publish(self.status)
             return self.status
-        time.sleep(self._arm_settle_s())
         self.status = (
             f"DISC_CATCH prep high ID1={self.id1} ID2={self.id2} "
             f"ID5={self.id5} ID6={self.id6} | {status}"
@@ -2301,85 +2786,99 @@ class TargetGraspController:
         return self.status
 
     def _begin_disc_catch_station(self):
+        """Enter the task-one ball action used by the validated desktop app."""
         self.disc_prep_high_active = False
-        self.id1 = DISC_CATCH_PREP_ID1_TICK
-        self.id2 = DISC_CATCH_PREP_ID2_TICK
-        self.id6 = DISC_CATCH_ID6_TICK
         self.id7 = self.id7_closed
         self.id5 = DISC_CATCH_CATCHER_READY_TICK
         self.splitter_id4 = DISC_CATCH_SPLITTER_READY_TICK
-        self._enforce_angle_gap()
-        self.chassis_station_stage = "disc_first_expand"
+        self.chassis_station_stage = "disc_app_low_settle"
         self.disc_pulse_done = False
         self.disc_last_pulsed_color = None
         self.chassis_station_deadline = 0.0
-        self.chassis_station_no_target_deadline = (
-            time.monotonic() + DISC_CATCH_TARGET_TIMEOUT_S
+        self.chassis_station_no_target_deadline = 0.0
+        self.arm_preview.set_targets(
+            DISC_CATCH_READY_ID1_TICK,
+            DISC_CATCH_READY_ID2_TICK,
+            self.id7,
+            DISC_CATCH_ID6_TICK,
         )
-        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
-        self.arm_preview.publish("DISC_CATCH first expand")
+        self.arm_preview.publish("DISC_CATCH app low pose")
         if not self.servo_bridge.write_enabled:
-            self.chassis_station_deadline = time.monotonic() + self._arm_settle_s()
+            self.id1 = DISC_CATCH_READY_ID1_TICK
+            self.id2 = DISC_CATCH_READY_ID2_TICK
+            self.id6 = DISC_CATCH_ID6_TICK
+            self.chassis_station_deadline = (
+                time.monotonic() + self._disc_low_pose_settle_s()
+            )
             self.status = (
-                f"preview DISC_CATCH first expand ID1={self.id1} "
+                f"preview DISC_CATCH app low pose ID1={self.id1} "
                 f"ID2={self.id2} ID4={self.splitter_id4} ID5={self.id5} "
                 f"ID6={self.id6} ID7={self.id7}"
             )
             return self.status
-        status = self.servo_bridge.send_targets(
-            id1=self.id1,
-            id2=self.id2,
-            id4=self.id7,
-            id6=self.id6,
+        status = self._send_fixed_arm_pose_staged(
+            DISC_CATCH_READY_ID1_TICK,
+            DISC_CATCH_READY_ID2_TICK,
+            DISC_CATCH_ID6_TICK,
+            "DISC_CATCH app low pose",
+            raising=False,
+            id7=self.id7,
             id5=self.id5,
             splitter_id4=self.splitter_id4,
         )
-        self.last_command_time = time.monotonic()
         if not self.servo_bridge.last_command_ok:
             self.chassis_station_stage = None
             self.state = "fault"
             self.algorithm_stage = "fault"
-            self.status = f"DISC_CATCH first expand failed: {status}"
+            self.status = f"DISC_CATCH app low pose failed: {status}"
             self.arm_preview.publish(self.status)
             return self.status
-        self.chassis_station_deadline = time.monotonic() + self._arm_settle_s()
+        self.chassis_station_deadline = (
+            time.monotonic() + self._disc_low_pose_settle_s()
+        )
         self.status = (
-            f"DISC_CATCH first expand ID1={self.id1} ID2={self.id2} "
+            f"DISC_CATCH app low pose ID1={self.id1} ID2={self.id2} "
             f"ID4={self.splitter_id4} ID5={self.id5} "
             f"ID6={self.id6} ID7={self.id7} | {status}"
         )
-        print(f"CHASSIS STATION DISC_CATCH FIRST EXPAND {self.status}", flush=True)
+        print(f"CHASSIS STATION DISC_CATCH APP LOW {self.status}", flush=True)
         return self.status
 
     def _begin_column_catch_station(self):
-        self.id1 = COLUMN_CATCH_READY_ID1_TICK
-        self.id2 = COLUMN_CATCH_READY_ID2_TICK
-        self.id6 = BASE_YAW_CENTER_TICK
         self.id7 = self.id7_closed
         self.id5 = CATCHER_HOME_TICK
         self.splitter_id4 = COLUMN_CATCH_SPLITTER_TICK
-        self._enforce_angle_gap()
         self.chassis_station_stage = "column_ready"
         self.column_target_armed = True
         self.column_target_absent_frames = 0
         self.chassis_station_deadline = 0.0
-        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+        self.arm_preview.set_targets(
+            COLUMN_CATCH_READY_ID1_TICK,
+            COLUMN_CATCH_READY_ID2_TICK,
+            self.id7,
+            DISC_CATCH_ID6_TICK,
+        )
         self.arm_preview.publish("COLUMN_CATCH ready")
         if not self.servo_bridge.write_enabled:
+            self.id1 = COLUMN_CATCH_READY_ID1_TICK
+            self.id2 = COLUMN_CATCH_READY_ID2_TICK
+            self.id6 = DISC_CATCH_ID6_TICK
+            self.chassis_station_deadline = time.monotonic() + self._arm_settle_s()
             self.status = (
                 f"preview COLUMN_CATCH ready ID1={self.id1} "
                 f"ID2={self.id2} ID6={self.id6} ID7={self.id7}"
             )
             return self.status
-        status = self.servo_bridge.send_targets(
-            id1=self.id1,
-            id2=self.id2,
-            id4=self.id7,
-            id6=self.id6,
+        status = self._send_fixed_arm_pose_staged(
+            COLUMN_CATCH_READY_ID1_TICK,
+            COLUMN_CATCH_READY_ID2_TICK,
+            DISC_CATCH_ID6_TICK,
+            "COLUMN_CATCH ready",
+            raising=True,
+            id7=self.id7,
             id5=self.id5,
             splitter_id4=self.splitter_id4,
         )
-        self.last_command_time = time.monotonic()
         if not self.servo_bridge.last_command_ok:
             self.chassis_station_stage = None
             self.state = "fault"
@@ -2441,6 +2940,9 @@ class TargetGraspController:
         )
 
     def _finish_chassis_station_after_retract(self, reason):
+        # Every completed station must leave the arm fully retracted. In
+        # particular, task-one completion must not leave ID5 at the catcher
+        # ready position while H7 transfers to task two.
         result = self.shutdown_contract()
         success = (
             not self.servo_bridge.write_enabled
@@ -2489,6 +2991,43 @@ class TargetGraspController:
         reason = self.chassis_station_error_reason
         self.chassis_station_error_reason = None
         return reason
+
+    def skip_platform_slot(self, reason="TARGET_NOT_SELECTED"):
+        if self.active_chassis_station != "PLATFORM_PICK":
+            return False
+        self.id1 = 600
+        self.id2 = 600
+        self.id6 = 640
+        self.id7 = self.id7_closed
+        self.chassis_station_stage = None
+        self.active_chassis_station = None
+        self.chassis_station_done_reason = f"SKIPPED:{reason}"
+        self.algorithm_stage = "centering"
+        self.state = "platform slot skipped"
+        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+        self.arm_preview.publish(
+            f"PLATFORM_PICK skipped; keep expanded reason={reason}"
+        )
+        return True
+
+    def _finish_platform_pick(self, reason):
+        self.id1 = 600
+        self.id2 = 600
+        self.id6 = 640
+        self.id7 = self.id7_closed
+        self.id5 = CATCHER_HOME_TICK
+        self.splitter_id4 = DISC_CATCH_SPLITTER_READY_TICK
+        self._enforce_angle_gap()
+        self.chassis_station_stage = None
+        self.active_chassis_station = None
+        self.chassis_station_done_reason = f"{reason}"
+        self.algorithm_stage = "centering"
+        self.state = "platform slot complete"
+        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+        self.arm_preview.publish(
+            f"PLATFORM_PICK {reason}; keep expanded for next slot"
+        )
+        return f"PLATFORM_PICK {reason}; ID1=600 ID2=600 ID6=640 ID7=1300"
 
     def stop_chassis_station(self, station):
         if self.active_chassis_station != station:
@@ -2556,56 +3095,10 @@ class TargetGraspController:
                 f"NO_{colors}_BALL_{DISC_CATCH_TARGET_TIMEOUT_S:.1f}S"
             )
 
-        if self.chassis_station_stage == "disc_first_expand":
-            self.state = "DISC_CATCH first expand"
+        if self.chassis_station_stage == "disc_app_low_settle":
+            self.state = "DISC_CATCH app low pose"
             if now < self.chassis_station_deadline:
-                return f"DISC_CATCH first expand settling {self.chassis_station_deadline - now:.1f}s"
-            self.id1 = DISC_CATCH_READY_ID1_TICK
-            self.id2 = DISC_CATCH_READY_ID2_TICK
-            self.id6 = DISC_CATCH_ID6_TICK
-            self.id7 = self.id7_closed
-            self.id5 = DISC_CATCH_CATCHER_READY_TICK
-            self.splitter_id4 = DISC_CATCH_SPLITTER_READY_TICK
-            self._enforce_angle_gap()
-            self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
-            if not self.servo_bridge.write_enabled:
-                self.chassis_station_stage = "disc_second_expand_wait"
-                self.chassis_station_deadline = now + self._arm_settle_s()
-                return (
-                    f"preview DISC_CATCH second expand ID1={self.id1} "
-                    f"ID2={self.id2} ID4={self.splitter_id4} ID5={self.id5} "
-                    f"ID6={self.id6} ID7={self.id7}"
-                )
-            status = self.servo_bridge.send_targets(
-                id1=self.id1,
-                id2=self.id2,
-                id4=self.id7,
-                id6=self.id6,
-                id5=self.id5,
-                splitter_id4=self.splitter_id4,
-            )
-            self.last_command_time = now
-            if not self.servo_bridge.last_command_ok:
-                self.chassis_station_stage = None
-                self.state = "fault"
-                self.algorithm_stage = "fault"
-                self.status = f"DISC_CATCH second expand failed: {status}"
-                self.arm_preview.publish(self.status)
-                return self.status
-            self.chassis_station_stage = "disc_second_expand_wait"
-            self.chassis_station_deadline = time.monotonic() + self._arm_settle_s()
-            self.status = (
-                f"DISC_CATCH second expand ID1={self.id1} ID2={self.id2} "
-                f"ID4={self.splitter_id4} ID5={self.id5} "
-                f"ID6={self.id6} ID7={self.id7} | {status}"
-            )
-            print(f"CHASSIS STATION DISC_CATCH SECOND EXPAND {self.status}", flush=True)
-            return self.status
-
-        if self.chassis_station_stage == "disc_second_expand_wait":
-            self.state = "DISC_CATCH ready detect"
-            if now < self.chassis_station_deadline:
-                return f"DISC_CATCH second expand settling {self.chassis_station_deadline - now:.1f}s"
+                return f"DISC_CATCH app low pose settling {self.chassis_station_deadline - now:.1f}s"
             self.chassis_station_stage = "disc_detect"
             self.chassis_station_deadline = 0.0
             self.chassis_station_no_target_deadline = now + DISC_CATCH_TARGET_TIMEOUT_S
@@ -2654,7 +3147,7 @@ class TargetGraspController:
                 self.splitter_id4 = splitter_target
                 self.id7 = self.id7_open
                 self.chassis_station_stage = "disc_open_wait"
-                self.chassis_station_deadline = now + 0.10
+                self.chassis_station_deadline = now + self._disc_open_hold_s()
                 self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
                 return (
                     f"preview DISC_CATCH sync ID4={self.splitter_id4} "
@@ -2668,7 +3161,7 @@ class TargetGraspController:
                 self.disc_last_pulsed_color = ball_color
                 self.disc_pulse_done = True
                 self.chassis_station_stage = "disc_open_wait"
-                self.chassis_station_deadline = time.monotonic() + 0.10
+                self.chassis_station_deadline = time.monotonic() + self._disc_open_hold_s()
             return trigger_status
 
         if self.chassis_station_stage == "disc_open":
@@ -2676,13 +3169,13 @@ class TargetGraspController:
             if not self.servo_bridge.write_enabled:
                 self.id7 = self.id7_open
                 self.chassis_station_stage = "disc_open_wait"
-                self.chassis_station_deadline = now + 0.10
+                self.chassis_station_deadline = now + self._disc_open_hold_s()
                 self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
                 return "preview DISC_CATCH open ID7 pulse"
             status = self._send_gripper_id7(self.id7_open, "DISC_CATCH open ID7 pulse")
             if self.servo_bridge.last_command_ok:
                 self.chassis_station_stage = "disc_open_wait"
-                self.chassis_station_deadline = time.monotonic() + 0.10
+                self.chassis_station_deadline = time.monotonic() + self._disc_open_hold_s()
             return status
 
         if self.chassis_station_stage == "disc_open_wait":
@@ -2696,20 +3189,88 @@ class TargetGraspController:
             self.state = "DISC_CATCH close claw"
             if not self.servo_bridge.write_enabled:
                 self.id7 = self.id7_closed
-                self.chassis_station_stage = "disc_close_wait"
-                self.chassis_station_deadline = now + 0.10
+                self.chassis_station_stage = "disc_close_confirm"
+                self.chassis_station_deadline = now + DISC_CATCH_CLOSE_CONFIRM_DELAY_S
                 self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
                 return "preview DISC_CATCH close ID7 pulse"
             status = self._send_gripper_id7(self.id7_closed, "DISC_CATCH close ID7 pulse")
             if self.servo_bridge.last_command_ok:
+                self.chassis_station_stage = "disc_close_confirm"
+                self.chassis_station_deadline = (
+                    time.monotonic() + DISC_CATCH_CLOSE_CONFIRM_DELAY_S
+                )
+            return status
+
+        if self.chassis_station_stage == "disc_close_confirm":
+            self.state = "DISC_CATCH close confirm"
+            if now < self.chassis_station_deadline:
+                return (
+                    "DISC_CATCH close confirm wait "
+                    f"{self.chassis_station_deadline - now:.2f}s"
+                )
+            if not self.servo_bridge.write_enabled:
                 self.chassis_station_stage = "disc_close_wait"
-                self.chassis_station_deadline = time.monotonic() + 0.10
+                self.chassis_station_deadline = now + self._gripper_motion_s()
+                return "preview DISC_CATCH close ID7 confirm"
+            status = self._send_gripper_id7(
+                self.id7_closed,
+                "DISC_CATCH close ID7 confirm",
+            )
+            if self.servo_bridge.last_command_ok:
+                self.chassis_station_stage = "disc_close_wait"
+                self.chassis_station_deadline = (
+                    time.monotonic() + self._gripper_motion_s()
+                )
             return status
 
         if self.chassis_station_stage == "disc_close_wait":
             self.state = "DISC_CATCH close wait"
             if now < self.chassis_station_deadline:
                 return f"DISC_CATCH close wait {self.chassis_station_deadline - now:.1f}s"
+            if self.disc_last_pulsed_color == "yellow":
+                self.chassis_station_stage = "disc_yellow_reset"
+                return "DISC_CATCH yellow pulse closed; resetting splitter"
+            self.disc_pulse_done = False
+            self.disc_last_pulsed_color = None
+            self.chassis_station_stage = "disc_detect"
+            self.chassis_station_deadline = 0.0
+            self.chassis_station_no_target_deadline = (
+                time.monotonic() + DISC_CATCH_TARGET_TIMEOUT_S
+            )
+            return "DISC_CATCH pulse complete; ready for next target frame"
+
+        if self.chassis_station_stage == "disc_yellow_reset":
+            self.state = "DISC_CATCH yellow splitter reset"
+            if not self.servo_bridge.write_enabled:
+                self.splitter_id4 = DISC_CATCH_SPLITTER_RESET_TICK
+                self.chassis_station_stage = "disc_yellow_cooldown"
+                self.chassis_station_deadline = (
+                    now + DISC_CATCH_YELLOW_COOLDOWN_S
+                )
+                self.arm_preview.set_targets(
+                    self.id1, self.id2, self.id7, self.id6
+                )
+                return "preview DISC_CATCH yellow splitter reset"
+            status = self._send_splitter_id4(
+                DISC_CATCH_SPLITTER_RESET_TICK,
+                "DISC_CATCH yellow splitter reset",
+            )
+            if self.servo_bridge.last_command_ok:
+                self.chassis_station_stage = "disc_yellow_cooldown"
+                self.chassis_station_deadline = (
+                    time.monotonic() + DISC_CATCH_YELLOW_COOLDOWN_S
+                )
+            return status
+
+        if self.chassis_station_stage == "disc_yellow_cooldown":
+            self.state = "DISC_CATCH yellow cooldown"
+            if now < self.chassis_station_deadline:
+                return (
+                    "DISC_CATCH yellow cooldown "
+                    f"{self.chassis_station_deadline - now:.2f}s"
+                )
+            self.disc_pulse_done = False
+            self.disc_last_pulsed_color = None
             self.chassis_station_stage = "disc_detect"
             self.chassis_station_deadline = 0.0
             self.chassis_station_no_target_deadline = (
@@ -2867,7 +3428,7 @@ class TargetGraspController:
             self.algorithm_stage = "fault"
         return result
 
-    def shutdown_contract(self):
+    def shutdown_contract(self, catcher_target=None, splitter_target=None):
         if not self.enabled or not self.servo_bridge.write_enabled:
             return "shutdown contract skipped; servo writes disabled"
         self.id7 = self.id7_closed
@@ -2887,11 +3448,35 @@ class TargetGraspController:
             return self.status
         time.sleep(max(0.10, min(1.0, self._zp_settle_s())))
 
-        self.id1 = HOME_ID1_TICK
+        # Retract the elbow first so the upper arm clears the mechanism before
+        # ID1 returns home. Keep this as two bus transactions: sending ID1 and
+        # ID2 together defeats the required physical sequence.
         self.id2 = HOME_ID2_TICK
+        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+        self.arm_preview.publish("shutdown contract ID2 home first")
+        print(
+            f"SHUTDOWN CONTRACT ID2_FIRST ID2={self.id2} wait_ms=200",
+            flush=True,
+        )
+        id2_status = self.servo_bridge.send_targets(id2=self.id2)
+        self.last_command_time = time.monotonic()
+        if not self.servo_bridge.last_command_ok:
+            self.status = f"shutdown contract ID2 failed: {id2_status}"
+            self.arm_preview.publish(self.status)
+            print(self.status, flush=True)
+            return self.status
+        time.sleep(ARM_JOINT_SEQUENCE_DELAY_S)
+
+        self.id1 = HOME_ID1_TICK
         self.id6 = BASE_YAW_HOME_TICK
-        self.id5 = CATCHER_HOME_TICK
-        self.splitter_id4 = SPLITTER_YELLOW_TICK
+        self.id5 = int(
+            CATCHER_HOME_TICK if catcher_target is None else catcher_target
+        )
+        self.splitter_id4 = int(
+            SPLITTER_YELLOW_TICK
+            if splitter_target is None
+            else splitter_target
+        )
         self._enforce_angle_gap()
         self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
         self.arm_preview.publish("shutdown contract arm home")
@@ -2903,7 +3488,6 @@ class TargetGraspController:
         )
         status = self.servo_bridge.send_targets(
             id1=self.id1,
-            id2=self.id2,
             id4=self.id7,
             id6=self.id6,
             id5=self.id5,
@@ -2915,7 +3499,10 @@ class TargetGraspController:
             self.arm_preview.publish(self.status)
             print(self.status, flush=True)
             return self.status
-        self.status = f"shutdown contracted: claw={claw_status}; arm={status}"
+        self.status = (
+            f"shutdown contracted: claw={claw_status}; "
+            f"id2_first={id2_status}; arm={status}"
+        )
         self.arm_preview.publish(self.status)
         time.sleep(max(0.15, min(1.2, self._arm_settle_s())))
         return self.status
@@ -2928,24 +3515,21 @@ class TargetGraspController:
         self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
         return self.status
 
-    def _startup_send_targets(self, id1, id2, id4, label):
-        self.id1 = int(id1)
-        self.id2 = int(id2)
+    def _startup_send_targets(self, id1, id2, id4, label, *, raising):
         self.id7 = int(id4)
         self.id6 = BASE_YAW_CENTER_TICK
         self.splitter_id4 = SPLITTER_YELLOW_TICK
         self.id5 = CATCHER_HOME_TICK
-        self._enforce_angle_gap()
-        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
-        status = self.servo_bridge.send_targets(
-            id1=self.id1,
-            id2=self.id2,
-            id4=self.id7,
-            id6=self.id6,
+        status = self._send_fixed_arm_pose_staged(
+            id1,
+            id2,
+            self.id6,
+            label,
+            raising=raising,
+            id7=self.id7,
             id5=self.id5,
             splitter_id4=self.splitter_id4,
         )
-        self.last_command_time = time.monotonic()
         if not self.servo_bridge.last_command_ok:
             return self._startup_fault(f"{label} {status}")
         self.status = (
@@ -2971,8 +3555,8 @@ class TargetGraspController:
             self.state = "startup_wait_ready"
             if not self.servo_bridge.wait_ready(0.12):
                 if now >= self.startup_ready_timeout:
-                    return self._startup_fault("RCT6 ARM UART READY timeout")
-                return "startup_wait_ready: waiting for RCT6"
+                    return self._startup_fault("Hiwonder HTD85 board ready timeout")
+                return "startup_wait_ready: waiting for Hiwonder HTD85 board"
             feedback = self.servo_bridge.command_arm_ready()
             if feedback is None:
                 return self._startup_fault(self.servo_bridge.status)
@@ -3036,6 +3620,7 @@ class TargetGraspController:
                 HOME_ID2_TICK,
                 self.id7_closed,
                 "startup_home",
+                raising=False,
             )
             if self.startup_stage == "fault":
                 return result
@@ -3064,6 +3649,7 @@ class TargetGraspController:
                 READY_ID2_TICK,
                 self.id7_closed,
                 "startup_extend",
+                raising=True,
             )
             if self.startup_stage == "fault":
                 return result
@@ -3154,24 +3740,6 @@ class TargetGraspController:
             return RED_RING_OUTER_DIAMETER_MM
         return LETTER_CUBE_SIDE_MM
 
-    def _apply_ik_calibration(self, id1, id2, target_x_mm, target_z_mm):
-        id1 = self._clamp(
-            id1 + GRASP_ID1_CALIBRATION_TICKS,
-            self.id1_limits,
-        )
-        id1, id2 = enforce_angle_gap(
-            id1,
-            id2,
-            self.id2_limits,
-            self.angle_gap_degrees,
-        )
-        actual_x_mm, actual_z_mm = gripper_position_mm(id1, id2)
-        error_mm = math.hypot(
-            actual_x_mm - target_x_mm,
-            actual_z_mm - target_z_mm,
-        )
-        return id1, id2, error_mm
-
     @staticmethod
     def _estimate_target_offsets_mm(target, frame_shape):
         distance_cm = target.get("distance_cm")
@@ -3198,24 +3766,6 @@ class TargetGraspController:
             "target_size_mm": target_size_mm,
         }
 
-    @staticmethod
-    def _target_descend_bias_mm(offsets):
-        if offsets.get("target_kind") == "ring":
-            return RING_DESCEND_BIAS_MM
-        return 0.0
-
-    @staticmethod
-    def _descend_depth_for_distance_mm(offsets):
-        distance_cm = offsets.get("distance_mm", 0.0) / 10.0
-        table = GRASP_DESCEND_DEPTH_TABLE_CM_MM
-        if distance_cm <= table[0][0]:
-            return table[0][1]
-        for (left_cm, left_mm), (right_cm, right_mm) in zip(table, table[1:]):
-            if distance_cm <= right_cm:
-                ratio = (distance_cm - left_cm) / max(0.001, right_cm - left_cm)
-                return left_mm + (right_mm - left_mm) * ratio
-        return table[-1][1]
-
     def _one_shot_plan(self, target, frame_shape):
         offsets = self._estimate_target_offsets_mm(target, frame_shape)
         if offsets is None:
@@ -3228,260 +3778,78 @@ class TargetGraspController:
                 f"{self.max_lateral_offset_mm:.0f}mm; center with base first"
             )
 
-        gripper_forward_mm = (
-            offsets["distance_mm"]
-            - self.camera_gripper_offset_mm
-            - self.target_gripper_distance_mm
-        )
-        gripper_vertical_mm = (
-            self.camera_gripper_vertical_offset_mm
-            - offsets["vertical_mm"]
-        )
-        current_x_mm, current_z_mm = gripper_position_mm(self.id1, self.id2)
-        solved_id1, solved_id2, ik_error_mm = solve_gripper_position(
-            current_x_mm + gripper_forward_mm,
-            current_z_mm + gripper_vertical_mm,
-            self.id1,
-            self.id2,
-            self.id1_limits,
-            self.id2_limits,
-            self.angle_gap_degrees,
-        )
-        solved_id1, solved_id2, ik_error_mm = self._apply_ik_calibration(
-            solved_id1,
-            solved_id2,
-            current_x_mm + gripper_forward_mm,
-            current_z_mm + gripper_vertical_mm,
-        )
+        distance_cm = offsets["distance_mm"] / 10.0
+        try:
+            solved_id1, solved_id2 = calibrated_grasp_ticks(distance_cm)
+        except ValueError as exc:
+            return None, str(exc)
         plan = {
             **offsets,
-            "forward_mm": gripper_forward_mm,
-            "vertical_target_mm": gripper_vertical_mm,
-            "target_distance_mm": self.target_gripper_distance_mm,
-            "current_x_mm": current_x_mm,
-            "current_z_mm": current_z_mm,
+            "forward_mm": 0.0,
+            "vertical_target_mm": 0.0,
+            "target_distance_mm": offsets["distance_mm"],
+            "current_x_mm": 0.0,
+            "current_z_mm": 0.0,
             "id1": solved_id1,
             "id2": solved_id2,
-            "ik_error_mm": ik_error_mm,
+            "ik_error_mm": 0.0,
+            "calibration_model": "measured_10_30cm",
         }
         return plan, (
-            f"plan d={offsets['distance_mm']:.0f}mm "
-            f"lat={lateral_mm:.0f}mm dz={gripper_vertical_mm:.0f}mm "
-            f"fwd={gripper_forward_mm:.0f}mm -> "
-            f"ID1={solved_id1} ID2={solved_id2} err={ik_error_mm:.1f}mm"
+            f"measured model distance={distance_cm:.1f}cm "
+            f"lat={lateral_mm:.0f}mm -> ID1={solved_id1} ID2={solved_id2}"
         )
 
     def _post_center_plan(self, target=None, frame_shape=None, phase="descend"):
-        offsets = None
-        if target is not None and frame_shape is not None:
-            offsets = self._estimate_target_offsets_mm(target, frame_shape)
-        current_x_mm, current_z_mm = gripper_position_mm(self.id1, self.id2)
-
-        if (
-            self.use_calibrated_grasp_table
-            and offsets is not None
-            and phase in ("overhead", "descend")
-        ):
-            solved_id1, solved_id2 = calibrated_grasp_ticks(
-                offsets["distance_mm"] / 10.0,
-                phase,
-            )
-            solved_id1 = self._clamp(solved_id1, self.id1_limits)
-            solved_id2 = self._clamp(solved_id2, self.id2_limits)
-            solved_id1, solved_id2 = enforce_angle_gap(
-                solved_id1,
-                solved_id2,
-                self.id2_limits,
-                self.angle_gap_degrees,
-            )
-            target_x_mm, target_z_mm = gripper_position_mm(solved_id1, solved_id2)
-            plan = {
-                **offsets,
-                "current_x_mm": current_x_mm,
-                "current_z_mm": current_z_mm,
-                "forward_mm": target_x_mm - current_x_mm,
-                "vertical_target_mm": target_z_mm - current_z_mm,
-                "requested_forward_mm": target_x_mm - current_x_mm,
-                "requested_vertical_mm": target_z_mm - current_z_mm,
-                "progress_ratio": 1.0,
-                "target_distance_mm": 0.0,
-                "lateral_mm": 0.0,
-                "id1": solved_id1,
-                "id2": solved_id2,
-                "ik_error_mm": 0.0,
+        offsets = self._estimate_target_offsets_mm(target, frame_shape) \
+            if target is not None and frame_shape is not None else None
+        if offsets is None:
+            return {
+                "id1": self.id1,
+                "id2": self.id2,
+                "ik_error_mm": float("inf"),
+                "progress_ratio": 0.0,
                 "phase": phase,
-                "calibrated": True,
-            }
-            return plan, (
-                f"calibrated distance={offsets['distance_mm'] / 10.0:.1f}cm "
-                f"phase={phase} ID1={solved_id1} ID2={solved_id2}"
-            )
+            }, "measured grasp model waiting for target distance"
 
-        if offsets is not None:
-            camera_to_target_mm = offsets["distance_mm"]
-            camera_to_gripper_mm = max(0.0, self.camera_gripper_offset_mm)
-            descend_base_mm = self._descend_depth_for_distance_mm(offsets)
-            descend_bias_mm = self._target_descend_bias_mm(offsets)
-            descend_depth_mm = descend_base_mm + descend_bias_mm
-            # The camera is 50 mm behind the gripper. Once the target is
-            # centered, camera-target and camera-gripper are perpendicular
-            # components: move back by the fixed offset and down by the
-            # measured camera distance, leaving a small gripping clearance.
-            gripper_to_target_mm = math.hypot(
-                camera_to_target_mm,
-                camera_to_gripper_mm,
-            )
-            if phase == "overhead":
-                move_x_mm = -camera_to_gripper_mm
-                move_z_mm = 0.0
-            else:
-                move_x_mm = -self.post_center_retreat_mm
-                move_z_mm = -descend_depth_mm
-            target_kind = offsets.get("target_kind", "letter")
-            target_source = offsets.get("target_source")
-            target_size_mm = offsets.get("target_size_mm", LETTER_CUBE_SIDE_MM)
+        distance_cm = offsets["distance_mm"] / 10.0
+        try:
+            measured_id1, measured_id2 = calibrated_grasp_ticks(distance_cm)
+        except ValueError as exc:
+            return {
+                **offsets,
+                "id1": self.id1,
+                "id2": self.id2,
+                "ik_error_mm": float("inf"),
+                "progress_ratio": 0.0,
+                "phase": phase,
+            }, str(exc)
+
+        if phase == "overhead":
+            solved_id1, solved_id2 = self.id1, self.id2
         else:
-            camera_to_target_mm = None
-            camera_to_gripper_mm = self.camera_gripper_offset_mm
-            gripper_to_target_mm = None
-            descend_base_mm = self.post_center_down_mm
-            descend_bias_mm = 0.0
-            descend_depth_mm = self.post_center_down_mm
-            move_x_mm = -self.post_center_retreat_mm
-            move_z_mm = -self.post_center_down_mm
-            target_kind = "letter"
-            target_source = None
-            target_size_mm = LETTER_CUBE_SIDE_MM
-
-        target_x_mm = current_x_mm + move_x_mm
-        target_z_mm = current_z_mm - self.post_center_down_mm
-        if offsets is not None:
-            target_z_mm = current_z_mm + move_z_mm
-        solved_id1, solved_id2, ik_error_mm = solve_gripper_position(
-            target_x_mm,
-            target_z_mm,
-            self.id1,
-            self.id2,
-            self.id1_limits,
-            self.id2_limits,
-            self.angle_gap_degrees,
-        )
-        progress_ratio = 1.0
-        if ik_error_mm > self.post_center_ik_error_mm:
-            for candidate_ratio in (0.85, 0.70, 0.55, 0.40, 0.25, 0.10):
-                candidate_x_mm = current_x_mm + move_x_mm * candidate_ratio
-                candidate_z_mm = current_z_mm + move_z_mm * candidate_ratio
-                candidate_id1, candidate_id2, candidate_error_mm = solve_gripper_position(
-                    candidate_x_mm,
-                    candidate_z_mm,
-                    self.id1,
-                    self.id2,
-                    self.id1_limits,
-                    self.id2_limits,
-                    self.angle_gap_degrees,
-                )
-                if candidate_error_mm <= self.post_center_ik_error_mm:
-                    progress_ratio = candidate_ratio
-                    target_x_mm = candidate_x_mm
-                    target_z_mm = candidate_z_mm
-                    solved_id1 = candidate_id1
-                    solved_id2 = candidate_id2
-                    ik_error_mm = candidate_error_mm
-                    break
-        if self.use_post_center_tick_bias:
-            solved_id1, solved_id2, ik_error_mm = self._apply_ik_calibration(
-                solved_id1,
-                solved_id2,
-                target_x_mm,
-                target_z_mm,
-            )
-        if phase == "descend" and self.use_post_center_tick_bias:
-            solved_id2 = self._clamp(
-                solved_id2 + GRASP_DESCEND_ID2_BIAS_TICKS,
-                self.id2_limits,
-            )
-            solved_id1, solved_id2 = enforce_angle_gap(
-                solved_id1,
-                solved_id2,
-                self.id2_limits,
-                self.angle_gap_degrees,
-            )
-            actual_x_mm, actual_z_mm = gripper_position_mm(solved_id1, solved_id2)
-            ik_error_mm = math.hypot(
-                actual_x_mm - target_x_mm,
-                actual_z_mm - target_z_mm,
-            )
-        planned_move_x_mm = move_x_mm * progress_ratio
-        planned_move_z_mm = move_z_mm * progress_ratio
+            solved_id1 = self._clamp(measured_id1, self.id1_limits)
+            solved_id2 = self._clamp(measured_id2, self.id2_limits)
         plan = {
-            "current_x_mm": current_x_mm,
-            "current_z_mm": current_z_mm,
-            "forward_mm": planned_move_x_mm,
-            "vertical_target_mm": planned_move_z_mm,
-            "requested_forward_mm": move_x_mm,
-            "requested_vertical_mm": move_z_mm,
-            "progress_ratio": progress_ratio,
-            "target_distance_mm": 0.0,
-            "distance_mm": camera_to_target_mm if camera_to_target_mm is not None else abs(move_x_mm),
-            "lateral_mm": 0.0,
-            "target_kind": target_kind,
-            "target_source": target_source,
-            "target_size_mm": target_size_mm,
-            "distance_scaled_down_mm": descend_depth_mm,
-            "descend_base_mm": descend_base_mm,
-            "descend_bias_mm": descend_bias_mm,
+            **offsets,
+            "current_x_mm": 0.0,
+            "current_z_mm": 0.0,
+            "forward_mm": 0.0,
+            "vertical_target_mm": 0.0,
+            "requested_forward_mm": 0.0,
+            "requested_vertical_mm": 0.0,
+            "progress_ratio": 1.0,
+            "target_distance_mm": offsets["distance_mm"],
             "id1": solved_id1,
             "id2": solved_id2,
-            "ik_error_mm": ik_error_mm,
+            "ik_error_mm": 0.0,
             "phase": phase,
+            "calibration_model": "measured_10_30cm",
         }
-        if offsets is not None:
-            plan.update(offsets)
         return plan, (
-            f"triangle Dcam-target={camera_to_target_mm:.0f}mm "
-            f"Dcam-gripper={camera_to_gripper_mm:.0f}mm "
-            f"Dgripper-target={gripper_to_target_mm:.0f}mm "
-            if camera_to_target_mm is not None and gripper_to_target_mm is not None
-            else f"post-center fixed move x={move_x_mm:.0f}mm "
-        ) + (
-            f"phase={phase} move x={planned_move_x_mm:.0f}/{move_x_mm:.0f}mm "
-            f"z={planned_move_z_mm:.0f}/{move_z_mm:.0f}mm "
-            f"depth={descend_depth_mm:.0f}mm "
-            f"base={descend_base_mm:.0f}mm bias={descend_bias_mm:.0f}mm "
-            f"progress={progress_ratio * 100:.0f}%: "
-            f"ID1 {self.id1}->{solved_id1} "
-            f"ID2 {self.id2}->{solved_id2} err={ik_error_mm:.1f}mm"
+            f"measured model distance={distance_cm:.1f}cm phase={phase} "
+            f"ID1={solved_id1} ID2={solved_id2}"
         )
-
-    def _post_open_retreat_target(self):
-        current_x_mm, current_z_mm = gripper_position_mm(self.id1, self.id2)
-        target_x_mm = current_x_mm - POST_OPEN_RETREAT_MM
-        best_id2 = self.id2
-        best_error = float("inf")
-        lower_id2 = self.id2_limits[0]
-        upper_id2 = min(self.id2, self.id2_limits[1])
-        for candidate_id2 in range(lower_id2, upper_id2 + 1):
-            candidate_x_mm, candidate_z_mm = gripper_position_mm(self.id1, candidate_id2)
-            error = abs(candidate_x_mm - target_x_mm)
-            if error < best_error:
-                best_error = error
-                best_id2 = candidate_id2
-        target_id1, target_id2 = enforce_angle_gap(
-            self.id1,
-            best_id2,
-            self.id2_limits,
-            self.angle_gap_degrees,
-        )
-        actual_x_mm, actual_z_mm = gripper_position_mm(target_id1, target_id2)
-        actual_retreat_mm = current_x_mm - actual_x_mm
-        text = (
-            f"post-open ID2 retreat requested={POST_OPEN_RETREAT_MM:.0f}mm "
-            f"actual={actual_retreat_mm:.0f}mm "
-            f"x={current_x_mm:.0f}->{actual_x_mm:.0f}mm "
-            f"z={current_z_mm:.0f}->{actual_z_mm:.0f}mm "
-            f"ID1={self.id1}->{target_id1} ID2={self.id2}->{target_id2}"
-        )
-        return target_id1, target_id2, text
 
     def _update_locked_grasp(
         self,
@@ -3944,7 +4312,12 @@ class TargetGraspController:
             self.state = "locked target close claw"
             if not self.servo_bridge.write_enabled:
                 self.id7 = self.id7_closed
-                if self.post_center_direct_descend and not self.abort_after_return:
+                if (
+                    self.active_chassis_station == "PLATFORM_PICK"
+                    and not self.abort_after_return
+                ):
+                    self.algorithm_stage = "platform_post_grab_id6"
+                elif self.post_center_direct_descend and not self.abort_after_return:
                     self.algorithm_stage = "post_grab_id2_retreat"
                 else:
                     self.algorithm_stage = "return"
@@ -3963,11 +4336,117 @@ class TargetGraspController:
             self.state = "locked target waiting close claw"
             if now < self.stage_deadline:
                 return f"locked target; waiting close claw {self.stage_deadline - now:.1f}s"
-            if self.post_center_direct_descend and not self.abort_after_return:
+            if (
+                self.active_chassis_station == "PLATFORM_PICK"
+                and not self.abort_after_return
+            ):
+                self.algorithm_stage = "platform_post_grab_id6"
+            elif self.post_center_direct_descend and not self.abort_after_return:
                 self.algorithm_stage = "post_grab_id2_retreat"
             else:
                 self.algorithm_stage = "return"
             self.return_attempts = 0
+
+        if self.algorithm_stage == "platform_post_grab_id6":
+            self.state = "PLATFORM_PICK post-grab ID6=570"
+            if not self.servo_bridge.write_enabled:
+                self.id6 = 570
+                self.algorithm_stage = "platform_post_grab_id6_wait"
+                self.stage_deadline = now + self._arm_settle_s()
+                self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+                return "preview PLATFORM_PICK post-grab ID6=570"
+            if can_command:
+                self.id6 = 570
+                result = self._send(
+                    "PLATFORM_PICK post-grab move ID6=570",
+                    require_feedback=False,
+                )
+                if self.servo_bridge.last_command_ok:
+                    self.algorithm_stage = "platform_post_grab_id6_wait"
+                    self.stage_deadline = time.monotonic() + self._arm_settle_s()
+                return result
+            return "PLATFORM_PICK waiting post-grab ID6=570"
+
+        if self.algorithm_stage == "platform_post_grab_id6_wait":
+            if now < self.stage_deadline:
+                return (
+                    "PLATFORM_PICK waiting ID6=570 "
+                    f"{self.stage_deadline - now:.1f}s"
+                )
+            self.algorithm_stage = "platform_post_grab_open"
+
+        if self.algorithm_stage == "platform_post_grab_open":
+            self.state = "PLATFORM_PICK post-grab ID7 open pulse"
+            if not self.servo_bridge.write_enabled:
+                self.id7 = self.id7_open
+                self.algorithm_stage = "platform_post_grab_open_wait"
+                self.stage_deadline = now + self._zp_settle_s()
+                self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+                return "preview PLATFORM_PICK post-grab ID7 open"
+            if can_command:
+                result = self._send_gripper_id7(
+                    self.id7_open,
+                    "PLATFORM_PICK post-grab ID7 open",
+                )
+                if self.servo_bridge.last_command_ok:
+                    self.algorithm_stage = "platform_post_grab_open_wait"
+                    self.stage_deadline = time.monotonic() + self._zp_settle_s()
+                return result
+            return "PLATFORM_PICK waiting post-grab ID7 open"
+
+        if self.algorithm_stage == "platform_post_grab_open_wait":
+            if now < self.stage_deadline:
+                return (
+                    "PLATFORM_PICK waiting ID7 open "
+                    f"{self.stage_deadline - now:.1f}s"
+                )
+            self.algorithm_stage = "platform_post_grab_close"
+
+        if self.algorithm_stage == "platform_post_grab_close":
+            self.state = "PLATFORM_PICK post-grab ID7 close pulse"
+            if not self.servo_bridge.write_enabled:
+                self.id7 = self.id7_closed
+                self.algorithm_stage = "platform_post_grab_close_wait"
+                self.stage_deadline = now + self._zp_settle_s()
+                self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+                return "preview PLATFORM_PICK post-grab ID7 close"
+            if can_command:
+                result = self._send_gripper_id7(
+                    self.id7_closed,
+                    "PLATFORM_PICK post-grab ID7 close",
+                )
+                if self.servo_bridge.last_command_ok:
+                    self.algorithm_stage = "platform_post_grab_close_wait"
+                    self.stage_deadline = time.monotonic() + self._zp_settle_s()
+                return result
+            return "PLATFORM_PICK waiting post-grab ID7 close"
+
+        if self.algorithm_stage == "platform_post_grab_close_wait":
+            if now < self.stage_deadline:
+                return (
+                    "PLATFORM_PICK waiting ID7 close "
+                    f"{self.stage_deadline - now:.1f}s"
+                )
+            if not self.servo_bridge.write_enabled:
+                self.id1 = 600
+                self.id2 = 600
+                self.id6 = 640
+                return self._finish_platform_pick("PICKED")
+            if can_command:
+                result = self._send_fixed_arm_pose_staged(
+                    600,
+                    600,
+                    640,
+                    "PLATFORM_PICK restore expanded pose",
+                    raising=True,
+                    id7=self.id7_closed,
+                    id5=CATCHER_HOME_TICK,
+                    splitter_id4=DISC_CATCH_SPLITTER_READY_TICK,
+                )
+                if self.servo_bridge.last_command_ok:
+                    return self._finish_platform_pick("PICKED")
+                return result
+            return "PLATFORM_PICK waiting restore expanded pose"
 
         if self.algorithm_stage == "post_grab_id2_retreat":
             self.state = "post-grab retreat"
@@ -4052,14 +4531,16 @@ class TargetGraspController:
                     )
                     return self.status
             if can_command:
-                self.id1 = target_id1
-                self.id2 = target_id2
-                self.id6 = target_id6
-                self.id7 = self.id7_closed
                 self.return_attempts += 1
-                result = self._send(
+                result = self._send_fixed_arm_pose_staged(
+                    target_id1,
+                    target_id2,
+                    target_id6,
                     f"return standby attempt={self.return_attempts}/3",
-                    require_feedback=True,
+                    raising=True,
+                    id7=self.id7_closed,
+                    id5=self.id5,
+                    splitter_id4=self.splitter_id4,
                 )
                 if (
                     self.servo_bridge.last_command_ok
@@ -4200,12 +4681,15 @@ class TargetGraspController:
                     start_retrigger_cooldown=True,
                 )
             if can_command:
-                self.id1 = target_id1
-                self.id2 = target_id2
-                self.id6 = target_id6
-                result = self._send(
+                result = self._send_fixed_arm_pose_staged(
+                    target_id1,
+                    target_id2,
+                    target_id6,
                     "final return standby after release/reclose",
-                    require_feedback=True,
+                    raising=True,
+                    id7=self.id7,
+                    id5=self.id5,
+                    splitter_id4=self.splitter_id4,
                 )
                 if self.servo_bridge.last_command_ok:
                     self.algorithm_stage = "final_return_wait"
@@ -4346,7 +4830,7 @@ class TargetGraspController:
             self.last_feedback_attempt = now
             feedback = self.servo_bridge.query_positions()
             if feedback is None:
-                self.status = "waiting for RCT6 position synchronization"
+                self.status = "waiting for Hiwonder HTD85 position synchronization"
                 return f"{self.status} | {self.servo_bridge.status}"
             if not self._apply_feedback(feedback):
                 return self.status
@@ -4374,6 +4858,11 @@ class TargetGraspController:
             return self.status
         if self.one_shot:
             return self._update_one_shot(target, frame_shape)
+        if (
+            self.active_chassis_station == "PLATFORM_PICK"
+            and self.chassis_station_stage == "platform_preselect"
+        ):
+            return self.status
         live_target = target
         if self.locked_target is not None:
             return self._update_locked_grasp(
@@ -4403,6 +4892,39 @@ class TargetGraspController:
                     self.last_visual_target = None
             self.state = "post-grasp cooldown" if ignoring_new_target else "searching"
             can_command = now - self.last_command_time >= self.command_interval_s
+            if (
+                self.active_chassis_station == "PLATFORM_PICK"
+                and self.chassis_station_stage is None
+            ):
+                expand_id1 = 600
+                expand_id2 = 600
+                expand_id6 = 640
+                self.id7 = self.id7_closed
+                self.id5 = CATCHER_HOME_TICK
+                self.splitter_id4 = DISC_CATCH_SPLITTER_READY_TICK
+                self._enforce_angle_gap()
+                self.arm_preview.set_targets(
+                    expand_id1, expand_id2, self.id7, expand_id6
+                )
+                if not self.servo_bridge.write_enabled:
+                    return (
+                        "preview PLATFORM_PICK high hold "
+                        f"ID1={expand_id1} ID2={expand_id2} ID6={expand_id6}"
+                    )
+                if can_command and (
+                    (self.id1, self.id2, self.id6)
+                    != (expand_id1, expand_id2, expand_id6)
+                ):
+                    self.id1, self.id2, self.id6 = (
+                        expand_id1,
+                        expand_id2,
+                        expand_id6,
+                    )
+                    return self._send(
+                        "PLATFORM_PICK keep expanded high pose",
+                        require_feedback=False,
+                    )
+                return "PLATFORM_PICK waiting selected target; high pose held"
             expand_id1 = self._clamp(
                 self.id1 + self._limited_delta(READY_ID1_TICK - self.id1),
                 self.id1_limits,
@@ -5163,6 +5685,16 @@ def parse_device(value):
     return int(value) if str(value).isdigit() else value
 
 
+def camera_identity(device):
+    value = str(device or "").strip()
+    if not value or value == "auto":
+        return value
+    try:
+        return str(Path(value).resolve())
+    except OSError:
+        return value
+
+
 def camera_candidates(device):
     if device != "auto":
         return [device]
@@ -5177,7 +5709,6 @@ def camera_candidates(device):
                 except OSError:
                     pass
 
-    candidates.extend(["/dev/video20", "/dev/video21"])
     for item in sorted(Path("/dev").glob("video*"), key=lambda p: p.name):
         if item.name[5:].isdigit():
             candidates.append(str(item))
@@ -5191,7 +5722,7 @@ def camera_candidates(device):
     return deduped
 
 
-def open_camera(device, width, height, fps):
+def open_camera(device, width, height, fps, role="CAMERA"):
     errors = []
     for candidate in camera_candidates(device):
         cap = cv2.VideoCapture(parse_device(candidate), cv2.CAP_V4L2)
@@ -5225,21 +5756,24 @@ def open_camera(device, width, height, fps):
             errors.append(f"{candidate}: open failed")
             cap.release()
             continue
-        for _ in range(3):
+        # Require one real frame before publishing the camera. The latest
+        # frame reader drains the V4L2 queue after this point, so extra startup
+        # reads only delay the H7 white-line handshake.
+        for _ in range(1):
             ok, _ = cap.read()
             if ok:
                 actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                 actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                 actual_fps = cap.get(cv2.CAP_PROP_FPS)
                 print(
-                    f"Camera: {candidate} {actual_width}x{actual_height} "
+                    f"{role} CAMERA: {candidate} {actual_width}x{actual_height} "
                     f"reported_fps={actual_fps:.1f}"
                 )
                 return cap
             time.sleep(0.03)
         errors.append(f"{candidate}: no frames")
         cap.release()
-    raise RuntimeError("Cannot open camera. Tried: " + "; ".join(errors))
+    raise RuntimeError(f"Cannot open {role.lower()} camera. Tried: " + "; ".join(errors))
 
 
 class LatestFrameReader:
@@ -5340,6 +5874,11 @@ def local_ip_hint():
 def build_arg_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--device", default=os.environ.get("CAMERA_DEVICE", "auto"))
+    parser.add_argument(
+        "--secondary-device",
+        default=os.environ.get("SECONDARY_CAMERA_DEVICE", ""),
+        help="secondary camera used only for task-two initial letter preselection",
+    )
     parser.add_argument("--width", type=int, default=640)
     parser.add_argument("--height", type=int, default=480)
     parser.add_argument("--fps", type=int, default=30)
@@ -5358,21 +5897,45 @@ def build_arg_parser():
     parser.add_argument("--keep-pipewire", action="store_true")
     parser.add_argument("--keep-camera-users", action="store_true")
     parser.add_argument("--disable-servo-trigger", action="store_true")
-    parser.add_argument("--servo-uart", default=os.environ.get("SERVO_UART", "/dev/ttyS0"))
+    parser.add_argument(
+        "--servo-uart",
+        default=os.environ.get(
+            "SERVO_UART",
+            "/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0",
+        ),
+    )
     parser.add_argument("--servo-baud", type=int, default=int(os.environ.get("SERVO_BAUD", "115200")))
     parser.add_argument(
         "--direct-servo-bus",
         action="store_true",
         default=os.environ.get("DIRECT_SERVO_BUS", "").lower() in {"1", "true", "yes"},
-        help="bypass RCT6 and transmit servo bus frames directly from RK UART TX",
+        help="use the Hiwonder HTD-85 USB board for IDs 1/2/3/6 and the ZL ZP USB board for IDs 4/5/7",
     )
-    parser.add_argument("--direct-arm-time-ms", type=int, default=int(os.environ.get("DIRECT_ARM_TIME_MS", "1200")))
-    parser.add_argument("--direct-zp-time-ms", type=int, default=int(os.environ.get("DIRECT_ZP_TIME_MS", "1000")))
-    parser.add_argument("--direct-gripper-time-ms", type=int, default=int(os.environ.get("DIRECT_GRIPPER_TIME_MS", "400")))
+    parser.add_argument("--direct-arm-time-ms", type=int, default=int(os.environ.get("DIRECT_ARM_TIME_MS", "600")))
+    parser.add_argument("--direct-zp-time-ms", type=int, default=int(os.environ.get("DIRECT_ZP_TIME_MS", "300")))
+    parser.add_argument("--direct-gripper-time-ms", type=int, default=int(os.environ.get("DIRECT_GRIPPER_TIME_MS", "210")))
     parser.add_argument("--direct-splitter-time-ms", type=int, default=None)
     parser.add_argument("--direct-repeat", type=int, default=int(os.environ.get("DIRECT_SERVO_REPEAT", "1")))
-    parser.add_argument("--direct-arm-uart", default=os.environ.get("DIRECT_ARM_UART", os.environ.get("SERVO_ARM_UART", "/dev/ttyS9")))
-    parser.add_argument("--direct-zp-uart", default=os.environ.get("DIRECT_ZP_UART", os.environ.get("SERVO_ZP_UART", "/dev/ttyS0")))
+    parser.add_argument(
+        "--direct-arm-uart",
+        default=os.environ.get(
+            "DIRECT_ARM_UART",
+            os.environ.get(
+                "SERVO_ARM_UART",
+                "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5C82109853-if00",
+            ),
+        ),
+    )
+    parser.add_argument(
+        "--direct-zp-uart",
+        default=os.environ.get(
+            "DIRECT_ZP_UART",
+            os.environ.get(
+                "SERVO_ZP_UART",
+                "/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0",
+            ),
+        ),
+    )
     parser.add_argument("--trigger-command", default=os.environ.get("SERVO_TRIGGER_COMMAND", "linkstart"))
     parser.add_argument("--trigger-color", default="red", choices=BALL_COLORS)
     parser.add_argument("--trigger-kind", default="letter", choices=("ball", "letter", "ring", "any"))
@@ -5452,16 +6015,6 @@ def build_arg_parser():
         help="finish the active chassis station after this many seconds with no target",
     )
     parser.add_argument(
-        "--use-calibrated-grasp-table",
-        action="store_true",
-        help="use the legacy distance-to-tick table instead of corrected IK",
-    )
-    parser.add_argument(
-        "--use-post-center-tick-bias",
-        action="store_true",
-        help="apply the legacy ID1/ID2 tick bias after post-center IK",
-    )
-    parser.add_argument(
         "--post-center-direct-descend",
         action="store_true",
         help="after opening ID7, skip overhead and descend using corrected post-center IK",
@@ -5495,6 +6048,16 @@ def build_arg_parser():
 def main(argv=None):
     args, _ = build_arg_parser().parse_known_args(argv)
     ensure_display_env()
+    if (
+        args.secondary_device
+        and camera_identity(args.device) == camera_identity(args.secondary_device)
+    ):
+        print(
+            "SECONDARY CAMERA disabled: main and secondary resolve to the same device "
+            f"({args.device})",
+            flush=True,
+        )
+        args.secondary_device = ""
 
     state = FrameState()
     detector = TargetDetector()
@@ -5530,7 +6093,7 @@ def main(argv=None):
     )
     if args.direct_splitter_time_ms is None:
         args.direct_splitter_time_ms = int(
-            os.environ.get("DIRECT_SPLITTER_TIME_MS", args.direct_gripper_time_ms)
+            os.environ.get("DIRECT_SPLITTER_TIME_MS", "500")
         )
 
     servo_bridge_class = DirectBusServoBridge if args.direct_servo_bus else AbsoluteServoBridge
@@ -5587,8 +6150,6 @@ def main(argv=None):
         post_center_retreat_mm=args.post_center_retreat_mm,
         post_center_down_mm=args.post_center_down_mm,
         post_center_ik_error_mm=args.post_center_ik_error_mm,
-        use_calibrated_grasp_table=args.use_calibrated_grasp_table,
-        use_post_center_tick_bias=args.use_post_center_tick_bias,
         post_center_direct_descend=args.post_center_direct_descend,
         simple_vertical_grasp=args.simple_vertical_grasp,
         vertical_grasp_id1=args.vertical_grasp_id1,
@@ -5606,6 +6167,7 @@ def main(argv=None):
         args.station_no_target_timeout,
     )
     white_line_detector = WhiteLineAlignmentDetector()
+    white_line_last_query_sequence = None
     if args.chassis_home_on_start and execute_auto_grasp:
         startup_home_status = grasp_controller.shutdown_contract()
         print(f"CHASSIS LINK startup home requested: {startup_home_status}", flush=True)
@@ -5636,8 +6198,12 @@ def main(argv=None):
     # and the station state machine can retract on its own deadline.
     cap = None
     camera_reader = None
+    secondary_cap = None
+    secondary_reader = None
     camera_retry_at = 0.0
+    secondary_retry_at = 0.0
     camera_last_error_log = 0.0
+    secondary_last_error_log = 0.0
     camera_last_no_frame_log = 0.0
     window_enabled = not args.no_window
     window_close_watcher = None
@@ -5691,10 +6257,56 @@ def main(argv=None):
         thread_name_prefix="camera-open",
     )
     camera_open_future = None
+    secondary_open_future = None
     detection_future = None
     detection_pending_frame = None
     detection_source_frame = None
     detection_epoch = 0
+
+    def close_secondary_camera(reason=None):
+        nonlocal secondary_cap, secondary_reader
+        was_open = secondary_reader is not None or secondary_cap is not None
+        if secondary_reader is not None:
+            secondary_reader.close()
+            secondary_reader = None
+        elif secondary_cap is not None:
+            secondary_cap.release()
+        secondary_cap = None
+        if was_open and reason:
+            print(f"SECONDARY CAMERA LINK released reason={reason}", flush=True)
+
+    def service_secondary_preselect():
+        nonlocal secondary_retry_at
+        if (
+            grasp_controller.chassis_station_stage != "platform_preselect"
+            or secondary_reader is None
+        ):
+            return
+        secondary_ok, secondary_frame, _, secondary_error = secondary_reader.latest()
+        if secondary_error is not None:
+            print(
+                "SECONDARY CAMERA LINK lost; releasing device and retrying "
+                f"(reader_error={secondary_error!r})",
+                flush=True,
+            )
+            close_secondary_camera("reader_error")
+            secondary_retry_at = time.monotonic() + 1.0
+            return
+        if not secondary_ok or secondary_frame is None:
+            return
+        if secondary_frame.shape[:2] != (args.height, args.width):
+            secondary_frame = cv2.resize(
+                secondary_frame,
+                (args.width, args.height),
+                interpolation=cv2.INTER_AREA,
+            )
+        secondary_detections = detector.detect(secondary_frame)
+        preselect_info = grasp_controller.update_platform_preselect(
+            secondary_detections,
+            detection_fresh=True,
+        )
+        if preselect_info:
+            resolve_station_outcome(preselect_info)
 
     def resolve_station_outcome(info):
         """Finish the H7 transaction after every station state-machine tick."""
@@ -5718,14 +6330,74 @@ def main(argv=None):
             )
             info = f"{info}; arm abort={abort_status}"
         if error_reason:
-            if chassis_link.active_task is not None:
+            station = chassis_link.active_task
+            if (
+                station == "DISC_CATCH"
+                and "HOME_FAILED" not in str(error_reason).upper()
+            ):
+                recovered = chassis_link.recover_active(error_reason)
+                if recovered:
+                    return (
+                        f"{info}; station RECOVERED={error_reason}; "
+                        "ARM_HOME=OK; continue route"
+                    )
+            if station is not None:
                 chassis_link.fail_active(error_reason)
             return f"{info}; station ERR={error_reason}"
         if done_reason:
-            if chassis_link.active_task is not None:
+            if done_reason.startswith("PRESELECT_DONE:"):
+                letters = done_reason.split(":")[1:]
+                if chassis_link.active_task is not None:
+                    chassis_link.finish_preselect(letters)
+                close_secondary_camera("preselect_done")
+            elif chassis_link.active_task is not None:
                 chassis_link.finish_active(done_reason)
             return f"{info}; station DONE={done_reason}"
         return info
+
+    def _process_white_line_queries(frame, reason):
+        nonlocal white_line_last_query_sequence
+        pending_white_line_queries = chassis_link.consume_white_line_queries()
+        if not pending_white_line_queries:
+            return
+        query_sequence = pending_white_line_queries[-1]
+        if query_sequence != white_line_last_query_sequence:
+            # A new H7 white-line phase must start from the current camera
+            # frame, never from a held result of a previous route stage.
+            white_line_detector.reset_tracking()
+            white_line_last_query_sequence = query_sequence
+        if frame is None or getattr(frame, "size", 0) == 0:
+            for sequence in pending_white_line_queries:
+                chassis_link.send_white_line_result(sequence, None)
+                print(
+                    f"WHITE LINE seq={sequence} not found ({reason})",
+                    flush=True,
+                )
+            return
+        line_measurement = white_line_detector.detect(frame)
+        if line_measurement is None and pending_white_line_queries:
+            # TEMP DEBUG: save the first unseen frame per query sequence so a
+            # missed detection can be inspected offline. Remove after tuning.
+            for _dbg_seq in pending_white_line_queries[:1]:
+                _dbg_path = f"/tmp/wl_dbg_{_dbg_seq}.jpg"
+                if not os.path.exists(_dbg_path):
+                    cv2.imwrite(_dbg_path, frame)
+                    print(f"WL DEBUG frame saved: {_dbg_path}", flush=True)
+        for sequence in pending_white_line_queries:
+            chassis_link.send_white_line_result(sequence, line_measurement)
+            if line_measurement is None:
+                print(
+                    f"WHITE LINE seq={sequence} not found ({reason})",
+                    flush=True,
+                )
+            else:
+                print(
+                    "WHITE LINE "
+                    f"seq={sequence} "
+                    f"y_center={line_measurement['y_at_center']:.1f} "
+                    f"angle={line_measurement['angle_deg']:+.2f}",
+                    flush=True,
+                )
 
     def service_station_without_frame():
         """Advance timers and safety exits when no camera frame is available."""
@@ -5761,18 +6433,25 @@ def main(argv=None):
                 )
             ):
                 timeout_station = chassis_link.active_task
-                timeout_status = grasp_controller.retract_for_chassis_timeout(
-                    timeout_station
-                )
-                timeout_error = grasp_controller.consume_chassis_station_error()
-                if timeout_error:
-                    chassis_link.fail_active(timeout_error)
+                if timeout_station == "PLATFORM_PICK":
+                    timeout_status = grasp_controller.skip_platform_slot(
+                        "NO_TARGET_TIMEOUT"
+                    )
+                    chassis_link.finish_active("SKIPPED_NO_TARGET")
                 else:
-                    chassis_link.finish_active("NO_TARGET_TIMEOUT")
+                    timeout_status = grasp_controller.retract_for_chassis_timeout(
+                        timeout_station
+                    )
+                    timeout_error = grasp_controller.consume_chassis_station_error()
+                    if timeout_error:
+                        chassis_link.fail_active(timeout_error)
+                    else:
+                        chassis_link.finish_active("NO_TARGET_TIMEOUT")
                 info = (
                     f"{info}; station {timeout_station} timeout; "
                     f"{timeout_status}"
                 )
+        _process_white_line_queries(None, "camera unavailable")
         grasp_controller.arm_preview.publish(info, None, grasp_controller.state)
         now = time.monotonic()
         if now - camera_last_no_frame_log >= 5.0:
@@ -5791,8 +6470,11 @@ def main(argv=None):
         while True:
             detection_fresh = False
             chassis_link.set_ready(
+                # Arm/H7 synchronization must not depend on the camera. The
+                # camera is required later for white-line and ball vision, but
+                # PREP_HIGH must be accepted and sent to the 85KG bus during the arc
+                # even while the camera is reconnecting.
                 grasp_controller.ready_for_chassis_link(execute_auto_grasp)
-                and cap is not None
             )
             pending_stations = chassis_link.update()
             arm_tune_bridge.poll(
@@ -5809,25 +6491,59 @@ def main(argv=None):
                     f"{reset_status}",
                     flush=True,
                 )
+            for preselect in chassis_link.consume_preselects():
+                preselect_status = grasp_controller.begin_platform_preselect(
+                    preselect.get("count", 2)
+                )
+                print(
+                    f"CHASSIS PRESELECT STARTED | {preselect_status}",
+                    flush=True,
+                )
+            platform_slot_requests = chassis_link.consume_platform_slots()
             if not grasp_controller.set_field_mode(chassis_link.field_mode):
                 print(
                     "CHASSIS FIELD update rejected while station is active",
                     flush=True,
                 )
+            for aux in chassis_link.consume_aux_zp():
+                aux_kwargs = {
+                    "pulse": aux.get("pulse"),
+                    "time_ms": aux.get("time_ms"),
+                }
+                if aux.get("channel") is not None:
+                    aux_kwargs["channel"] = aux.get("channel")
+                    target_name = f"S{aux.get('channel')}"
+                else:
+                    aux_kwargs["servo_id"] = aux.get("servo_id")
+                    target_name = f"ID{aux.get('servo_id')}"
+                aux_status = grasp_controller.servo_bridge.send_zp_aux(**aux_kwargs)
+                aux_success = (
+                    grasp_controller.servo_bridge.write_enabled
+                    and grasp_controller.servo_bridge.last_command_ok
+                )
+                chassis_link.complete_aux_zp(aux, aux_success, aux_status)
+                print(
+                    f"CHASSIS AUX_ZP {target_name}={aux.get('pulse')} "
+                    f"T={aux.get('time_ms')}ms "
+                    f"done={'yes' if aux_success else 'no'} | {aux_status}",
+                    flush=True,
+                )
             for prep in chassis_link.consume_preps():
                 prep_status = grasp_controller.prepare_chassis_station_high(prep)
-                prep_ok = (
-                    not servo_bridge.write_enabled
-                    or servo_bridge.last_command_ok
-                ) and grasp_controller.algorithm_stage != "fault"
-                chassis_link.complete_prep(
-                    prep,
-                    prep_ok,
-                    "PREP_HIGH_SERVO_FAILED",
+                prep_success = (
+                    grasp_controller.algorithm_stage != "fault"
+                    and (
+                        not grasp_controller.servo_bridge.write_enabled
+                        or grasp_controller.servo_bridge.last_command_ok
+                    )
                 )
+                # ACK only after the PREP_HIGH command has actually been
+                # written to the 85KG bus. H7 can then keep the arc moving
+                # without waiting for servo feedback.
+                chassis_link.complete_prep(prep, prep_success, prep_status)
                 print(
                     f"CHASSIS PREP {prep.get('task', 'UNKNOWN')} | "
-                    f"{prep_status}",
+                    f"{prep_status} ack={'yes' if prep_success else 'no'}",
                     flush=True,
                 )
             for station in pending_stations:
@@ -5847,6 +6563,15 @@ def main(argv=None):
                     chassis_link.restart_target_watch(
                         grasp_controller._arm_settle_s()
                     )
+            for slot_request in platform_slot_requests:
+                if slot_request.get("task") != "PLATFORM_PICK":
+                    continue
+                slot = slot_request.get("slot")
+                print(
+                    "CHASSIS PLATFORM SLOT REQUEST "
+                    f"seq={slot_request.get('sequence')} slot={slot}",
+                    flush=True,
+                )
             for station in chassis_link.consume_stops():
                 station_status = grasp_controller.stop_chassis_station(station)
                 station_status = resolve_station_outcome(station_status)
@@ -5883,8 +6608,57 @@ def main(argv=None):
                     args.width,
                     args.height,
                     args.fps,
+                    "MAIN",
                 )
+            preselect_active = (
+                grasp_controller.chassis_station_stage == "platform_preselect"
+            )
+            if not preselect_active and (
+                secondary_reader is not None or secondary_cap is not None
+            ):
+                close_secondary_camera("preselect_inactive")
+            if (
+                args.secondary_device
+                and secondary_cap is None
+                and secondary_open_future is None
+                and preselect_active
+                and now >= secondary_retry_at
+            ):
+                secondary_open_future = camera_executor.submit(
+                    open_camera,
+                    args.secondary_device,
+                    args.width,
+                    args.height,
+                    args.fps,
+                    "SECONDARY",
+                )
+            if secondary_open_future is not None and secondary_open_future.done():
+                try:
+                    opened_secondary = secondary_open_future.result()
+                    if grasp_controller.chassis_station_stage == "platform_preselect":
+                        secondary_cap = opened_secondary
+                        secondary_reader = LatestFrameReader(secondary_cap)
+                        print(
+                            "SECONDARY CAMERA LINK restored "
+                            f"device={args.secondary_device}",
+                            flush=True,
+                        )
+                    else:
+                        opened_secondary.release()
+                        print(
+                            "SECONDARY CAMERA LINK discarded; preselect inactive",
+                            flush=True,
+                        )
+                except Exception as exc:
+                    secondary_cap = None
+                    secondary_retry_at = now + 1.0
+                    if now - secondary_last_error_log >= 5.0:
+                        secondary_last_error_log = now
+                        print(f"SECONDARY CAMERA LINK waiting: {exc}", flush=True)
+                finally:
+                    secondary_open_future = None
             if cap is None:
+                service_secondary_preselect()
                 service_station_without_frame()
                 time.sleep(0.02)
                 continue
@@ -5922,22 +6696,8 @@ def main(argv=None):
                 service_station_without_frame()
                 time.sleep(0.02)
                 continue
-            for sequence in chassis_link.consume_white_line_queries():
-                line_measurement = white_line_detector.detect(frame)
-                chassis_link.send_white_line_result(sequence, line_measurement)
-                if line_measurement is None:
-                    print(
-                        f"WHITE LINE seq={sequence} not found",
-                        flush=True,
-                    )
-                else:
-                    print(
-                        "WHITE LINE "
-                        f"seq={sequence} "
-                        f"y_center={line_measurement['y_at_center']:.1f} "
-                        f"angle={line_measurement['angle_deg']:+.2f}",
-                        flush=True,
-                    )
+            _process_white_line_queries(frame, "frame available")
+            service_secondary_preselect()
             detect_elapsed = 0.0
             if detection_future is not None and detection_future.done():
                 try:
@@ -5965,12 +6725,23 @@ def main(argv=None):
                 )
             detection_frame_index += 1
             post_started = time.perf_counter()
+            active_target_letters = (
+                grasp_controller.platform_selected_letters
+                if grasp_controller.active_chassis_station == "PLATFORM_PICK"
+                and grasp_controller.platform_selected_letters
+                else target_letters
+            )
+            active_target_kind = (
+                "any"
+                if grasp_controller.active_chassis_station == "PLATFORM_PICK"
+                else args.trigger_kind
+            )
             selected_targets = [
                 det
                 for det in detections
                 if det.get("observed", True)
                 and grasp_controller.target_policy.matches_platform_target(
-                    det, args.trigger_kind, target_letters
+                    det, active_target_kind, active_target_letters
                 )
             ]
             preview_target = max(
@@ -5984,7 +6755,7 @@ def main(argv=None):
                 for det in detections
                 if det.get("observed", True)
                 and not grasp_controller.target_policy.matches_platform_target(
-                    det, args.trigger_kind, target_letters
+                    det, active_target_kind, active_target_letters
                 )
             ]
             if preview_target is not None:
@@ -6010,12 +6781,42 @@ def main(argv=None):
                     if detection_fresh:
                         chassis_link.note_target(preview_target)
                 if chassis_active:
-                    station_info = grasp_controller.update_chassis_station(
-                        chassis_link.active_task,
-                        detections,
-                        frame.shape,
-                        detection_fresh=detection_fresh,
-                    )
+                    station_info = None
+                    if (
+                        detection_fresh
+                        and chassis_link.active_task == "PLATFORM_PICK"
+                        and grasp_controller.chassis_station_stage is None
+                        and preview_target is None
+                    ):
+                        visible_platform_objects = [
+                            det for det in detections
+                            if det.get("observed", True)
+                            and det.get("kind") in {"letter", "ring"}
+                        ]
+                        if visible_platform_objects:
+                            best_rejected = max(
+                                visible_platform_objects,
+                                key=lambda det: (
+                                    float(det.get("confidence") or 0.0),
+                                    float(det.get("projected_area") or 0.0),
+                                ),
+                            )
+                            station_info = (
+                                "PLATFORM_PICK skipped wrong target "
+                                f"kind={best_rejected.get('kind')} "
+                                f"letter={best_rejected.get('letter', '-')}"
+                            )
+                            grasp_controller.skip_platform_slot(
+                                "LETTER_OR_RING_NOT_SELECTED"
+                            )
+                            station_info = resolve_station_outcome(station_info)
+                    if station_info is None:
+                        station_info = grasp_controller.update_chassis_station(
+                            chassis_link.active_task,
+                            detections,
+                            frame.shape,
+                            detection_fresh=detection_fresh,
+                        )
                     if station_info is not None:
                         grasp_info = station_info
                     else:
@@ -6052,12 +6853,20 @@ def main(argv=None):
                     )
                 ):
                     station = chassis_link.active_task
-                    timeout_status = grasp_controller.retract_for_chassis_timeout(station)
-                    error_reason = grasp_controller.consume_chassis_station_error()
-                    if error_reason:
-                        chassis_link.fail_active(error_reason)
+                    if station == "PLATFORM_PICK":
+                        timeout_status = grasp_controller.skip_platform_slot(
+                            "NO_TARGET_TIMEOUT"
+                        )
+                        chassis_link.finish_active("SKIPPED_NO_TARGET")
                     else:
-                        chassis_link.finish_active("NO_TARGET_TIMEOUT")
+                        timeout_status = grasp_controller.retract_for_chassis_timeout(
+                            station
+                        )
+                        error_reason = grasp_controller.consume_chassis_station_error()
+                        if error_reason:
+                            chassis_link.fail_active(error_reason)
+                        else:
+                            chassis_link.finish_active("NO_TARGET_TIMEOUT")
                     grasp_info = (
                         f"chassis station {station} timeout; "
                         f"{timeout_status}"
@@ -6146,6 +6955,7 @@ def main(argv=None):
             camera_reader.close()
         elif cap is not None:
             cap.release()
+        close_secondary_camera()
         if auto_grasp_enabled and execute_auto_grasp:
             try:
                 grasp_controller.shutdown_contract()

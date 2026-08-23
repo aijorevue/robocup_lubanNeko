@@ -22,6 +22,10 @@ COMMON_CAMERA_ARGS = [
     "--enable-letter-grasp",
     "--enable-arm-preview",
     "--no-web",
+    "--device",
+    LaunchConfiguration("camera_device"),
+    "--secondary-device",
+    LaunchConfiguration("secondary_camera_device"),
     "--width",
     "800",
     "--height",
@@ -32,13 +36,13 @@ COMMON_CAMERA_ARGS = [
 
 COMMON_GRASP_ARGS = [
     "--preview-id1",
-    "550",
+    "446",
     "--preview-id2",
-    "300",
+    "227",
     "--grasp-id1-ready",
-    "550",
+    "446",
     "--grasp-id2-ready",
-    "300",
+    "227",
     "--grasp-center-deadband-px",
     "30",
     "--trigger-kind",
@@ -54,10 +58,10 @@ MODE_PROFILES = {
         "executable": "target_vision",
         "node_name": "abcd_letter_grasp_rk_direct_vision",
         "detect_every": "1",
-        "preview_id4": "1120",
-        "preview_id6": "570",
-        "grasp_id4_closed": "1120",
-        "grasp_id4_open": "1700",
+        "preview_id4": "1300",
+        "preview_id6": "772",
+        "grasp_id4_closed": "1300",
+        "grasp_id4_open": "1710",
         "servo_angle_gap_deg": "20",
         "grasp_command_interval": "0.18",
         "grasp_stable_frames": "4",
@@ -73,17 +77,17 @@ MODE_PROFILES = {
         "extra_args": [
             "--direct-servo-bus",
             "--direct-arm-uart",
-            "/dev/ttyS9",
+            "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5C82109853-if00",
             "--direct-zp-uart",
-            "/dev/ttyS0",
+            "/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0",
             "--direct-arm-time-ms",
             "600",
             "--direct-zp-time-ms",
-            "400",
+            "300",
             "--direct-gripper-time-ms",
-            "250",
+            "210",
             "--direct-splitter-time-ms",
-            "250",
+            "500",
             "--post-center-direct-descend",
             "--grasp-retrigger-cooldown",
             "1.2",
@@ -120,6 +124,20 @@ def generate_grasp_launch(mode):
         DeclareLaunchArgument("target_color", default_value="red"),
         DeclareLaunchArgument("target_kind", default_value="letter"),
         DeclareLaunchArgument("target_letters", default_value="A,B,C,D"),
+        DeclareLaunchArgument(
+            "camera_device",
+            default_value=(
+                "/dev/v4l/by-path/"
+                "platform-fc800000.usb-usb-0:1:1.0-video-index0"
+            ),
+        ),
+        DeclareLaunchArgument(
+            "secondary_camera_device",
+            default_value=(
+                "/dev/v4l/by-path/"
+                "platform-fc880000.usb-usb-0:1.3:1.0-video-index0"
+            ),
+        ),
     ]
     if profile["kill_before_start"]:
         actions.append(

@@ -35,8 +35,8 @@ More detail is in `ARCHITECTURE.md`.
 ## H7 Link Safety Contract
 
 - RK sends `RK,ARM,READY` only after the camera has produced a frame and both
-  direct servo UARTs are writable (`/dev/ttyS9` for 85kg and `/dev/ttyS0` for
-  ZP).
+  direct servo UARTs are writable (the CH343 HTD-85 adapter for 85kg and
+  `/dev/ttyS0` for ZP).
 - `DISC_CATCH` keeps its station-specific 2-second no-target timer. A camera
   outage does not pause that timer; the arm returns home before RK reports
   `DONE` or `ERR` to H7.

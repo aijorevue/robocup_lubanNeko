@@ -1,0 +1,514 @@
+#!/usr/bin/env python3
+"""Standalone task-two test: secondary letter preselection, H7 route, main target.
+
+The app owns both camera sessions and the two direct servo-board UARTs.  It
+does not start the formal ROS service.  H7 owns only the fixed chassis test
+route and receives one explicit TEST,TASK2 command after the high arm pose is
+sent.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import select
+import sys
+import termios
+import time
+from collections import Counter, deque
+from pathlib import Path
+
+import cv2
+import numpy as np
+
+
+ROOT = Path(__file__).resolve().parent
+ABCD_DIR = Path(os.environ.get("ABCD_PACKAGE_DIR", ROOT / "ABCD_detector"))
+BALLS_DIR = Path(os.environ.get("BALLS_PACKAGE_DIR", ROOT / "balls_detector"))
+ROS_PACKAGE_DIR = ROOT / "ros2_test1"
+MAIN_CAMERA = "/dev/v4l/by-path/platform-fc800000.usb-usb-0:1:1.0-video-index0"
+SECONDARY_CAMERA = "/dev/v4l/by-path/platform-fc880000.usb-usb-0:1.3:1.0-video-index0"
+H7_DEVICE = "/dev/h7_chassis"
+ARM_DEVICE = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5C82109853-if00"
+ZP_DEVICE = "/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0"
+
+HIGH = {1: 600, 2: 500, 6: 670}
+LETTER_WORK = {1: 600, 2: 400, 6: 900}
+RING_AFTER_HIGH = {1: 460, 2: 315, 6: 400}
+ZP_HIGH = {4: 1200, 5: 800, 7: 1300}
+GRIPPER_CLOSED = 1300
+GRIPPER_OPEN = 1700
+ARM_TIME_MS = 600
+ZP_TIME_MS = 300
+GRIPPER_TIME_MS = 300
+LETTERS = {"A", "B", "C", "D"}
+LETTER_SIZE_MM = 30.0
+RING_SIZE_MM = 55.0
+CAMERA_GRIPPER_OFFSET_MM = 50.0
+TARGET_GRIPPER_DISTANCE_MM = 20.0
+RING_DISTANCE_EXTRA_CM = 6.0
+GRASP_DESCEND_TABLE_CM_MM = (
+    (10.0, 105.0), (20.0, 128.0), (24.0, 153.0),
+    (25.0, 190.0), (29.0, 235.0), (30.0, 251.0), (40.0, 251.0),
+)
+GRASP_ID1_CALIBRATION_TICKS = -5
+GRASP_DESCEND_ID2_BIAS_TICKS = 15
+
+
+def htd85_packet(servo_id: int, position: int, time_ms: int) -> bytes:
+    body = bytes((servo_id, 7, 1, position & 0xFF, position >> 8,
+                  time_ms & 0xFF, time_ms >> 8))
+    return b"\x55\x55" + body + bytes(((~sum(body)) & 0xFF,))
+
+
+def zp_packet(servo_id: int, position: int, time_ms: int) -> bytes:
+    return f"#{servo_id:03d}P{position:04d}T{time_ms:04d}!".encode("ascii")
+
+
+def write_all(fd: int, payload: bytes) -> None:
+    offset = 0
+    while offset < len(payload):
+        offset += os.write(fd, payload[offset:])
+    termios.tcdrain(fd)
+
+
+def open_uart(path: str) -> int:
+    fd = os.open(path, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+    attrs = termios.tcgetattr(fd)
+    attrs[0] = attrs[1] = attrs[3] = 0
+    attrs[2] = termios.CS8 | termios.CREAD | termios.CLOCAL
+    attrs[4] = attrs[5] = termios.B115200
+    attrs[6][termios.VMIN] = 0
+    attrs[6][termios.VTIME] = 0
+    termios.tcsetattr(fd, termios.TCSANOW, attrs)
+    return fd
+
+
+class ServoBoards:
+    def __init__(self, arm_path: str, zp_path: str):
+        self.arm_path = arm_path
+        self.zp_path = zp_path
+        self.arm_fd = open_uart(arm_path)
+        try:
+            self.zp_fd = open_uart(zp_path)
+        except Exception:
+            os.close(self.arm_fd)
+            raise
+
+    def arm(self, targets: dict[int, int]) -> None:
+        for servo_id, position in targets.items():
+            packet = htd85_packet(servo_id, position, ARM_TIME_MS)
+            write_all(self.arm_fd, packet)
+            print(f"TASK2 SERVO HTD85 ID{servo_id}={position} T={ARM_TIME_MS}ms", flush=True)
+            time.sleep(0.003)
+
+    def zp(self, targets: dict[int, int], motion_ms: int = ZP_TIME_MS) -> None:
+        for servo_id, position in targets.items():
+            packet = zp_packet(servo_id, position, motion_ms)
+            write_all(self.zp_fd, packet)
+            print(f"TASK2 SERVO ZP ID{servo_id}={position} T={motion_ms}ms", flush=True)
+            time.sleep(0.003)
+
+    def pose_high(self) -> None:
+        self.arm(HIGH)
+        self.zp(ZP_HIGH)
+        time.sleep(max(ARM_TIME_MS, ZP_TIME_MS) / 1000.0)
+
+    def pulse_gripper(self) -> None:
+        self.zp({7: GRIPPER_OPEN}, GRIPPER_TIME_MS)
+        time.sleep(GRIPPER_TIME_MS / 1000.0)
+        self.zp({7: GRIPPER_CLOSED}, GRIPPER_TIME_MS)
+        time.sleep(GRIPPER_TIME_MS / 1000.0)
+
+    def close(self) -> None:
+        for fd in (getattr(self, "arm_fd", None), getattr(self, "zp_fd", None)):
+            if fd is not None:
+                os.close(fd)
+
+
+class H7Link:
+    def __init__(self, path: str):
+        self.path = path
+        self.fd = None
+        self.rx = bytearray()
+
+    def open(self) -> None:
+        if not os.path.exists(self.path):
+            raise RuntimeError(f"H7 CDC missing: {self.path}")
+        self.fd = open_uart(self.path)
+        print(f"TASK2 H7 OPEN {self.path}", flush=True)
+
+    def send(self, line: str) -> None:
+        if self.fd is None:
+            self.open()
+        write_all(self.fd, (line.rstrip("\r\n") + "\r\n").encode("ascii"))
+        print(f"TASK2 H7 TX {line.rstrip()}", flush=True)
+
+    def wait_status(self, sequence: int, status: str, timeout_s: float) -> str | None:
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            ready, _, _ = select.select([self.fd], [], [], 0.1)
+            if not ready:
+                continue
+            self.rx.extend(os.read(self.fd, 4096))
+            while b"\n" in self.rx:
+                raw, _, self.rx = self.rx.partition(b"\n")
+                line = raw.decode("ascii", "replace").strip("\r")
+                print(f"TASK2 H7 RX {line}", flush=True)
+                fields = line.split(",")
+                if (len(fields) >= 8 and fields[:4] ==
+                        ["H7", "TEST", "TASK2", status] and
+                        fields[4] == "SEQ" and fields[5] == str(sequence)):
+                    return line
+        return None
+
+    def close(self) -> None:
+        if self.fd is not None:
+            os.close(self.fd)
+            self.fd = None
+
+
+def open_camera(path: str) -> cv2.VideoCapture:
+    camera = cv2.VideoCapture(path, cv2.CAP_V4L2)
+    if not camera.isOpened():
+        camera.release()
+        raise RuntimeError(f"camera open failed: {path}")
+    camera.set(cv2.CAP_PROP_FRAME_WIDTH, 800)
+    camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 600)
+    camera.set(cv2.CAP_PROP_FPS, 30)
+    return camera
+
+
+def import_detector():
+    sys.path.insert(0, str(ABCD_DIR))
+    from abcd_detector import ABCDDetector
+    return ABCDDetector()
+
+
+def import_kinematics():
+    sys.path.insert(0, str(ROS_PACKAGE_DIR))
+    from ros2_test1.arm_kinematics import (
+        ID1_SAFE_LIMITS,
+        ID2_SAFE_LIMITS,
+        MIN_ANGLE_GAP_DEG,
+        enforce_angle_gap,
+        gripper_position_mm,
+        solve_gripper_position,
+    )
+    return (
+        ID1_SAFE_LIMITS, ID2_SAFE_LIMITS, MIN_ANGLE_GAP_DEG,
+        enforce_angle_gap, gripper_position_mm, solve_gripper_position,
+    )
+
+
+def detect_rings(frame: np.ndarray) -> list[dict]:
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    output = []
+    ranges = {"red": [((0, 80, 70), (10, 255, 255)),
+                       ((165, 80, 70), (180, 255, 255))],
+              "blue": [((95, 50, 50), (135, 255, 255))]}
+    for color, limits in ranges.items():
+        mask = None
+        for low, high in limits:
+            part = cv2.inRange(hsv, np.array(low, np.uint8), np.array(high, np.uint8))
+            mask = part if mask is None else cv2.bitwise_or(mask, part)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
+        contours, hierarchy = cv2.findContours(mask, cv2.RETR_CCOMP,
+                                               cv2.CHAIN_APPROX_SIMPLE)
+        if hierarchy is None:
+            continue
+        for index, contour in enumerate(contours):
+            child_index = hierarchy[0][index][2]
+            if child_index < 0:
+                continue
+            area = cv2.contourArea(contour)
+            perimeter = cv2.arcLength(contour, True)
+            circularity = 4 * np.pi * area / (perimeter * perimeter) if perimeter else 0
+            (cx, cy), outer = cv2.minEnclosingCircle(contour)
+            child = contours[child_index]
+            inner_area = cv2.contourArea(child)
+            (_, _), inner = cv2.minEnclosingCircle(child)
+            if area < 300 or circularity < 0.55 or outer < 14 or inner < 5:
+                continue
+            ratio = inner / outer if outer else 0
+            if not 0.20 <= ratio <= 0.75 or inner_area < 40:
+                continue
+            x, y, w, h = cv2.boundingRect(contour)
+            frame_area = max(1.0, float(frame.shape[0] * frame.shape[1]))
+            area_percent = (max(float(w * h), float(area)) / frame_area) * 100.0
+            distance_cm = (-1.6072186919749336 + RING_DISTANCE_EXTRA_CM
+                           + 31.628878020276648 * RING_SIZE_MM / 42.67
+                           / max(0.001, float(area_percent) ** 0.5))
+            output.append({"kind": "ring", "color": color,
+                           "center": (int(cx), int(cy)),
+                           "radius": int(outer), "bbox": (x, y, w, h),
+                           "score": circularity, "distance_cm": distance_cm,
+                           "depth_cm": distance_cm, "depth_mm": distance_cm * 10.0,
+                           "area_percent": area_percent})
+    return output
+
+
+def letter_detections(detector, frame: np.ndarray) -> list[dict]:
+    return [item for item in detector.detect(frame)
+            if str(item.get("letter", "")).upper() in LETTERS]
+
+
+def lock_pair(camera: cv2.VideoCapture, detector, timeout_s: float) -> tuple[str, str]:
+    history: deque[tuple[str, ...]] = deque(maxlen=8)
+    started = time.monotonic()
+    while time.monotonic() - started < timeout_s:
+        ok, frame = camera.read()
+        if not ok or frame is None:
+            continue
+        detections = letter_detections(detector, frame)
+        current = tuple(sorted({str(d["letter"]).upper() for d in detections}))
+        if len(current) >= 2:
+            history.append(current[:2])
+        if len(history) >= 5:
+            pair, count = Counter(history).most_common(1)[0]
+            if count >= 4 and len(pair) == 2:
+                print(f"TASK2 LETTERS LOCKED L1={pair[0]} L2={pair[1]} CAMERA=SECONDARY", flush=True)
+                return pair
+        view = frame.copy()
+        for item in detections:
+            x, y = map(int, item.get("center", (0, 0)))
+            cv2.putText(view, str(item["letter"]), (x, y), cv2.FONT_HERSHEY_SIMPLEX,
+                        1, (0, 255, 0), 2)
+        cv2.putText(view, "SECONDARY: LOCK TWO LETTERS", (15, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        cv2.imshow("Task2 secondary", view)
+        if cv2.waitKey(1) & 0xFF in (ord("q"), 27):
+            raise KeyboardInterrupt
+    raise RuntimeError("LETTER_TIMEOUT")
+
+
+def identify_main_target(camera: cv2.VideoCapture, detector, field: str,
+                         pair: tuple[str, str], timeout_s: float) -> dict:
+    started = time.monotonic()
+    history: deque[str] = deque(maxlen=5)
+    while time.monotonic() - started < timeout_s:
+        ok, frame = camera.read()
+        if not ok or frame is None:
+            continue
+        letters = letter_detections(detector, frame)
+        all_letters = [str(d["letter"]).upper() for d in letters]
+        selected = [d for d in letters if str(d["letter"]).upper() in pair]
+        rings = detect_rings(frame)
+        own_rings = [d for d in rings if d["color"] == field.lower()]
+        target = selected[0] if selected else (own_rings[0] if own_rings else None)
+        if target is None and (all_letters or rings):
+            target = {"kind": "skip", "label": "skip"}
+        target_key = (
+            str(target.get("letter")).upper() if target and target.get("kind") == "letter"
+            else str(target.get("kind")) if target else "none"
+        )
+        if target:
+            history.append(target_key)
+            if len(history) >= 3 and len(set(history)) == 1:
+                print(
+                    f"TASK2 MAIN TARGET {target_key.upper()} FIELD={field.upper()} "
+                    f"CAMERA=MAIN depth_cm={target.get('distance_cm', '-')}",
+                    flush=True,
+                )
+                target["frame_shape"] = frame.shape
+                return target
+        view = frame.copy()
+        for item in letters:
+            x, y = map(int, item.get("center", (0, 0)))
+            cv2.putText(view, str(item["letter"]), (x, y), cv2.FONT_HERSHEY_SIMPLEX,
+                        1, (0, 255, 0), 2)
+        for item in rings:
+            x, y = item["center"]
+            cv2.circle(view, (x, y), item["radius"], (0, 255, 255), 2)
+            cv2.putText(view, "RING", (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                        (0, 255, 255), 2)
+        cv2.putText(view, "MAIN: TARGET / SKIP", (15, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        cv2.imshow("Task2 main", view)
+        if cv2.waitKey(1) & 0xFF in (ord("q"), 27):
+            raise KeyboardInterrupt
+    raise RuntimeError("MAIN_TARGET_TIMEOUT")
+
+
+def _descend_depth_mm(distance_cm: float) -> float:
+    distance_cm = float(distance_cm)
+    if distance_cm <= GRASP_DESCEND_TABLE_CM_MM[0][0]:
+        return GRASP_DESCEND_TABLE_CM_MM[0][1]
+    for left, right in zip(GRASP_DESCEND_TABLE_CM_MM, GRASP_DESCEND_TABLE_CM_MM[1:]):
+        if distance_cm <= right[0]:
+            ratio = (distance_cm - left[0]) / max(0.001, right[0] - left[0])
+            return left[1] + (right[1] - left[1]) * ratio
+    return GRASP_DESCEND_TABLE_CM_MM[-1][1]
+
+
+def solve_descend_pose(target: dict, frame_shape: tuple[int, ...], kinematics):
+    """Convert the fresh target depth and image offset into a safe IK pose."""
+    (
+        id1_limits, id2_limits, angle_gap, enforce_gap,
+        gripper_position, solve_position,
+    ) = kinematics
+    distance_cm = target.get("distance_cm")
+    if distance_cm is None or not 5.0 <= float(distance_cm) <= 60.0:
+        raise RuntimeError("TARGET_DEPTH_INVALID")
+    height, width = frame_shape[:2]
+    cx, cy = target.get("center", (width / 2.0, height / 2.0))
+    bbox = target.get("bbox", (0, 0, 0, 0))
+    apparent_side_px = max(1.0, float(max(bbox[2], bbox[3])))
+    target_size_mm = RING_SIZE_MM if target.get("kind") == "ring" else LETTER_SIZE_MM
+    distance_mm = float(distance_cm) * 10.0
+    focal_px = apparent_side_px * distance_mm / target_size_mm
+    lateral_mm = (float(cx) - width / 2.0) * distance_mm / max(1.0, focal_px)
+    vertical_mm = (float(cy) - height / 2.0) * distance_mm / max(1.0, focal_px)
+    if abs(lateral_mm) > 150.0:
+        raise RuntimeError(f"TARGET_LATERAL_OFFSET={lateral_mm:.0f}mm")
+
+    descend_mm = _descend_depth_mm(distance_cm)
+    if target.get("kind") == "ring":
+        descend_mm += 60.0
+    current_x, current_z = gripper_position(600, 500)
+    target_x = current_x + lateral_mm - CAMERA_GRIPPER_OFFSET_MM - TARGET_GRIPPER_DISTANCE_MM
+    target_z = current_z - descend_mm - vertical_mm
+    id1, id2, error_mm = solve_position(
+        target_x, target_z, 600, 500, id1_limits, id2_limits, angle_gap
+    )
+    id1 = max(id1_limits[0], min(id1_limits[1], int(id1 + GRASP_ID1_CALIBRATION_TICKS)))
+    id1, id2 = enforce_gap(id1, id2, id2_limits, angle_gap)
+    id2 = max(id2_limits[0], min(id2_limits[1], int(id2 + GRASP_DESCEND_ID2_BIAS_TICKS)))
+    id1, id2 = enforce_gap(id1, id2, id2_limits, angle_gap)
+    actual_x, actual_z = gripper_position(id1, id2)
+    error_mm = float(np.hypot(actual_x - target_x, actual_z - target_z))
+    if error_mm > 45.0:
+        raise RuntimeError(f"IK_ERROR={error_mm:.1f}mm")
+    return {"id1": int(id1), "id2": int(id2), "distance_cm": float(distance_cm),
+            "depth_mm": float(descend_mm), "lateral_mm": float(lateral_mm),
+            "vertical_mm": float(vertical_mm), "ik_error_mm": error_mm}
+
+
+def run(args) -> int:
+    if os.environ.get("DISPLAY") is None:
+        os.environ["DISPLAY"] = ":0"
+    secondary = main_camera = boards = h7 = None
+    try:
+        detector = import_detector()
+        kinematics = import_kinematics()
+        secondary = open_camera(args.secondary_camera)
+        pair = lock_pair(secondary, detector, args.letter_timeout_s)
+        secondary.release()
+        secondary = None
+        if not args.execute_h7:
+            print(f"TASK2 CAMERA_ONLY COMPLETE L1={pair[0]} L2={pair[1]}", flush=True)
+            return 0
+        boards = ServoBoards(args.arm_uart, args.zp_uart)
+        boards.pose_high()
+        print("TASK2 HIGH_POSE_READY ID1=600 ID2=500 ID6=670 ZP4=1200 ZP5=800 ZP7=1300", flush=True)
+        h7 = H7Link(args.h7_device)
+        session_sequence = (int(time.time() * 1000)) & 0xFFFFFFFF
+        for slot in range(8):
+            if slot == 0:
+                command = (f"RK,TEST,TASK2,START,SEQ,{session_sequence},FIELD,{args.field.upper()},"
+                           f"L1,{pair[0]},L2,{pair[1]}")
+            else:
+                command = (f"RK,TEST,TASK2,NEXT,SEQ,{session_sequence},FIELD,{args.field.upper()},"
+                           f"STEP,{slot}")
+            h7.send(command)
+            if not h7.wait_status(session_sequence, "ACK", 4.0):
+                raise RuntimeError(f"H7_ACK_TIMEOUT slot={slot + 1}")
+            if not h7.wait_status(session_sequence, "RUNNING", 8.0):
+                raise RuntimeError(f"H7_RUNNING_TIMEOUT slot={slot + 1}")
+            if not h7.wait_status(session_sequence, "DONE", args.h7_timeout_s):
+                raise RuntimeError(f"H7_DONE_TIMEOUT slot={slot + 1}")
+
+            if main_camera is None:
+                main_camera = open_camera(args.main_camera)
+            target = identify_main_target(main_camera, detector, args.field, pair,
+                                          args.main_timeout_s)
+            if target.get("kind") == "ring":
+                descend = solve_descend_pose(target, frame_shape=target.get("frame_shape", (600, 800)),
+                                              kinematics=kinematics)
+                boards.arm({1: descend["id1"], 2: descend["id2"], 6: 670})
+                print(
+                    f"TASK2 RING_DESCEND depth={descend['distance_cm']:.1f}cm "
+                    f"down={descend['depth_mm']:.0f}mm "
+                    f"ID1={descend['id1']} ID2={descend['id2']} "
+                    f"IK_ERR={descend['ik_error_mm']:.1f}mm",
+                    flush=True,
+                )
+                time.sleep(ARM_TIME_MS / 1000.0)
+                boards.pulse_gripper()
+                boards.pose_high()
+                boards.arm(RING_AFTER_HIGH)
+                time.sleep(ARM_TIME_MS / 1000.0)
+                boards.pulse_gripper()
+                boards.pose_high()
+                print("TASK2 RING_DONE after_high ID1=460 ID2=315 ID6=400", flush=True)
+            elif target.get("kind") == "letter" and target.get("letter") in pair:
+                descend = solve_descend_pose(target, frame_shape=target.get("frame_shape", (600, 800)),
+                                              kinematics=kinematics)
+                boards.arm({1: descend["id1"], 2: descend["id2"], 6: 670})
+                print(
+                    f"TASK2 LETTER_DESCEND letter={target['letter']} "
+                    f"depth={descend['distance_cm']:.1f}cm down={descend['depth_mm']:.0f}mm "
+                    f"ID1={descend['id1']} ID2={descend['id2']} "
+                    f"IK_ERR={descend['ik_error_mm']:.1f}mm",
+                    flush=True,
+                )
+                time.sleep(ARM_TIME_MS / 1000.0)
+                boards.pulse_gripper()
+                boards.pose_high()
+                boards.arm(LETTER_WORK)
+                time.sleep(ARM_TIME_MS / 1000.0)
+                boards.pulse_gripper()
+                boards.pose_high()
+                print(
+                    f"TASK2 LETTER_DONE letter={target['letter']} "
+                    "ID1=600 ID2=400 ID6=900", flush=True
+                )
+            else:
+                print(
+                    f"TASK2 SKIP target={target.get('kind', 'unknown')} "
+                    f"field={args.field.upper()}", flush=True
+                )
+            print(
+                f"TASK2 SLOT_DONE slot={slot + 1} seq={session_sequence} "
+                f"target={target.get('letter', target.get('kind', 'unknown'))}",
+                flush=True,
+            )
+        print(f"TASK2 TEST COMPLETE pair={pair[0]},{pair[1]} slots=8", flush=True)
+        return 0
+    except KeyboardInterrupt:
+        print("TASK2 ABORTED", flush=True)
+        return 2
+    except Exception as exc:
+        print(f"TASK2 ERROR {exc}", flush=True)
+        return 1
+    finally:
+        if secondary is not None:
+            secondary.release()
+        if main_camera is not None:
+            main_camera.release()
+        if boards is not None:
+            boards.close()
+        if h7 is not None:
+            h7.close()
+        cv2.destroyAllWindows()
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="RoboCup task-two isolated test")
+    parser.add_argument("--field", choices=("red", "blue"), required=True)
+    parser.add_argument("--secondary-camera", default=SECONDARY_CAMERA)
+    parser.add_argument("--main-camera", default=MAIN_CAMERA)
+    parser.add_argument("--h7-device", default=H7_DEVICE)
+    parser.add_argument("--arm-uart", default=ARM_DEVICE)
+    parser.add_argument("--zp-uart", default=ZP_DEVICE)
+    parser.add_argument("--execute-h7", action="store_true",
+                        help="after letter lock, drive the arm and H7 test route")
+    parser.add_argument("--letter-timeout-s", type=float, default=30.0)
+    parser.add_argument("--main-timeout-s", type=float, default=30.0)
+    parser.add_argument("--h7-timeout-s", type=float, default=120.0)
+    args = parser.parse_args()
+    return run(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
