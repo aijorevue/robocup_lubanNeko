@@ -971,7 +971,11 @@ class ArmTuneFileBridge:
         self.result_path = Path(result_path)
         self.poll_interval_s = max(0.02, float(poll_interval_s))
         self.last_poll = 0.0
-        self.last_mtime_ns = None
+        # A command left by an earlier process must not be replayed on startup.
+        try:
+            self.last_mtime_ns = self.command_path.stat().st_mtime_ns
+        except OSError:
+            self.last_mtime_ns = None
         self.last_command_text = ""
 
     def _write_result(self, message):
@@ -1005,7 +1009,13 @@ class ArmTuneFileBridge:
         if not command_text or command_text == self.last_command_text:
             return None
         self.last_command_text = command_text
-        return self._execute(command_text, controller, chassis_link, frame_shape)
+        try:
+            return self._execute(command_text, controller, chassis_link, frame_shape)
+        except Exception as exc:
+            # Optional tuning input must never terminate the vision/link loop.
+            return self._write_result(
+                f"ERR COMMAND_FAILED {type(exc).__name__}: {exc}"
+            )
 
     def _execute(self, command_text, controller, chassis_link, frame_shape):
         parts = command_text.replace(",", " ").split()
@@ -1019,7 +1029,7 @@ class ArmTuneFileBridge:
                 f"controller_station={controller.active_chassis_station} "
                 f"ID1={controller.id1} ID2={controller.id2} "
                 f"ID4={controller.splitter_id4} ID5={controller.id5} "
-                f"ID6={controller.id6} ID7={controller.id4}"
+                f"ID6={controller.id6} ID7={controller.id7}"
             )
         if verb not in {"SET", "MOVE"}:
             return self._write_result("ERR UNKNOWN_COMMAND use: SET ID6 580 [ID1 500 ...] or STATUS")
@@ -1089,9 +1099,9 @@ class ArmTuneFileBridge:
         if 5 in targets:
             controller.id5 = targets[5]
         if 7 in targets:
-            controller.id4 = targets[7]
+            controller.id7 = targets[7]
         controller.last_command_time = time.monotonic()
-        controller.arm_preview.set_targets(controller.id1, controller.id2, controller.id4, controller.id6)
+        controller.arm_preview.set_targets(controller.id1, controller.id2, controller.id7, controller.id6)
         controller.arm_preview.publish(
             "arm tune " + " ".join(f"ID{sid}={value}" for sid, value in sorted(targets.items())),
             None,
