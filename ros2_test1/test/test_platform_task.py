@@ -20,7 +20,14 @@ class Fixture:
     def __init__(self):
         self.now = 0.0
         self.writes = []
-        self.task = PlatformTask(self.pose, self.gripper, self.center, clock=lambda: self.now)
+        self.task = PlatformTask(
+            self.pose,
+            self.gripper,
+            self.center,
+            ring_place_pair=self.ring_pair,
+            ring_place_id1=self.ring_id1,
+            clock=lambda: self.now,
+        )
 
     def pose(self, value, raising):
         self.writes.append(('pose', value, raising))
@@ -33,6 +40,14 @@ class Fixture:
     def center(self, id2, id6):
         self.writes.append(('center', id2, id6))
         return 0.12
+
+    def ring_pair(self, id2, id6):
+        self.writes.append(('ring_pair', id2, id6))
+        return 0.1
+
+    def ring_id1(self, id1):
+        self.writes.append(('ring_id1', id1))
+        return 0.1
 
     def ready(self):
         self.task.begin_preselect()
@@ -93,6 +108,8 @@ class TestPlatformTask(unittest.TestCase):
         self.assertFalse(f.writes)
 
     def test_letter_and_both_field_ring_exact_actions(self):
+        self.assertEqual(LETTER_PLACE, (600, 400, 600))
+        self.assertEqual(RING_PLACE, (535, 330, 120))
         for kind, field, placement in [('letter', 'red', LETTER_PLACE),
                                        ('ring', 'red', RING_PLACE),
                                        ('ring', 'blue', RING_PLACE)]:
@@ -102,16 +119,26 @@ class TestPlatformTask(unittest.TestCase):
                 target = letter() if kind == 'letter' else dict(letter(), kind='ring', color=field, score=.9)
                 f.feed(target)
                 f.finish()
-                self.assertEqual(f.writes, [
-                    ('gripper', 1700), ('pose', (438, 483, 640), False),
-                    ('gripper', 1300), ('pose', HIGH, True),
-                    ('pose', placement, False), ('gripper', 1700),
-                    ('gripper', 1300), ('pose', HIGH, True)])
+                expected = [
+                    ('gripper', 1650), ('pose', (600, 500, 340), False),
+                    ('pose', (488, 483, 340), False),
+                    ('gripper', 1300), ('pose', HIGH, True)]
+                if kind == 'ring':
+                    expected.extend([
+                        ('ring_pair', 330, 120), ('ring_id1', 535),
+                    ])
+                else:
+                    expected.append(('pose', placement, False))
+                expected.extend([
+                    ('gripper', 1650), ('gripper', 1300),
+                    ('pose', HIGH, True)])
+                self.assertEqual(f.writes, expected)
                 self.assertEqual(f.task.done, 'PICKED_' + kind.upper())
                 self.assertTrue(f.task.high_ready)
 
     def test_last_high_must_settle_before_done_and_no_retract_while_waiting(self):
-        f = Fixture(); f.ready(); f.task.begin_slot('red'); f.feed(letter())
+        f = Fixture(); f.ready(); f.writes.clear()
+        f.task.begin_slot('red'); f.feed(letter())
         while len(f.writes) < 9:
             f.now = max(f.now, f.task.deadline); f.task.tick()
         self.assertEqual(f.writes[-1], ('pose', HIGH, True))
@@ -133,7 +160,7 @@ class TestPlatformTask(unittest.TestCase):
                 self.assertEqual(f.task.done, 'SKIPPED:TARGET_NOT_SELECTED')
 
     def test_missing_invalid_and_nonfinite_depth_never_descend(self):
-        for depth in (None, 'bad', 9, 31, float('nan'), float('inf')):
+        for depth in (None, 'bad', 6.9, 31, float('nan'), float('inf')):
             with self.subTest(depth=depth):
                 f = Fixture(); f.ready(); f.writes.clear(); f.task.begin_slot('red')
                 f.feed(letter(depth=depth), 20)
@@ -153,13 +180,13 @@ class TestPlatformTask(unittest.TestCase):
     def test_small_center_correction_and_then_calibrated_depth(self):
         f = Fixture(); f.ready(); f.writes.clear(); f.task.begin_slot('red')
         f.feed(letter(center=(470, 370)))
-        self.assertEqual(f.writes, [('center', 595, 635)])
+        self.assertEqual(f.writes, [('center', 593, 335)])
         f.now = f.task.deadline
         f.feed(letter(), 4); f.finish()
-        self.assertIn(('pose', (438, 483, 635), False), f.writes)
+        self.assertIn(('pose', (488, 483, 335), False), f.writes)
 
     def test_write_failure_at_every_action_never_completes(self):
-        for failure_index in range(8):
+        for failure_index in range(9):
             f = Fixture(); f.ready(); f.writes.clear(); f.task.begin_slot('red')
             f.feed(letter())
             actions = list(f.task.actions)
@@ -194,7 +221,7 @@ class TestControllerAndProtocol(unittest.TestCase):
         bridge = Mock(enabled=True, write_enabled=True, assumed_feedback=True,
                       last_command_ok=True, arm_time_ms=600, gripper_time_ms=210,
                       zp_time_ms=300, status='fake write ok')
-        preview = Mock(id6=640)
+        preview = Mock(id6=340)
         kwargs = {name: 1 for name, param in inspect.signature(TargetGraspController).parameters.items()
                   if param.default is inspect.Parameter.empty}
         kwargs.update(enabled=True, servo_bridge=bridge, arm_preview=preview,
@@ -212,27 +239,27 @@ class TestControllerAndProtocol(unittest.TestCase):
             self.assertFalse(bridge.send_targets.called)
             for _ in range(28):
                 c.update_platform_preselect([letter('A', (100, 200)), letter('C', (600, 200))])
-            self.assertIsNone(c.consume_chassis_station_done())
-            self.assertEqual((c.id1, c.id2, c.id6, c.id5, c.splitter_id4), (600, 600, 640, 800, 1200))
+        self.assertIsNone(c.consume_chassis_station_done())
+        self.assertEqual((c.id1, c.id2, c.id6, c.id5, c.splitter_id4), (600, 600, 340, 800, 1200))
+        c.platform_task.deadline = 0
+        c.update_chassis_station('PLATFORM_PICK', [], (600, 800, 3), False)
+        self.assertEqual(c.consume_chassis_station_done(), 'PRESELECT_DONE:A:C')
+        before = bridge.send_targets.call_count
+        c.update(None, (600, 800, 3))
+        self.assertEqual(bridge.send_targets.call_count, before)
+        c.begin_chassis_station('PLATFORM_PICK')
+        for _ in range(11):
+            c.update_chassis_station('PLATFORM_PICK', [letter()], (600, 800, 3))
+        for _ in range(10):
             c.platform_task.deadline = 0
             c.update_chassis_station('PLATFORM_PICK', [], (600, 800, 3), False)
-            self.assertEqual(c.consume_chassis_station_done(), 'PRESELECT_DONE:A:C')
-            before = bridge.send_targets.call_count
-            c.update(None, (600, 800, 3))
-            self.assertEqual(bridge.send_targets.call_count, before)
-            c.begin_chassis_station('PLATFORM_PICK')
-            for _ in range(11):
-                c.update_chassis_station('PLATFORM_PICK', [letter()], (600, 800, 3))
-            for _ in range(9):
-                c.platform_task.deadline = 0
-                c.update_chassis_station('PLATFORM_PICK', [], (600, 800, 3), False)
-            self.assertEqual(c.consume_chassis_station_done(), 'PICKED_LETTER')
-            self.assertEqual((c.id1, c.id2, c.id6, c.id7), (600, 600, 640, 1300))
-            self.assertEqual(bridge.gripper_time_ms, 210)
-            pulses = [call.kwargs['id4'] for call in bridge.send_targets.call_args_list
-                      if set(call.kwargs) == {'id4'}]
-            self.assertEqual(pulses, [1700, 1300, 1700, 1300])
-            self.assertTrue(any(call.kwargs.get('id6') == 900 for call in bridge.send_targets.call_args_list))
+        self.assertEqual(c.consume_chassis_station_done(), 'PICKED_LETTER')
+        self.assertEqual((c.id1, c.id2, c.id6, c.id7), (600, 600, 340, 1300))
+        self.assertEqual(bridge.gripper_time_ms, 210)
+        pulses = [call.kwargs['id4'] for call in bridge.send_targets.call_args_list
+                  if set(call.kwargs) == {'id4'}]
+        self.assertEqual(pulses, [1650, 1300, 1650, 1300])
+        self.assertTrue(any(call.kwargs.get('id6') == 600 for call in bridge.send_targets.call_args_list))
 
     def test_real_parser_sequence_retries_do_not_restart_preselect_or_slot(self):
         link = ChassisArmLink(False, 'unused', 115200, 5)

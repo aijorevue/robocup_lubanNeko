@@ -9,16 +9,24 @@ import time
 
 from .grasp_calibration import calibrated_grasp_ticks
 
-HIGH = (600, 600, 640)
-LETTER_PLACE = (600, 400, 900)
-RING_PLACE = (460, 315, 400)
+HIGH = (650, 600, 350)
+LETTER_PLACE = (500, 350, 600)
+RING_PLACE = (535, 330, 120)
+POST_OPEN_ID2_RETREAT_TICKS = 100
+CENTER_ID6_STEP_TICKS = 5
+CENTER_ID2_STEP_TICKS = 7
+CENTER_ID6_RANGE = (0, 700)
+PLATFORM_NO_TARGET_TIMEOUT_S = 1.5
 
 
 class PlatformTask:
-    def __init__(self, pose, gripper, center, *, clock=time.monotonic):
+    def __init__(self, pose, gripper, center, *, ring_place_pair=None,
+                 ring_place_id1=None, clock=time.monotonic):
         self.pose = pose
         self.gripper = gripper
         self.center = center
+        self.ring_place_pair = ring_place_pair or pose
+        self.ring_place_id1 = ring_place_id1 or pose
         self.clock = clock
         self.reset()
 
@@ -97,12 +105,13 @@ class PlatformTask:
         self.done = self.error = None
         self.field = str(field).lower()
         self.stage = "platform_detect"
-        self.timeout = self.clock() + 20.0
+        self.timeout = self.clock() + PLATFORM_NO_TARGET_TIMEOUT_S
         self.deadline = 0.0
         self.discard = 8  # Flush approach/motion frames as in the standalone App.
         self.votes = deque(maxlen=8)
         self.target_key = None
         self.target_center = None
+        self.center_id1 = HIGH[0]
         self.center_id2, self.center_id6 = HIGH[1:]
         self.status = "PLATFORM_PICK main camera: waiting target"
 
@@ -159,8 +168,17 @@ class PlatformTask:
         self.target_key, self.target_center = key, point
         dx, dy = point[0] - width / 2, point[1] - height / 2
         if abs(dx) > 45 or abs(dy) > 45:
-            id2 = max(450, min(700, self.center_id2 + (-5 if dy > 45 else 5 if dy < -45 else 0)))
-            id6 = max(500, min(800, self.center_id6 + (-5 if dx > 45 else 5 if dx < -45 else 0)))
+            id2 = max(450, min(700, self.center_id2 + (
+                -CENTER_ID2_STEP_TICKS if dy > 45
+                else CENTER_ID2_STEP_TICKS if dy < -45 else 0
+            )))
+            id6 = max(
+                CENTER_ID6_RANGE[0],
+                min(CENTER_ID6_RANGE[1], self.center_id6 + (
+                    -CENTER_ID6_STEP_TICKS if dx > 45
+                    else CENTER_ID6_STEP_TICKS if dx < -45 else 0
+                )),
+            )
             if (id2, id6) == (self.center_id2, self.center_id6):
                 self.skip("CENTER_LIMIT")
                 return
@@ -176,23 +194,39 @@ class PlatformTask:
                 raise ValueError("non-finite depth")
             id1, id2 = calibrated_grasp_ticks(depth)
         except (ValueError, TypeError):
-            self.status = "PLATFORM_PICK waiting valid measured depth 10..30cm"
+            self.status = "PLATFORM_PICK waiting valid measured depth 7..30cm"
             return
         self.high_ready = False
         placement = LETTER_PLACE if key[0] == "letter" else RING_PLACE
         print(f"PLATFORM_PICK TARGET kind={key[0]} label={key[1]} depth_cm={depth:.2f} "
-              f"down={id1}/{id2}/{self.center_id6} model=measured_10_30cm", flush=True)
+              f"down={id1}/{id2}/{self.center_id6} model=measured_7_30cm", flush=True)
         self.finish_reason = f"PICKED_{key[0].upper()}"
-        self.actions = deque([
-            ("GRIPPER_OPEN", self.gripper, (1700,)),
+        retreat_id2 = max(450, self.center_id2 - POST_OPEN_ID2_RETREAT_TICKS)
+        actions = [
+            ("GRIPPER_OPEN", self.gripper, (1650,)),
+            ("POST_OPEN_ID2_RETREAT", self.pose,
+             ((self.center_id1, retreat_id2, self.center_id6), False)),
             ("DESCEND", self.pose, ((id1, id2, self.center_id6), False)),
             ("GRIPPER_CLOSE", self.gripper, (1300,)),
             ("LIFT_HIGH", self.pose, (HIGH, True)),
-            ("PLACE_" + key[0].upper(), self.pose, (placement, False)),
-            ("PLACE_OPEN", self.gripper, (1700,)),
+        ]
+        if key[0] == "ring":
+            # Ring placement is deliberately sequenced: yaw/pitch first,
+            # then ID1, so the arm does not swing all three joints together.
+            actions.extend([
+                ("PLACE_RING_ID2_ID6", self.ring_place_pair,
+                 (RING_PLACE[1], RING_PLACE[2])),
+                ("PLACE_RING_ID1", self.ring_place_id1,
+                 (RING_PLACE[0],)),
+            ])
+        else:
+            actions.append(("PLACE_LETTER", self.pose, (placement, False)))
+        actions.extend([
+            ("PLACE_OPEN", self.gripper, (1650,)),
             ("PLACE_CLOSE", self.gripper, (1300,)),
             ("RETURN_HIGH", self.pose, (HIGH, True)),
         ])
+        self.actions = deque(actions)
         self.stage = "platform_actions"
 
     def tick(self, detections=(), shape=None, fresh=False):

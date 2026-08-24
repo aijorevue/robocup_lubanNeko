@@ -45,6 +45,8 @@ class ChassisArmLink:
         self.pending_preps = []
         self.pending_aux_zp = []
         self.pending_white_line_queries = []
+        self.formal_column_control_state = None
+        self.formal_column_control_sequence = None
         self.white_line_active = False
         self.reset_pending = False
         self.reset_in_progress = False
@@ -343,6 +345,44 @@ class ChassisArmLink:
             self._send_task_state(task, "ERR", None, "REASON", "BAD_SEQ")
             return
 
+        if (
+            len(parts) >= 7
+            and parts[:3] == ["H7", "ARM", "COLUMN_CATCH"]
+            and parts[4] == "SEQ"
+            and parts[6] == "FIELD"
+        ):
+            status = parts[3]
+            response_sequence = self._int_from_parts(parts, "SEQ")
+            response_field = self._field_from_parts(parts[4:])
+            if (
+                self.active_task == "COLUMN_CATCH"
+                and response_sequence == self.active_sequence
+                and response_field == self.field_mode
+                and status in {"ACK", "PAUSED", "RESUMED", "STOPPED"}
+            ):
+                if status == "STOPPED":
+                    self.formal_column_control_state = "STOPPED"
+                elif status == "PAUSED":
+                    self.formal_column_control_state = "PAUSED"
+                elif status == "RESUMED":
+                    self.formal_column_control_state = "RESUMED"
+                else:
+                    command = None
+                    for index, item in enumerate(parts[:-1]):
+                        if item == "COMMAND":
+                            command = parts[index + 1]
+                            break
+                    if command == "PAUSE":
+                        self.formal_column_control_state = "PAUSE_ACK"
+                    elif command == "RESUME":
+                        self.formal_column_control_state = "RESUME_ACK"
+                print(
+                    "CHASSIS FORMAL COLUMN_CATCH "
+                    f"state={self.formal_column_control_state} seq={response_sequence}",
+                    flush=True,
+                )
+            return
+
         if parts[:3] == ["VISION", "WHITE_LINE", "QUERY"]:
             if sequence is None:
                 self.send_line("RK,VISION,WHITE_LINE,ERR,REASON,BAD_SEQ")
@@ -538,6 +578,9 @@ class ChassisArmLink:
                 now = time.monotonic()
                 self.active_task = task
                 self.active_sequence = sequence
+                if task == "COLUMN_CATCH":
+                    self.formal_column_control_state = "STARTED"
+                    self.formal_column_control_sequence = sequence
                 self.active_slot = (
                     self._int_from_parts(parts[3:], "SLOT")
                     if task == "PLATFORM_PICK"
@@ -784,6 +827,39 @@ class ChassisArmLink:
         self.pending_stops = []
         return stops
 
+    def formal_column_pause_state(self):
+        if self.active_task != "COLUMN_CATCH":
+            return None
+        return self.formal_column_control_state
+
+    def request_formal_column_pause(self):
+        if self.active_task != "COLUMN_CATCH" or self.active_sequence is None:
+            return False
+        if self.formal_column_control_state in {"PAUSE_ACK", "PAUSED"}:
+            return True
+        sent = self.send_line(
+            "RK,ARM,COLUMN_CATCH,PAUSE,SEQ,"
+            f"{self.active_sequence},FIELD,{self.field_mode.wire_name}"
+        )
+        if sent:
+            self.formal_column_control_state = "PAUSE_REQUESTED"
+            self.formal_column_control_sequence = self.active_sequence
+        return sent
+
+    def request_formal_column_resume(self):
+        if self.active_task != "COLUMN_CATCH" or self.active_sequence is None:
+            return False
+        if self.formal_column_control_state in {"RESUME_ACK", "RESUMED"}:
+            return True
+        sent = self.send_line(
+            "RK,ARM,COLUMN_CATCH,RESUME,SEQ,"
+            f"{self.active_sequence},FIELD,{self.field_mode.wire_name}"
+        )
+        if sent:
+            self.formal_column_control_state = "RESUME_REQUESTED"
+            self.formal_column_control_sequence = self.active_sequence
+        return sent
+
     def consume_white_line_queries(self):
         queries = self.pending_white_line_queries
         self.pending_white_line_queries = []
@@ -832,6 +908,8 @@ class ChassisArmLink:
         self.active_task = None
         self.active_sequence = None
         self.active_slot = None
+        self.formal_column_control_state = None
+        self.formal_column_control_sequence = None
         self.last_completed_task = None
         self.last_completed_sequence = None
         self.last_completed_outcome = None
@@ -902,6 +980,8 @@ class ChassisArmLink:
         print(self.status, flush=True)
         self.active_task = None
         self.active_sequence = None
+        self.formal_column_control_state = None
+        self.formal_column_control_sequence = None
         self.last_completed_task = task
         self.last_completed_sequence = sequence
         self.last_completed_outcome = outcome

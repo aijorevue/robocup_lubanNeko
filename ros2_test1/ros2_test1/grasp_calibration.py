@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 
-GRASP_MIN_DISTANCE_CM = 10.0
+GRASP_MIN_DISTANCE_CM = 7.0
 GRASP_MAX_DISTANCE_CM = 30.0
 
 # Measured letter-block poses. Rings use the same pose at the measured depth.
@@ -23,9 +23,18 @@ GRASP_DISTANCE_TICKS = (
     (30.0, 288, 433),
 )
 
+NEAR_ID2_START_DISTANCE_CM = 7.0
+NEAR_ID2_END_DISTANCE_CM = 9.0
+NEAR_ID2_START_TICK = 540
+NEAR_ID2_END_TICK = 530
+
 
 def calibrated_grasp_ticks(distance_cm: float) -> tuple[int, int]:
-    """Linearly interpolate the measured ID1/ID2 pose for 10-30 cm."""
+    """Interpolate the measured pose for 7-30 cm.
+
+    The first measured segment (10-11 cm) is linearly extrapolated down to
+    7 cm until dedicated 7-10 cm calibration points are available.
+    """
 
     distance_cm = float(distance_cm)
     if not GRASP_MIN_DISTANCE_CM <= distance_cm <= GRASP_MAX_DISTANCE_CM:
@@ -34,12 +43,32 @@ def calibrated_grasp_ticks(distance_cm: float) -> tuple[int, int]:
             f"{GRASP_MIN_DISTANCE_CM:.0f}-{GRASP_MAX_DISTANCE_CM:.0f}cm"
         )
 
-    for lower, upper in zip(GRASP_DISTANCE_TICKS, GRASP_DISTANCE_TICKS[1:]):
-        if lower[0] <= distance_cm <= upper[0]:
-            span = upper[0] - lower[0]
-            ratio = 0.0 if span <= 0.0 else (distance_cm - lower[0]) / span
-            id1 = round(lower[1] + (upper[1] - lower[1]) * ratio)
-            id2 = round(lower[2] + (upper[2] - lower[2]) * ratio)
-            return int(id1), int(id2)
+    if distance_cm < GRASP_DISTANCE_TICKS[0][0]:
+        lower, upper = GRASP_DISTANCE_TICKS[:2]
+    else:
+        lower = upper = None
+        for candidate_lower, candidate_upper in zip(
+            GRASP_DISTANCE_TICKS, GRASP_DISTANCE_TICKS[1:]
+        ):
+            if candidate_lower[0] <= distance_cm <= candidate_upper[0]:
+                lower, upper = candidate_lower, candidate_upper
+                break
+        if lower is None:
+            lower = upper = GRASP_DISTANCE_TICKS[-1]
 
-    return GRASP_DISTANCE_TICKS[-1][1], GRASP_DISTANCE_TICKS[-1][2]
+    span = upper[0] - lower[0]
+    ratio = 0.0 if span <= 0.0 else (distance_cm - lower[0]) / span
+    # Apply the current mechanical calibration offset after interpolation.
+    # This affects only distance-derived descent poses, not fixed poses.
+    id1 = round(lower[1] + (upper[1] - lower[1]) * ratio) + 50
+    id2 = round(lower[2] + (upper[2] - lower[2]) * ratio)
+    if NEAR_ID2_START_DISTANCE_CM <= distance_cm <= NEAR_ID2_END_DISTANCE_CM:
+        near_ratio = (
+            (distance_cm - NEAR_ID2_START_DISTANCE_CM)
+            / (NEAR_ID2_END_DISTANCE_CM - NEAR_ID2_START_DISTANCE_CM)
+        )
+        id2 = round(
+            NEAR_ID2_START_TICK
+            + (NEAR_ID2_END_TICK - NEAR_ID2_START_TICK) * near_ratio
+        )
+    return int(id1), int(id2)

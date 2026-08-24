@@ -10,6 +10,7 @@ sent.
 from __future__ import annotations
 
 import argparse
+import errno
 import os
 import select
 import sys
@@ -32,25 +33,27 @@ H7_DEVICE = "/dev/h7_chassis"
 ARM_DEVICE = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5C82109853-if00"
 ZP_DEVICE = "/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0"
 
-HIGH = {1: 600, 2: 600, 6: 640}
-LETTER_WORK = {1: 500, 2: 350, 6: 900}
-RING_AFTER_HIGH = {1: 460, 2: 315, 6: 400}
+HIGH = {1: 650, 2: 600, 6: 350}
+LETTER_WORK = {1: 500, 2: 350, 6: 600}
+RING_AFTER_HIGH = {1: 535, 2: 330, 6: 120}
 ZP_HIGH = {4: 1200, 5: 800, 7: 1300}
 # These two SG90 outputs are fixed auxiliary channels on the ZL 24-channel
 # board.  They must remain at their neutral test positions throughout the app.
 AUX_ZP_HOLD = {12: 600, 23: 1000}
 AUX_ZP_HOLD_TIME_MS = 800
 GRIPPER_CLOSED = 1300
-GRIPPER_OPEN = 1700
+GRIPPER_OPEN = 1650
 ARM_TIME_MS = 600
 ZP_TIME_MS = 300
 GRIPPER_TIME_MS = 300
+RING_PLACE_TIME_MS = 800
 CENTER_DEADBAND_PX = 45.0
-CENTER_STEP_TICKS = 5
+CENTER_STEP_TICKS = 7
+CENTER_ID6_STEP_TICKS = 5
 CENTER_TIME_MS = 100
 CENTER_TRACK_MAX_JUMP_PX = 320.0
 CENTER_ID2_RANGE = (450, 700)
-CENTER_ID6_RANGE = (500, 800)
+CENTER_ID6_RANGE = (0, 700)
 LETTERS = {"A", "B", "C", "D"}
 SECONDARY_LETTER_MIN_CONFIDENCE = 38.0
 MAIN_LETTER_MIN_CONFIDENCE = 45.0
@@ -58,6 +61,7 @@ MAIN_TARGET_VOTE_WINDOW = 8
 MAIN_TARGET_REQUIRED_VOTES = 3
 MAIN_TARGET_VOTE_CENTER_TOL_PX = 140.0
 TARGET_TRACK_MISSING_TIMEOUT_S = 4.0
+MAIN_TARGET_TIMEOUT_S = 1.5
 LETTER_LOCK_WARMUP_FRAMES = 20
 LETTER_LOCK_HISTORY_FRAMES = 12
 LETTER_LOCK_REQUIRED_FRAMES = 8
@@ -66,6 +70,17 @@ RING_SIZE_MM = 55.0
 CAMERA_GRIPPER_OFFSET_MM = 50.0
 TARGET_GRIPPER_DISTANCE_MM = 20.0
 RING_DISTANCE_EXTRA_CM = 0.5
+POST_OPEN_ID2_RETREAT_TICKS = 100
+UART_OPEN_TIMEOUT_S = 10.0
+UART_RETRY_INTERVAL_S = 0.2
+UART_RETRY_ERRNOS = frozenset(
+    (errno.ENOENT, errno.ENODEV, errno.ENXIO, errno.EIO, errno.EBUSY)
+)
+UART_COMMAND_TIMEOUT_S = 12.0
+UART_COMMAND_RETRY_INTERVAL_S = 0.25
+UART_COMMAND_MAX_ATTEMPTS = 6
+TARGET_WINDOW_SIZE_PX = 300
+TARGET_WINDOW_MIN_AREA_FRACTION = 0.80
 
 
 def htd85_packet(servo_id: int, position: int, time_ms: int) -> bytes:
@@ -81,45 +96,133 @@ def zp_packet(servo_id: int, position: int, time_ms: int) -> bytes:
 def write_all(fd: int, payload: bytes) -> None:
     offset = 0
     while offset < len(payload):
-        offset += os.write(fd, payload[offset:])
+        written = os.write(fd, payload[offset:])
+        if written <= 0:
+            raise OSError(errno.EIO, "serial write returned no bytes")
+        offset += written
     termios.tcdrain(fd)
 
 
-def open_uart(path: str) -> int:
-    fd = os.open(path, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
-    attrs = termios.tcgetattr(fd)
-    attrs[0] = attrs[1] = attrs[3] = 0
-    attrs[2] = termios.CS8 | termios.CREAD | termios.CLOCAL
-    attrs[4] = attrs[5] = termios.B115200
-    attrs[6][termios.VMIN] = 0
-    attrs[6][termios.VTIME] = 0
-    termios.tcsetattr(fd, termios.TCSANOW, attrs)
-    return fd
+def open_uart(path: str, role: str = "UART",
+              timeout_s: float = UART_OPEN_TIMEOUT_S) -> int:
+    """Open a USB UART across a short disconnect/re-enumeration window."""
+    deadline = time.monotonic() + max(0.1, timeout_s)
+    attempts = 0
+    while True:
+        fd = None
+        try:
+            fd = os.open(path, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+            attrs = termios.tcgetattr(fd)
+            attrs[0] = attrs[1] = attrs[3] = 0
+            attrs[2] = termios.CS8 | termios.CREAD | termios.CLOCAL
+            attrs[4] = attrs[5] = termios.B115200
+            attrs[6][termios.VMIN] = 0
+            attrs[6][termios.VTIME] = 0
+            termios.tcsetattr(fd, termios.TCSANOW, attrs)
+            if attempts:
+                print(
+                    f"TASK2 UART READY role={role} path={path} "
+                    f"attempts={attempts + 1}",
+                    flush=True,
+                )
+            return fd
+        except OSError as exc:
+            if fd is not None:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+            if exc.errno not in UART_RETRY_ERRNOS:
+                raise
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise OSError(
+                    exc.errno,
+                    f"{exc.strerror}; {role} UART unavailable after "
+                    f"{timeout_s:.1f}s: {path}",
+                ) from exc
+            if attempts == 0:
+                print(
+                    f"TASK2 UART WAIT role={role} path={path} "
+                    f"reason=[Errno {exc.errno}] {exc.strerror}",
+                    flush=True,
+                )
+            attempts += 1
+            time.sleep(min(UART_RETRY_INTERVAL_S, remaining))
+
+
+def send_uart_payload(path: str, payload: bytes, role: str) -> None:
+    """Send one command with a fresh fd so USB re-enumeration is recoverable."""
+    deadline = time.monotonic() + UART_COMMAND_TIMEOUT_S
+    last_error = None
+    for attempt in range(1, UART_COMMAND_MAX_ATTEMPTS + 1):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0.0:
+            break
+        fd = None
+        try:
+            fd = open_uart(path, role, min(2.0, remaining))
+            write_all(fd, payload)
+            return
+        except OSError as exc:
+            last_error = exc
+            if exc.errno not in UART_RETRY_ERRNOS:
+                raise OSError(
+                    exc.errno,
+                    f"{role} command failed on {path}: {exc.strerror}",
+                ) from exc
+            if attempt >= UART_COMMAND_MAX_ATTEMPTS:
+                break
+            print(
+                f"TASK2 UART RETRY role={role} attempt={attempt + 1} "
+                f"path={path} reason=[Errno {exc.errno}] {exc.strerror}",
+                flush=True,
+            )
+        finally:
+            if fd is not None:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+        time.sleep(min(UART_COMMAND_RETRY_INTERVAL_S,
+                       max(0.0, deadline - time.monotonic())))
+    if last_error is None:
+        raise OSError(errno.EIO, f"{role} command deadline expired on {path}")
+    raise OSError(
+        last_error.errno,
+        f"{role} command failed after retries on {path}: "
+        f"{last_error.strerror}",
+    ) from last_error
 
 
 class ServoBoards:
     def __init__(self, arm_path: str, zp_path: str):
         self.arm_path = arm_path
         self.zp_path = zp_path
-        self.arm_fd = open_uart(arm_path)
+        self.arm_fd = None
+        self.zp_fd = None
         try:
-            self.zp_fd = open_uart(zp_path)
+            for role, path in (("ZP", zp_path), ("HTD85", arm_path)):
+                fd = open_uart(path, role)
+                os.close(fd)
+            self.hold_aux_outputs()
         except Exception:
-            os.close(self.arm_fd)
+            self.close()
             raise
-        self.hold_aux_outputs()
 
     def arm(self, targets: dict[int, int], motion_ms: int = ARM_TIME_MS) -> None:
         for servo_id, position in targets.items():
             packet = htd85_packet(servo_id, position, motion_ms)
-            write_all(self.arm_fd, packet)
+            send_uart_payload(
+                self.arm_path, packet, f"HTD85 ID{servo_id}"
+            )
             print(f"TASK2 SERVO HTD85 ID{servo_id}={position} T={motion_ms}ms", flush=True)
             time.sleep(0.003)
 
     def zp(self, targets: dict[int, int], motion_ms: int = ZP_TIME_MS) -> None:
         for servo_id, position in targets.items():
             packet = zp_packet(servo_id, position, motion_ms)
-            write_all(self.zp_fd, packet)
+            send_uart_payload(self.zp_path, packet, f"ZP ID{servo_id}")
             print(f"TASK2 SERVO ZP ID{servo_id}={position} T={motion_ms}ms", flush=True)
             time.sleep(0.003)
 
@@ -148,10 +251,22 @@ class ServoBoards:
         self.zp({7: GRIPPER_CLOSED}, GRIPPER_TIME_MS)
         time.sleep(GRIPPER_TIME_MS / 1000.0)
 
+    def place_ring(self) -> None:
+        """Move ring placement ID6/ID2 first, then ID1, each in 800 ms."""
+        self.arm(
+            {6: RING_AFTER_HIGH[6], 2: RING_AFTER_HIGH[2]},
+            RING_PLACE_TIME_MS,
+        )
+        time.sleep(RING_PLACE_TIME_MS / 1000.0)
+        self.arm({1: RING_AFTER_HIGH[1]}, RING_PLACE_TIME_MS)
+        time.sleep(RING_PLACE_TIME_MS / 1000.0)
+
     def close(self) -> None:
-        for fd in (getattr(self, "arm_fd", None), getattr(self, "zp_fd", None)):
+        for name in ("arm_fd", "zp_fd"):
+            fd = getattr(self, name, None)
             if fd is not None:
                 os.close(fd)
+                setattr(self, name, None)
 
 
 class H7Link:
@@ -163,9 +278,7 @@ class H7Link:
         self.last_white_line_time = 0.0
 
     def open(self) -> None:
-        if not os.path.exists(self.path):
-            raise RuntimeError(f"H7 CDC missing: {self.path}")
-        self.fd = open_uart(self.path)
+        self.fd = open_uart(self.path, "H7")
         print(f"TASK2 H7 OPEN {self.path}", flush=True)
 
     def send(self, line: str) -> None:
@@ -174,7 +287,29 @@ class H7Link:
         write_all(self.fd, (line.rstrip("\r\n") + "\r\n").encode("ascii"))
         print(f"TASK2 H7 TX {line.rstrip()}", flush=True)
 
-    def wait_status(self, sequence: int, status: str, timeout_s: float) -> str | None:
+    def wait_status(self, sequence: int, status: str, timeout_s: float,
+                    field: str | None = None) -> str | None:
+        return self.wait_status_any(sequence, {status}, timeout_s, field)
+
+    @staticmethod
+    def _status_matches(fields: list[str], sequence: int,
+                        statuses: set[str], field: str | None) -> bool:
+        if len(fields) < 6 or fields[:3] != ["H7", "TEST", "TASK2"]:
+            return False
+        if fields[3] not in statuses or fields[4] != "SEQ":
+            return False
+        if fields[5] != str(sequence):
+            return False
+        if field is None:
+            return True
+        try:
+            field_index = fields.index("FIELD")
+        except ValueError:
+            return False
+        return field_index + 1 < len(fields) and fields[field_index + 1] == field
+
+    def wait_status_any(self, sequence: int, statuses: set[str],
+                        timeout_s: float, field: str | None = None) -> str | None:
         deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
             ready, _, _ = select.select([self.fd], [], [], 0.1)
@@ -185,16 +320,15 @@ class H7Link:
                 raw, _, self.rx = self.rx.partition(b"\n")
                 line = raw.decode("ascii", "replace").strip("\r")
                 print(f"TASK2 H7 RX {line}", flush=True)
-                fields = line.split(",")
-                if (len(fields) >= 8 and fields[:4] ==
-                        ["H7", "TEST", "TASK2", status] and
-                        fields[4] == "SEQ" and fields[5] == str(sequence)):
+                fields = [item.strip() for item in line.split(",")]
+                if self._status_matches(fields, sequence, statuses, field):
                     return line
         return None
 
     def wait_status_with_white_line(
         self, sequence: int, status: str, timeout_s: float,
         camera: cv2.VideoCapture, white_line_detector,
+        field: str | None = None,
     ) -> str | None:
         """Wait for H7 motion while servicing its main-camera line queries."""
         deadline = time.monotonic() + timeout_s
@@ -261,9 +395,7 @@ class H7Link:
                             flush=True,
                         )
                     continue
-                if (len(fields) >= 6 and fields[:4] ==
-                        ["H7", "TEST", "TASK2", status] and
-                        fields[4] == "SEQ" and fields[5] == str(sequence)):
+                if self._status_matches(fields, sequence, {status}, field):
                     return line
         return None
 
@@ -465,14 +597,21 @@ def identify_main_target(camera: cv2.VideoCapture, detector, field: str,
         )
         allowed_letters = [
             item for item in detected_letters
-            if str(item.get("letter", "")).upper() in pair
+            if (
+                str(item.get("letter", "")).upper() in pair
+                and _target_in_center_window(item, frame.shape)
+            )
         ]
         letters = (
             [_nearest_letter_to_frame_center(allowed_letters, frame.shape)]
             if allowed_letters else []
         )
         rings = detect_rings(frame)
-        own_rings = [d for d in rings if d["color"] == field.lower()]
+        own_rings = [
+            d for d in rings
+            if d["color"] == field.lower()
+            and _target_in_center_window(d, frame.shape)
+        ]
         candidates = letters + own_rings
         target = (
             min(candidates, key=lambda item: _target_center_distance(item, frame.shape))
@@ -597,6 +736,35 @@ def _target_center_distance(target: dict, frame_shape) -> float:
     )
 
 
+def _target_in_center_window(target: dict, frame_shape) -> bool:
+    """Require most of a target bbox to be inside the centered image window."""
+    bbox = target.get("bbox")
+    if bbox is None or len(bbox) != 4:
+        return False
+    try:
+        x, y, width, height = (float(value) for value in bbox)
+    except (TypeError, ValueError):
+        return False
+    if width <= 0.0 or height <= 0.0:
+        return False
+    frame_height, frame_width = frame_shape[:2]
+    window_size = min(
+        float(TARGET_WINDOW_SIZE_PX), float(frame_width), float(frame_height)
+    )
+    window_left = (float(frame_width) - window_size) / 2.0
+    window_top = (float(frame_height) - window_size) / 2.0
+    intersection_width = max(
+        0.0,
+        min(x + width, window_left + window_size) - max(x, window_left),
+    )
+    intersection_height = max(
+        0.0,
+        min(y + height, window_top + window_size) - max(y, window_top),
+    )
+    inside_fraction = (intersection_width * intersection_height) / (width * height)
+    return inside_fraction >= TARGET_WINDOW_MIN_AREA_FRACTION
+
+
 def _nearest_letter_to_frame_center(letters: list[dict], frame_shape) -> dict:
     """Keep the letter block geometrically closest to the main-view center."""
     if not letters:
@@ -620,7 +788,10 @@ def _main_target_candidates(frame: np.ndarray, detector, field: str,
         item for item in letter_detections(
             detector, frame, MAIN_LETTER_MIN_CONFIDENCE
         )
-        if str(item.get("letter", "")).upper() in pair
+        if (
+            str(item.get("letter", "")).upper() in pair
+            and _target_in_center_window(item, frame.shape)
+        )
     ]
     nearest_letter = (
         _nearest_letter_to_frame_center(letters, frame.shape)
@@ -631,8 +802,12 @@ def _main_target_candidates(frame: np.ndarray, detector, field: str,
     return [
         item for item in letters + rings
         if (
-            item.get("kind") == "ring" and item.get("color") == field.lower()
-        ) or item.get("kind") == "letter"
+            (
+                item.get("kind") == "ring"
+                and item.get("color") == field.lower()
+            )
+            or item.get("kind") == "letter"
+        ) and _target_in_center_window(item, frame.shape)
     ]
 
 
@@ -710,6 +885,7 @@ def center_main_target(camera: cv2.VideoCapture, detector, field: str,
         error_y = float(cy) - height / 2.0
         if abs(error_x) <= CENTER_DEADBAND_PX and abs(error_y) <= CENTER_DEADBAND_PX:
             target["frame_shape"] = frame.shape
+            target["center_id2"] = id2
             target["center_id6"] = id6
             print(
                 f"TASK2 TARGET CENTERED dx={error_x:.0f} dy={error_y:.0f} "
@@ -720,13 +896,17 @@ def center_main_target(camera: cv2.VideoCapture, detector, field: str,
         next_id2 = id2
         next_id6 = id6
         if abs(error_x) > CENTER_DEADBAND_PX:
-            next_id6 += -CENTER_STEP_TICKS if error_x > 0.0 else CENTER_STEP_TICKS
+            next_id6 += (
+                -CENTER_ID6_STEP_TICKS
+                if error_x > 0.0 else CENTER_ID6_STEP_TICKS
+            )
         if abs(error_y) > CENTER_DEADBAND_PX:
             next_id2 += -CENTER_STEP_TICKS if error_y > 0.0 else CENTER_STEP_TICKS
         next_id2 = max(CENTER_ID2_RANGE[0], min(CENTER_ID2_RANGE[1], next_id2))
         next_id6 = max(CENTER_ID6_RANGE[0], min(CENTER_ID6_RANGE[1], next_id6))
         if next_id2 == id2 and next_id6 == id6:
             target["frame_shape"] = frame.shape
+            target["center_id2"] = id2
             target["center_id6"] = id6
             print(
                 f"TASK2 TARGET CENTER_LIMIT proceed dx={error_x:.0f} dy={error_y:.0f} "
@@ -741,7 +921,7 @@ def center_main_target(camera: cv2.VideoCapture, detector, field: str,
         corrections += 1
         print(
             f"TASK2 TARGET CENTER_STEP dx={error_x:.0f} dy={error_y:.0f} "
-            f"ID2={id2} ID6={id6} step={CENTER_STEP_TICKS} "
+            f"ID2={id2} ID6={id6} dID6={CENTER_ID6_STEP_TICKS} "
             f"motion={CENTER_TIME_MS}ms",
             flush=True,
         )
@@ -749,7 +929,7 @@ def center_main_target(camera: cv2.VideoCapture, detector, field: str,
 
 
 def solve_descend_pose(target: dict, grasp_model):
-    """Map fresh target depth through the measured 10-30 cm calibration."""
+    """Map fresh target depth through the measured 7-30 cm calibration."""
     distance_cm = target.get("distance_cm")
     if distance_cm is None:
         raise RuntimeError("TARGET_DEPTH_INVALID")
@@ -761,14 +941,57 @@ def solve_descend_pose(target: dict, grasp_model):
         "id1": int(id1),
         "id2": int(id2),
         "distance_cm": float(distance_cm),
-        "model": "measured_10_30cm",
+        "model": "measured_7_30cm",
     }
+
+
+def open_gripper_then_retreat_id2(boards: ServoBoards, current_id2: int) -> int:
+    """Open ID7, then move only ID2 back before the final IK pose."""
+    boards.open_gripper()
+    retreat_id2 = max(CENTER_ID2_RANGE[0], int(current_id2) - POST_OPEN_ID2_RETREAT_TICKS)
+    boards.arm({2: retreat_id2}, ARM_TIME_MS)
+    print(
+        f"TASK2 POST_OPEN_ID2_RETREAT ID2={current_id2}->{retreat_id2} "
+        f"DELTA=-{POST_OPEN_ID2_RETREAT_TICKS} T={ARM_TIME_MS}ms",
+        flush=True,
+    )
+    time.sleep(ARM_TIME_MS / 1000.0)
+    return retreat_id2
+
+
+def stop_active_h7(h7: H7Link | None, sequence: int | None,
+                   field: str, active: bool) -> None:
+    """Stop an acknowledged test command before returning control to the user."""
+    if h7 is None or sequence is None or not active:
+        return
+    try:
+        h7.send(
+            f"RK,TEST,TASK2,STOP,SEQ,{sequence},FIELD,{field.upper()}"
+        )
+        reply = h7.wait_status_any(
+            sequence, {"STOPPED", "DONE"}, 4.0, field.upper()
+        )
+        if reply is None:
+            print(
+                f"TASK2 H7 STOP_TIMEOUT seq={sequence} field={field.upper()}",
+                flush=True,
+            )
+        else:
+            print(
+                f"TASK2 H7 STOP_CONFIRMED seq={sequence} field={field.upper()} "
+                f"reply={reply}",
+                flush=True,
+            )
+    except Exception as exc:
+        print(f"TASK2 H7 STOP_ERROR {exc}", flush=True)
 
 
 def run(args) -> int:
     if os.environ.get("DISPLAY") is None:
         os.environ["DISPLAY"] = ":0"
     secondary = main_camera = boards = h7 = None
+    session_sequence = None
+    h7_active = False
     try:
         main_detector = import_main_detector()
         secondary_detector = import_secondary_detector()
@@ -783,7 +1006,7 @@ def run(args) -> int:
             return 0
         boards = ServoBoards(args.arm_uart, args.zp_uart)
         boards.pose_high()
-        print("TASK2 HIGH_POSE_READY ID1=600 ID2=600 ID6=640 ZP4=1200 ZP5=800 ZP7=1300", flush=True)
+        print("TASK2 HIGH_POSE_READY ID1=650 ID2=600 ID6=350 ZP4=1200 ZP5=800 ZP7=1300", flush=True)
         h7 = H7Link(args.h7_device)
         session_sequence = (int(time.time() * 1000)) & 0xFFFFFFFF
         for slot in range(8):
@@ -794,25 +1017,29 @@ def run(args) -> int:
                 command = (f"RK,TEST,TASK2,NEXT,SEQ,{session_sequence},FIELD,{args.field.upper()},"
                            f"STEP,{slot}")
             h7.send(command)
-            if not h7.wait_status(session_sequence, "ACK", 4.0):
+            if not h7.wait_status(
+                    session_sequence, "ACK", 4.0, args.field.upper()):
                 raise RuntimeError(f"H7_ACK_TIMEOUT slot={slot + 1}")
-            if not h7.wait_status(session_sequence, "RUNNING", 8.0):
+            h7_active = True
+            if not h7.wait_status(
+                    session_sequence, "RUNNING", 8.0, args.field.upper()):
                 raise RuntimeError(f"H7_RUNNING_TIMEOUT slot={slot + 1}")
             if main_camera is None:
                 main_camera = open_camera(args.main_camera)
                 print(
                     f"TASK2 MAIN CAMERA_OPEN path={args.main_camera} "
                     "WHITE_LINE_REF_Y10=2000,TOL=100,ACCEL=0.10m/s2,"
-                    "AFTER_CROSSED_FORWARD=210mm",
+                    "AFTER_CROSSED_FORWARD=170mm",
                     flush=True,
                 )
             done = (
                 h7.wait_status_with_white_line(
                     session_sequence, "DONE", args.h7_timeout_s,
-                    main_camera, white_line_detector,
+                    main_camera, white_line_detector, args.field.upper(),
                 )
-                if slot == 0 else
-                h7.wait_status(session_sequence, "DONE", args.h7_timeout_s)
+                if slot == 0 else h7.wait_status(
+                    session_sequence, "DONE", args.h7_timeout_s,
+                    args.field.upper())
             )
             if not done:
                 raise RuntimeError(f"H7_DONE_TIMEOUT slot={slot + 1}")
@@ -851,7 +1078,8 @@ def run(args) -> int:
                     raise
             if target.get("kind") == "ring":
                 descend = solve_descend_pose(target, grasp_model)
-                boards.open_gripper()
+                current_id2 = int(target.get("center_id2", HIGH[2]))
+                open_gripper_then_retreat_id2(boards, current_id2)
                 boards.arm({1: descend["id1"], 2: descend["id2"],
                             6: int(target.get("center_id6", HIGH[6]))})
                 print(
@@ -863,17 +1091,17 @@ def run(args) -> int:
                 time.sleep(ARM_TIME_MS / 1000.0)
                 boards.close_gripper()
                 boards.pose_high()
-                boards.arm(RING_AFTER_HIGH)
-                time.sleep(ARM_TIME_MS / 1000.0)
+                boards.place_ring()
                 boards.pulse_gripper()
                 boards.pose_high()
-                print("TASK2 RING_DONE after_high ID1=460 ID2=315 ID6=400", flush=True)
+                print("TASK2 RING_DONE after_high ID1=535 ID2=330 ID6=120", flush=True)
             elif (
                     target.get("kind") == "letter"
                     and str(target.get("letter", "")).upper() in pair
             ):
                 descend = solve_descend_pose(target, grasp_model)
-                boards.open_gripper()
+                current_id2 = int(target.get("center_id2", HIGH[2]))
+                open_gripper_then_retreat_id2(boards, current_id2)
                 boards.arm({1: descend["id1"], 2: descend["id2"],
                             6: int(target.get("center_id6", HIGH[6]))})
                 print(
@@ -892,7 +1120,7 @@ def run(args) -> int:
                 boards.pose_high()
                 print(
                     f"TASK2 LETTER_DONE letter={target['letter']} "
-                    "ID1=500 ID2=350 ID6=900", flush=True
+                    "ID1=500 ID2=350 ID6=600", flush=True
                 )
             else:
                 print(
@@ -907,9 +1135,11 @@ def run(args) -> int:
         print(f"TASK2 TEST COMPLETE pair={pair[0]},{pair[1]} slots=8", flush=True)
         return 0
     except KeyboardInterrupt:
+        stop_active_h7(h7, session_sequence, args.field, h7_active)
         print("TASK2 ABORTED", flush=True)
         return 2
     except Exception as exc:
+        stop_active_h7(h7, session_sequence, args.field, h7_active)
         print(f"TASK2 ERROR {exc}", flush=True)
         return 1
     finally:
@@ -935,7 +1165,7 @@ def main() -> int:
     parser.add_argument("--execute-h7", action="store_true",
                         help="after letter lock, drive the arm and H7 test route")
     parser.add_argument("--letter-timeout-s", type=float, default=30.0)
-    parser.add_argument("--main-timeout-s", type=float, default=4.0)
+    parser.add_argument("--main-timeout-s", type=float, default=MAIN_TARGET_TIMEOUT_S)
     parser.add_argument("--h7-timeout-s", type=float, default=120.0)
     args = parser.parse_args()
     return run(args)

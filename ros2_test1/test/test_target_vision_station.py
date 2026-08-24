@@ -99,29 +99,29 @@ class ChassisStationSafetyTests(unittest.TestCase):
         bridge.zp_fd = 11
         writes = []
         bridge._write_payload = lambda fd, payload, repeat=None: writes.append((fd, payload))
-        bridge.send_targets(id1=600, id2=500, id6=670)
+        bridge.send_targets(id1=650, id2=500, id6=350)
 
         self.assertTrue(bridge.last_command_ok)
         self.assertEqual(
             [
-                (10, target_vision.htd85_move_packet(1, 600, bridge.arm_time_ms)),
+                (10, target_vision.htd85_move_packet(1, 650, bridge.arm_time_ms)),
                 (10, target_vision.htd85_move_packet(2, 500, bridge.arm_time_ms)),
-                (10, target_vision.htd85_move_packet(6, 670, bridge.arm_time_ms)),
+                (10, target_vision.htd85_move_packet(6, 350, bridge.arm_time_ms)),
             ],
             writes,
         )
 
-    def test_disc_prep_high_keeps_id6_at_670_and_is_idempotent(self):
+    def test_disc_prep_high_keeps_id6_at_350_and_is_idempotent(self):
         controller, bridge, _ = make_controller()
-        prep = {"task": "DISC_CATCH", "id1": 600, "id2": 600}
+        prep = {"task": "DISC_CATCH", "id1": 650, "id2": 600}
         with mock.patch.object(target_vision.time, "sleep") as sleep_mock:
             controller.prepare_chassis_station_high(prep)
             first_command_count = len(bridge.sent)
             controller.prepare_chassis_station_high(prep)
 
-        self.assertEqual(controller.id6, 670)
-        self.assertEqual(bridge.sent[-2]["id1"], 600)
-        self.assertEqual(bridge.sent[-2]["id6"], 670)
+        self.assertEqual(controller.id6, 350)
+        self.assertEqual(bridge.sent[-2]["id1"], 650)
+        self.assertEqual(bridge.sent[-2]["id6"], 350)
         self.assertNotIn("id2", bridge.sent[-2])
         self.assertEqual(bridge.sent[-1], {"id2": 600})
         sleep_mock.assert_called_once_with(target_vision.ARM_JOINT_SEQUENCE_DELAY_S)
@@ -193,12 +193,28 @@ class ChassisStationSafetyTests(unittest.TestCase):
             controller.consume_chassis_station_done(),
             "NO_RED_OR_YELLOW_BALL_5.0S",
         )
-        self.assertEqual(bridge.sent[-2]["id2"], target_vision.HOME_ID2_TICK)
+        high_first = next(
+            item for item in bridge.sent
+            if item.get("id1") == target_vision.DISC_CATCH_PREP_ID1_TICK
+            and item.get("id6") == target_vision.DISC_CATCH_ID6_TICK
+            and "id2" not in item
+        )
+        high_second_index = next(
+            index for index, item in enumerate(bridge.sent)
+            if item == {"id2": target_vision.DISC_CATCH_PREP_ID2_TICK}
+        )
+        home_id2_index = next(
+            index for index, item in enumerate(bridge.sent)
+            if item.get("id2") == target_vision.HOME_ID2_TICK
+        )
+        self.assertEqual(high_first["id1"], 650)
+        self.assertEqual(high_first["id6"], 350)
+        self.assertLess(high_second_index, home_id2_index)
         self.assertEqual(bridge.sent[-1]["id1"], target_vision.HOME_ID1_TICK)
         self.assertNotIn("id2", bridge.sent[-1])
         self.assertEqual(
             bridge.sent[-1]["id5"],
-            target_vision.DISC_CATCH_CATCHER_READY_TICK,
+            target_vision.CATCHER_HOME_TICK,
         )
 
 
@@ -273,10 +289,13 @@ class ChassisStationSafetyTests(unittest.TestCase):
         self.assertEqual(bridge.sent[-2]["id2"], 550)
         self.assertNotIn("id1", bridge.sent[-2])
         self.assertEqual(bridge.sent[-2]["id4"], 1300)
-        self.assertEqual(bridge.sent[-2]["id5"], 1110)
+        self.assertEqual(
+            bridge.sent[-2]["id5"],
+            target_vision.DISC_CATCH_CATCHER_READY_TICK,
+        )
         self.assertEqual(bridge.sent[-2]["splitter_id4"], 1300)
         self.assertEqual(bridge.sent[-1]["id1"], 460)
-        self.assertEqual(bridge.sent[-1]["id6"], 670)
+        self.assertEqual(bridge.sent[-1]["id6"], 350)
         self.assertNotIn("id2", bridge.sent[-1])
         sleep_mock.assert_called_once_with(target_vision.ARM_JOINT_SEQUENCE_DELAY_S)
 
@@ -332,14 +351,14 @@ class ChassisStationSafetyTests(unittest.TestCase):
         self.assertEqual(bridge.sent[-1]["splitter_id4"], target_vision.SPLITTER_YELLOW_TICK)
 
 
-def test_platform_letter_policy_matches_selected_letters(self):
+def test_platform_letter_policy_matches_selected_letters():
     controller, _bridge, _ = make_controller()
     policy = controller.target_policy
     letter = {"kind": "letter", "letter": "B", "color": "white"}
     ring = {"kind": "ring", "color": policy.platform_ring_color}
-    self.assertTrue(policy.matches_platform_target(letter, "letter", {"A", "B"}))
-    self.assertFalse(policy.matches_platform_target(letter, "letter", {"A", "C"}))
-    self.assertTrue(policy.matches_platform_target(ring, "ring", {"A", "C"}))
+    assert policy.matches_platform_target(letter, "letter", {"A", "B"})
+    assert not policy.matches_platform_target(letter, "letter", {"A", "C"})
+    assert policy.matches_platform_target(ring, "ring", {"A", "C"})
 
 if __name__ == "__main__":
     unittest.main()
