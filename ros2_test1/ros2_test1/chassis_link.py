@@ -234,6 +234,7 @@ class ChassisArmLink:
             self.last_completed_reason or "UNKNOWN",
             "FIELD",
             self.field_mode.wire_name,
+            *self.last_completed_details,
         )
 
     def send_line(self, text):
@@ -424,6 +425,11 @@ class ChassisArmLink:
                 self._send_task_state(
                     "PLATFORM_PICK", "BUSY", sequence, "REASON", "RESET"
                 )
+                return
+            if (sequence is not None
+                    and self.last_completed_task == "PLATFORM_PICK"
+                    and self.last_completed_sequence == sequence):
+                self._replay_last_outcome()
                 return
             count = self._int_from_parts(parts, "COUNT")
             requested = self._field_from_parts(parts[3:])

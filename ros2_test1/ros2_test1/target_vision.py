@@ -59,6 +59,9 @@ from .grasp_calibration import (
     calibrated_grasp_ticks,
 )
 from .chassis_link import ChassisArmLink
+from .platform_task import HIGH as PLATFORM_HIGH_POSE, PlatformTask
+from .platform_vision import detect_rings as detect_platform_rings
+from abcd_detector.secondary_detector import SecondaryLetterDetector
 from balls_detector import (
     BALL_COLORS,
     BALL_DETECTORS,
@@ -142,7 +145,8 @@ ARM_TUNE_ZP_LIMITS = {
     7: (500, 2500),
 }
 COLUMN_CATCH_READY_ID1_TICK = 600
-COLUMN_CATCH_READY_ID2_TICK = 600
+COLUMN_CATCH_READY_ID2_TICK = 500
+COLUMN_CATCH_READY_ID6_TICK = PLATFORM_HIGH_POSE[2]
 COLUMN_CATCH_SPLITTER_TICK = 1300
 RING_DISTANCE_OFFSET_CM = BALL_DISTANCE_OFFSET_CM + RING_DISTANCE_EXTRA_CM
 RING_DISTANCE_SCALE_CM = (
@@ -465,7 +469,11 @@ def detection_process_worker(
     detection_mode=DETECTION_MODE_IDLE,
     field_name="red",
     target_letters=(),
+    *,
+    platform=False,
 ):
+    if platform:
+        detection_mode = DETECTION_MODE_PLATFORM_TARGETS
     global _PROCESS_DETECTOR
     if _PROCESS_DETECTOR is None:
         _PROCESS_DETECTOR = TargetDetector()
@@ -498,6 +506,17 @@ def detection_process_worker(
             target_letters=target_letters,
         )
     return result, time.perf_counter() - detect_started
+
+_PROCESS_SECONDARY_DETECTOR = None
+
+
+def secondary_detection_process_worker(frame):
+    global _PROCESS_SECONDARY_DETECTOR
+    if _PROCESS_SECONDARY_DETECTOR is None:
+        _PROCESS_SECONDARY_DETECTOR = SecondaryLetterDetector()
+    started = time.perf_counter()
+    return _PROCESS_SECONDARY_DETECTOR.detect(frame), time.perf_counter() - started
+
 
 class FrameState:
     def __init__(self):
@@ -1686,6 +1705,12 @@ class TargetGraspController:
         self.platform_selected_letters = frozenset()
         self.platform_preselect_letters = set()
         self.platform_preselect_count = 2
+        self.platform_task = PlatformTask(self._platform_pose, self._platform_gripper, self._platform_center)
+        # Keep the arm in the task-two observation pose between slot
+        # transactions.  The chassis link clears active_task after every
+        # slot, so this state must live in the arm controller itself.
+        self.platform_high_hold = False
+        self.platform_high_pose_sent = False
         self.approach_feedback_tolerance = 10
         self.stage_deadline = 0.0
         self.next_stage_after_open = None
@@ -2590,9 +2615,18 @@ class TargetGraspController:
         )
 
     def begin_chassis_station(self, station):
+        if station == "PLATFORM_PICK":
+            self._reset_cycle_for_search("platform slot start")
+            self.active_chassis_station = station
+            self.chassis_station_done_reason = self.chassis_station_error_reason = None
+            self.platform_task.begin_slot(self.field_mode.value)
+            return self._sync_platform_task()
+        self.platform_task.reset()
         self._reset_cycle_for_search(f"chassis station {station} start")
         if self.startup_stage != "complete":
             return f"chassis station {station} queued until startup completes"
+        self.platform_high_hold = False
+        self.platform_high_pose_sent = False
         self.active_chassis_station = station
         self.chassis_station_done_reason = None
         self.chassis_station_error_reason = None
@@ -2648,109 +2682,77 @@ class TargetGraspController:
         print(f"CHASSIS STATION {station} READY {self.status}", flush=True)
         return self.status
 
-    def begin_platform_preselect(self, count=2):
-        self._reset_cycle_for_search("platform preselect start")
-        self.active_chassis_station = "PLATFORM_PICK"
-        self.chassis_station_done_reason = None
-        self.chassis_station_error_reason = None
-        self.chassis_station_stage = "platform_preselect"
-        self.platform_preselect_count = 2
-        self.platform_preselect_letters = set()
-        self.id1 = 600
-        self.id2 = 600
-        self.id6 = 640
-        self.id7 = self.id7_closed
-        self.id5 = CATCHER_HOME_TICK
-        self.splitter_id4 = DISC_CATCH_SPLITTER_READY_TICK
-        self._enforce_angle_gap()
+    def _platform_pose(self, pose, raising):
+        self._send_fixed_arm_pose_staged(
+            *pose, "PLATFORM_PICK pose", raising=raising,
+            id7=self.id7, id5=800, splitter_id4=1200,
+        )
+        if self.servo_bridge.write_enabled and not self.servo_bridge.last_command_ok:
+            raise RuntimeError(self.servo_bridge.status)
+        if (self.id1, self.id2, self.id6) != tuple(pose):
+            raise RuntimeError("PLATFORM_POSE_CLAMPED")
+        return self._arm_settle_s()
+
+    def _platform_gripper(self, pulse):
+        # Formal task two uses the standalone 1300/1700 pulse and 300ms.
+        bridge = self.servo_bridge
+        previous = getattr(bridge, "gripper_time_ms", 300)
+        try:
+            bridge.gripper_time_ms = 300
+            self.id7 = pulse
+            if bridge.write_enabled:
+                bridge.send_targets(id4=pulse)  # Legacy id4 keyword = physical ID7.
+                if not bridge.last_command_ok:
+                    raise RuntimeError(bridge.status)
+        finally:
+            bridge.gripper_time_ms = previous
         self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
-        self.arm_preview.publish(
-            "PLATFORM_PICK preselect; secondary camera; collecting 2 distinct letters"
-        )
-        if not self.servo_bridge.write_enabled:
-            self.chassis_station_deadline = time.monotonic() + self._arm_settle_s()
-            return (
-                "preview PLATFORM_PICK preselect "
-                f"ID1={self.id1} ID2={self.id2} ID6={self.id6}"
-            )
-        status = self._send_fixed_arm_pose_staged(
-            self.id1,
-            self.id2,
-            self.id6,
-            "PLATFORM_PICK preselect high",
-            raising=True,
-            id7=self.id7,
-            id5=self.id5,
-            splitter_id4=self.splitter_id4,
-        )
-        if not self.servo_bridge.last_command_ok:
-            self.chassis_station_stage = None
-            self.state = "fault"
-            self.algorithm_stage = "fault"
-            self.status = f"PLATFORM_PICK preselect arm pose failed: {status}"
-            return self.status
-        self.chassis_station_deadline = time.monotonic() + self._arm_settle_s()
-        self.status = (
-            f"PLATFORM_PICK preselect ID1={self.id1} ID2={self.id2} "
-            f"ID6={self.id6}; waiting secondary letters | {status}"
-        )
-        print(f"CHASSIS STATION {self.status}", flush=True)
+        return 0.35
+
+    def _platform_center(self, id2, id6):
+        bridge = self.servo_bridge
+        previous = getattr(bridge, "arm_time_ms", 600)
+        try:
+            bridge.arm_time_ms = 100
+            if bridge.write_enabled:
+                bridge.send_targets(id2=id2, id6=id6)
+                if not bridge.last_command_ok:
+                    raise RuntimeError(bridge.status)
+            self.id2, self.id6 = id2, id6
+        finally:
+            bridge.arm_time_ms = previous
+        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+        return 0.12
+
+    def _sync_platform_task(self):
+        task = self.platform_task
+        self.chassis_station_stage = task.stage
+        self.status = task.status
+        if task.selected:
+            self.platform_selected_letters = frozenset(task.selected)
+            self.target_letters = self.platform_selected_letters
+        if task.done:
+            self.chassis_station_done_reason = task.done
+            task.done = None
+            self.active_chassis_station = None
+        if task.error:
+            self.chassis_station_error_reason = task.error
+            task.error = None
+            self.algorithm_stage = self.state = "fault"
+        self.arm_preview.publish(self.status)
         return self.status
 
+    def begin_platform_preselect(self, count=2):
+        self._reset_cycle_for_search("platform secondary preselect start")
+        self.active_chassis_station = "PLATFORM_PICK"
+        self.chassis_station_done_reason = self.chassis_station_error_reason = None
+        self.platform_selected_letters = frozenset()
+        self.platform_task.begin_preselect()
+        return self._sync_platform_task()
+
     def update_platform_preselect(self, detections, detection_fresh=True):
-        if self.chassis_station_stage != "platform_preselect":
-            return None
-        now = time.monotonic()
-        if now < self.chassis_station_deadline:
-            return (
-                "PLATFORM_PICK preselect settling "
-                f"{self.chassis_station_deadline - now:.1f}s"
-            )
-        if detection_fresh:
-            candidates = [
-                det for det in detections
-                if det.get("kind") == "letter"
-                and det.get("letter") in LETTERS
-            ]
-            candidates.sort(
-                key=lambda det: (
-                    float(det.get("confidence") or 0.0),
-                    float(det.get("projected_area") or 0.0),
-                ),
-                reverse=True,
-            )
-            for det in candidates:
-                letter = str(det.get("letter")).upper()
-                if letter not in self.platform_preselect_letters:
-                    self.platform_preselect_letters.add(letter)
-                    print(
-                        "PLATFORM PRESELECT secondary letter="
-                        f"{letter} count={len(self.platform_preselect_letters)}/2",
-                        flush=True,
-                    )
-                    if len(self.platform_preselect_letters) >= self.platform_preselect_count:
-                        break
-        if len(self.platform_preselect_letters) >= self.platform_preselect_count:
-            selected = tuple(sorted(self.platform_preselect_letters))[:2]
-            self.platform_selected_letters = frozenset(selected)
-            self.target_letters = self.platform_selected_letters
-            # Keep the platform task active in an entry-hold state while
-            # H7 performs its lateral shift and white-line alignment.
-            self.chassis_station_stage = "platform_entry_hold"
-            self.chassis_station_done_reason = (
-                f"PRESELECT_DONE:{selected[0]}:{selected[1]}"
-            )
-            self.arm_preview.publish(
-                f"PLATFORM_PICK letters locked {selected[0]},{selected[1]}"
-            )
-            return (
-                "PLATFORM_PICK preselect done "
-                f"letters={selected[0]},{selected[1]}"
-            )
-        return (
-            "PLATFORM_PICK preselect waiting secondary letters "
-            f"{','.join(sorted(self.platform_preselect_letters)) or '-'}"
-        )
+        self.platform_task.preselect(detections, fresh=detection_fresh)
+        return self._sync_platform_task()
 
     def prepare_chassis_station_high(self, prep):
         if not isinstance(prep, dict) or prep.get("task") != "DISC_CATCH":
@@ -2885,13 +2887,13 @@ class TargetGraspController:
             COLUMN_CATCH_READY_ID1_TICK,
             COLUMN_CATCH_READY_ID2_TICK,
             self.id7,
-            DISC_CATCH_ID6_TICK,
+            COLUMN_CATCH_READY_ID6_TICK,
         )
         self.arm_preview.publish("COLUMN_CATCH ready")
         if not self.servo_bridge.write_enabled:
             self.id1 = COLUMN_CATCH_READY_ID1_TICK
             self.id2 = COLUMN_CATCH_READY_ID2_TICK
-            self.id6 = DISC_CATCH_ID6_TICK
+            self.id6 = COLUMN_CATCH_READY_ID6_TICK
             self.chassis_station_deadline = time.monotonic() + self._arm_settle_s()
             self.status = (
                 f"preview COLUMN_CATCH ready ID1={self.id1} "
@@ -2901,7 +2903,7 @@ class TargetGraspController:
         status = self._send_fixed_arm_pose_staged(
             COLUMN_CATCH_READY_ID1_TICK,
             COLUMN_CATCH_READY_ID2_TICK,
-            DISC_CATCH_ID6_TICK,
+            COLUMN_CATCH_READY_ID6_TICK,
             "COLUMN_CATCH ready",
             raising=True,
             id7=self.id7,
@@ -2972,6 +2974,8 @@ class TargetGraspController:
         # Every completed station must leave the arm fully retracted. In
         # particular, task-one completion must not leave ID5 at the catcher
         # ready position while H7 transfers to task two.
+        self.platform_high_hold = False
+        self.platform_high_pose_sent = False
         result = self.shutdown_contract()
         success = (
             not self.servo_bridge.write_enabled
@@ -2990,6 +2994,7 @@ class TargetGraspController:
         return f"{reason}; {result}"
 
     def reset_from_chassis(self):
+        self.platform_task.reset()
         """Retract and discard every task/cycle state for a new H7 route."""
 
         result = self.shutdown_contract()
@@ -3006,6 +3011,8 @@ class TargetGraspController:
         self.disc_pulse_done = False
         self.disc_last_pulsed_color = None
         self.disc_prep_high_active = False
+        self.platform_high_hold = False
+        self.platform_high_pose_sent = False
         self.column_target_armed = True
         self.column_target_absent_frames = 0
         self._reset_cycle_for_search("chassis reset; arm home")
@@ -3024,41 +3031,12 @@ class TargetGraspController:
     def skip_platform_slot(self, reason="TARGET_NOT_SELECTED"):
         if self.active_chassis_station != "PLATFORM_PICK":
             return False
-        self.id1 = 600
-        self.id2 = 600
-        self.id6 = 640
-        self.id7 = self.id7_closed
-        self.chassis_station_stage = None
-        self.active_chassis_station = None
-        self.chassis_station_done_reason = f"SKIPPED:{reason}"
-        self.algorithm_stage = "centering"
-        self.state = "platform slot skipped"
-        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
-        self.arm_preview.publish(
-            f"PLATFORM_PICK skipped; keep expanded reason={reason}"
-        )
+        self.platform_task.skip(reason)
+        self._sync_platform_task()
         return True
 
-    def _finish_platform_pick(self, reason):
-        self.id1 = 600
-        self.id2 = 600
-        self.id6 = 640
-        self.id7 = self.id7_closed
-        self.id5 = CATCHER_HOME_TICK
-        self.splitter_id4 = DISC_CATCH_SPLITTER_READY_TICK
-        self._enforce_angle_gap()
-        self.chassis_station_stage = None
-        self.active_chassis_station = None
-        self.chassis_station_done_reason = f"{reason}"
-        self.algorithm_stage = "centering"
-        self.state = "platform slot complete"
-        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
-        self.arm_preview.publish(
-            f"PLATFORM_PICK {reason}; keep expanded for next slot"
-        )
-        return f"PLATFORM_PICK {reason}; ID1=600 ID2=600 ID6=640 ID7=1300"
-
     def stop_chassis_station(self, station):
+        self.platform_task.reset()
         if self.active_chassis_station != station:
             return f"chassis station {station} stop ignored; active={self.active_chassis_station}"
         return self._finish_chassis_station_after_retract("STOPPED_BY_CHASSIS")
@@ -3066,6 +3044,7 @@ class TargetGraspController:
     def abort_chassis_station(self, reason):
         """Best-effort home before reporting a station control failure to H7."""
 
+        self.platform_task.reset()
         station = self.active_chassis_station or "UNKNOWN"
         result = self.shutdown_contract()
         home_ok = (
@@ -3101,6 +3080,9 @@ class TargetGraspController:
     def update_chassis_station(
         self, station, detections, frame_shape, detection_fresh=True
     ):
+        if station == "PLATFORM_PICK":
+            self.platform_task.tick(detections, frame_shape, fresh=detection_fresh)
+            return self._sync_platform_task()
         if station == "COLUMN_CATCH" and self.chassis_station_stage is not None:
             return self._update_column_catch_station(
                 detections, detection_fresh=detection_fresh
@@ -3330,7 +3312,7 @@ class TargetGraspController:
                 return f"COLUMN_CATCH ready settling {self.chassis_station_deadline - now:.1f}s"
             self.id1 = DISC_CATCH_DESCEND_ID1_TICK
             self.id2 = COLUMN_CATCH_READY_ID2_TICK
-            self.id6 = BASE_YAW_CENTER_TICK
+            self.id6 = COLUMN_CATCH_READY_ID6_TICK
             self._enforce_angle_gap()
             if not self.servo_bridge.write_enabled:
                 self.chassis_station_stage = "column_descend_wait"
@@ -4365,117 +4347,11 @@ class TargetGraspController:
             self.state = "locked target waiting close claw"
             if now < self.stage_deadline:
                 return f"locked target; waiting close claw {self.stage_deadline - now:.1f}s"
-            if (
-                self.active_chassis_station == "PLATFORM_PICK"
-                and not self.abort_after_return
-            ):
-                self.algorithm_stage = "platform_post_grab_id6"
-            elif self.post_center_direct_descend and not self.abort_after_return:
+            if self.post_center_direct_descend and not self.abort_after_return:
                 self.algorithm_stage = "post_grab_id2_retreat"
             else:
                 self.algorithm_stage = "return"
             self.return_attempts = 0
-
-        if self.algorithm_stage == "platform_post_grab_id6":
-            self.state = "PLATFORM_PICK post-grab ID6=570"
-            if not self.servo_bridge.write_enabled:
-                self.id6 = 570
-                self.algorithm_stage = "platform_post_grab_id6_wait"
-                self.stage_deadline = now + self._arm_settle_s()
-                self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
-                return "preview PLATFORM_PICK post-grab ID6=570"
-            if can_command:
-                self.id6 = 570
-                result = self._send(
-                    "PLATFORM_PICK post-grab move ID6=570",
-                    require_feedback=False,
-                )
-                if self.servo_bridge.last_command_ok:
-                    self.algorithm_stage = "platform_post_grab_id6_wait"
-                    self.stage_deadline = time.monotonic() + self._arm_settle_s()
-                return result
-            return "PLATFORM_PICK waiting post-grab ID6=570"
-
-        if self.algorithm_stage == "platform_post_grab_id6_wait":
-            if now < self.stage_deadline:
-                return (
-                    "PLATFORM_PICK waiting ID6=570 "
-                    f"{self.stage_deadline - now:.1f}s"
-                )
-            self.algorithm_stage = "platform_post_grab_open"
-
-        if self.algorithm_stage == "platform_post_grab_open":
-            self.state = "PLATFORM_PICK post-grab ID7 open pulse"
-            if not self.servo_bridge.write_enabled:
-                self.id7 = self.id7_open
-                self.algorithm_stage = "platform_post_grab_open_wait"
-                self.stage_deadline = now + self._zp_settle_s()
-                self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
-                return "preview PLATFORM_PICK post-grab ID7 open"
-            if can_command:
-                result = self._send_gripper_id7(
-                    self.id7_open,
-                    "PLATFORM_PICK post-grab ID7 open",
-                )
-                if self.servo_bridge.last_command_ok:
-                    self.algorithm_stage = "platform_post_grab_open_wait"
-                    self.stage_deadline = time.monotonic() + self._zp_settle_s()
-                return result
-            return "PLATFORM_PICK waiting post-grab ID7 open"
-
-        if self.algorithm_stage == "platform_post_grab_open_wait":
-            if now < self.stage_deadline:
-                return (
-                    "PLATFORM_PICK waiting ID7 open "
-                    f"{self.stage_deadline - now:.1f}s"
-                )
-            self.algorithm_stage = "platform_post_grab_close"
-
-        if self.algorithm_stage == "platform_post_grab_close":
-            self.state = "PLATFORM_PICK post-grab ID7 close pulse"
-            if not self.servo_bridge.write_enabled:
-                self.id7 = self.id7_closed
-                self.algorithm_stage = "platform_post_grab_close_wait"
-                self.stage_deadline = now + self._zp_settle_s()
-                self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
-                return "preview PLATFORM_PICK post-grab ID7 close"
-            if can_command:
-                result = self._send_gripper_id7(
-                    self.id7_closed,
-                    "PLATFORM_PICK post-grab ID7 close",
-                )
-                if self.servo_bridge.last_command_ok:
-                    self.algorithm_stage = "platform_post_grab_close_wait"
-                    self.stage_deadline = time.monotonic() + self._zp_settle_s()
-                return result
-            return "PLATFORM_PICK waiting post-grab ID7 close"
-
-        if self.algorithm_stage == "platform_post_grab_close_wait":
-            if now < self.stage_deadline:
-                return (
-                    "PLATFORM_PICK waiting ID7 close "
-                    f"{self.stage_deadline - now:.1f}s"
-                )
-            if not self.servo_bridge.write_enabled:
-                self.id1 = 600
-                self.id2 = 600
-                self.id6 = 640
-                return self._finish_platform_pick("PICKED")
-            if can_command:
-                result = self._send_fixed_arm_pose_staged(
-                    600,
-                    600,
-                    640,
-                    "PLATFORM_PICK restore expanded pose",
-                    raising=True,
-                    id7=self.id7_closed,
-                    id5=CATCHER_HOME_TICK,
-                    splitter_id4=DISC_CATCH_SPLITTER_READY_TICK,
-                )
-                if self.servo_bridge.last_command_ok:
-                    return self._finish_platform_pick("PICKED")
-                return result
-            return "PLATFORM_PICK waiting restore expanded pose"
 
         if self.algorithm_stage == "post_grab_id2_retreat":
             self.state = "post-grab retreat"
@@ -4823,6 +4699,9 @@ class TargetGraspController:
         return f"one-shot grasp complete {plan_text}; servos stopped"
 
     def update(self, target, frame_shape, detection_fresh=True):
+        if self.platform_task.stage is not None:
+            # White-line entry and inter-slot gaps retain the expanded high pose.
+            return self._sync_platform_task()
         if not self.enabled:
             return self.status
         now = time.monotonic()
@@ -4887,6 +4766,11 @@ class TargetGraspController:
             return self.status
         if self.one_shot:
             return self._update_one_shot(target, frame_shape)
+        if self.platform_high_hold and self.active_chassis_station is None:
+            # H7 clears its active station after each slot while it travels to
+            # the next one.  Do not fall through to the generic idle branch,
+            # which slowly returns ID1/ID2 to the low standby pose.
+            return self._hold_platform_high_pose()
         if (
             self.active_chassis_station == "PLATFORM_PICK"
             and self.chassis_station_stage in {
@@ -5444,8 +5328,8 @@ class TargetDetector:
                 colors=(field_name, "yellow"),
             )
         elif mode == DETECTION_MODE_PLATFORM_TARGETS:
-            rings = self._detect_rings(hsv, colors=(field_name,))
-            letters = self._detect_letters(frame)
+            # Use standalone task-two ring depth without the generic ratio overwrite.
+            return [*self._detect_letters(frame), *detect_platform_rings(frame)]
         elif mode == DETECTION_MODE_COLUMN_LETTERS:
             letters = self._detect_letters(frame)
         else:
@@ -5877,6 +5761,7 @@ class LatestFrameReader:
         )
         self._frame = None
         self._last_read_s = 0.0
+        self._last_frame_at = 0.0
         self._error = None
         self._thread.start()
 
@@ -5891,12 +5776,15 @@ class LatestFrameReader:
                 return
             with self._lock:
                 self._frame = frame
+                self._last_frame_at = time.monotonic()
                 self._last_read_s = elapsed
 
     def latest(self):
         with self._lock:
             if self._frame is None:
                 return False, None, self._last_read_s, self._error
+            if time.monotonic() - self._last_frame_at > 0.5:
+                return False, None, self._last_read_s, "camera frame stale"
             return True, self._frame, self._last_read_s, self._error
 
     @property
@@ -6386,7 +6274,11 @@ def main(argv=None):
         if was_open and reason:
             print(f"SECONDARY CAMERA LINK released reason={reason}", flush=True)
 
+    last_detection_frame = None
+    secondary_last_frame = None
+
     def service_secondary_preselect():
+        nonlocal secondary_last_frame
         nonlocal secondary_retry_at, secondary_detection_future
         nonlocal secondary_detection_pending_frame
         if (
@@ -6415,6 +6307,8 @@ def main(argv=None):
             secondary_detection_future = None
             secondary_detection_pending_frame = None
 
+        if grasp_controller.chassis_station_stage != "platform_preselect" or secondary_reader is None:
+            return
         secondary_ok, secondary_frame, _, secondary_error = secondary_reader.latest()
         if secondary_error is not None:
             print(
@@ -6425,8 +6319,11 @@ def main(argv=None):
             close_secondary_camera("reader_error")
             secondary_retry_at = time.monotonic() + 1.0
             return
-        if not secondary_ok or secondary_frame is None:
+        if (not secondary_ok or secondary_frame is None
+                or secondary_frame is secondary_last_frame
+                or secondary_detection_future is not None):
             return
+        secondary_last_frame = secondary_frame
         if secondary_frame.shape[:2] != (args.height, args.width):
             secondary_frame = cv2.resize(
                 secondary_frame,
@@ -6436,12 +6333,8 @@ def main(argv=None):
         if secondary_detection_future is None:
             secondary_detection_pending_frame = secondary_frame.copy()
             secondary_detection_future = secondary_detection_executor.submit(
-                detection_process_worker,
+                secondary_detection_process_worker,
                 secondary_detection_pending_frame,
-                detection_scale,
-                DETECTION_MODE_COLUMN_LETTERS,
-                grasp_controller.field_mode.value,
-                tuple(grasp_controller.target_letters),
             )
 
     def resolve_station_outcome(info):
@@ -6573,7 +6466,7 @@ def main(argv=None):
                     timeout_status = grasp_controller.skip_platform_slot(
                         "NO_TARGET_TIMEOUT"
                     )
-                    chassis_link.finish_active("SKIPPED_NO_TARGET")
+                    resolve_station_outcome("platform skip returning high")
                 else:
                     timeout_status = grasp_controller.retract_for_chassis_timeout(
                         timeout_station
@@ -6627,6 +6520,11 @@ def main(argv=None):
                     f"{reset_status}",
                     flush=True,
                 )
+            if not grasp_controller.set_field_mode(chassis_link.field_mode):
+                print(
+                    "CHASSIS FIELD update rejected while station is active",
+                    flush=True,
+                )
             for preselect in chassis_link.consume_preselects():
                 preselect_status = grasp_controller.begin_platform_preselect(
                     preselect.get("count", 2)
@@ -6636,11 +6534,6 @@ def main(argv=None):
                     flush=True,
                 )
             platform_slot_requests = chassis_link.consume_platform_slots()
-            if not grasp_controller.set_field_mode(chassis_link.field_mode):
-                print(
-                    "CHASSIS FIELD update rejected while station is active",
-                    flush=True,
-                )
             for aux in chassis_link.consume_aux_zp():
                 aux_kwargs = {
                     "pulse": aux.get("pulse"),
@@ -6803,7 +6696,9 @@ def main(argv=None):
             read_elapsed = time.perf_counter() - read_started
             if not ok and reader_error is None:
                 # The reader thread may still be acquiring its first frame.
-                # Do not tear down a healthy camera during that short window.
+                # Keep secondary recognition and station deadlines alive too.
+                service_secondary_preselect()
+                service_station_without_frame()
                 time.sleep(0.002)
                 continue
             if reader_error is not None:
@@ -6829,7 +6724,9 @@ def main(argv=None):
                 detection_source_frame = None
                 detections = []
                 detection_smoother.tracks = []
-                chassis_link.set_ready(False)
+                # Camera availability must not revoke RK/H7 readiness.  The
+                # arm PREP_HIGH transaction is independent of vision and must
+                # remain serviceable while the camera reconnects.
                 service_station_without_frame()
                 time.sleep(0.02)
                 continue
@@ -6875,9 +6772,11 @@ def main(argv=None):
             if (
                 detection_frame_index % detection_interval == 0
                 and detection_future is None
+                and frame is not last_detection_frame
                 and requested_detection_mode
                 not in {DETECTION_MODE_IDLE, DETECTION_MODE_WHITE_LINE}
             ):
+                last_detection_frame = frame
                 detection_pending_frame = frame.copy()
                 detection_future_mode = requested_detection_mode
                 detection_future = detection_executor.submit(
@@ -7025,7 +6924,7 @@ def main(argv=None):
                         timeout_status = grasp_controller.skip_platform_slot(
                             "NO_TARGET_TIMEOUT"
                         )
-                        chassis_link.finish_active("SKIPPED_NO_TARGET")
+                        resolve_station_outcome("platform skip returning high")
                     else:
                         timeout_status = grasp_controller.retract_for_chassis_timeout(
                             station
