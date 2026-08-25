@@ -35,7 +35,7 @@ ARM_DEVICE = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5C82109853-if00"
 HIGH = {1: 650, 2: 600, 6: 350}
 LETTER_WORK = {1: 500, 2: 350, 6: 600}
 RING_AFTER_HIGH = {1: 520, 2: 340, 6: 120}
-HTD85_AUX_HIGH = {14: 500, 15: 500, 17: 450}
+HTD85_AUX_HIGH = {14: 500, 15: 600, 17: 450}
 GRIPPER_CLOSED = 450
 GRIPPER_OPEN = 600
 ARM_TIME_MS = 600
@@ -1089,7 +1089,7 @@ def run(args) -> int:
             return 0
         boards = ServoBoards(args.arm_uart)
         boards.pose_high()
-        print("TASK2 HIGH_POSE_READY ID1=650 ID2=600 ID6=350 ID14=500 ID15=500 ID17=450", flush=True)
+        print("TASK2 HIGH_POSE_READY ID1=650 ID2=600 ID6=350 ID14=500 ID15=600 ID17=450", flush=True)
         h7 = H7Link(args.h7_device)
         h7.open()
         h7.drain_input()
