@@ -22,12 +22,10 @@ case "$REQUESTED_MODE" in
         exit 2
         ;;
     esac
-    export DIRECT_SERVO_BUS=1
-    export DIRECT_ZP_UART="${DIRECT_ZP_UART:-/dev/ttyS0}"
-    export DIRECT_ARM_UART="${DIRECT_ARM_UART:-/dev/ttyS9}"
-    export DIRECT_ZP_TIME_MS="${DIRECT_ZP_TIME_MS:-350}"
-    export DIRECT_ARM_TIME_MS="${DIRECT_ARM_TIME_MS:-600}"
-    export DIRECT_SPLITTER_TIME_MS="${DIRECT_SPLITTER_TIME_MS:-250}"
+    export HTD85_UART="${HTD85_UART:-/dev/serial/by-id/usb-1a86_USB_Single_Serial_5C82109853-if00}"
+    export HTD85_BAUD="${HTD85_BAUD:-115200}"
+    export HTD85_ARM_TIME_MS="${HTD85_ARM_TIME_MS:-600}"
+    export HTD85_AUX_TIME_MS="${HTD85_AUX_TIME_MS:-200}"
 if [ -n "${RED_SQUARE_EXECUTE:-}" ] && [ -z "${ABCD_EXECUTE:-}" ]; then
   ABCD_EXECUTE="$RED_SQUARE_EXECUTE"
 fi
@@ -71,12 +69,11 @@ wait_for_device() {
 }
 
 if [ "$MODE" = "rk" ] && [ "$PROFILE" = "chassis" ]; then
-  wait_for_device "$DIRECT_ARM_UART"
-  wait_for_device "$DIRECT_ZP_UART"
+  wait_for_device "$HTD85_UART"
 fi
 
 echo "camera=$CAMERA_DEVICE display=$DISPLAY"
-echo "rk direct ports: arm85=$DIRECT_ARM_UART zp=$DIRECT_ZP_UART arm_time_ms=$DIRECT_ARM_TIME_MS zp_time_ms=$DIRECT_ZP_TIME_MS"
+echo "rk servo bus: htd85=$HTD85_UART baud=$HTD85_BAUD arm_time_ms=$HTD85_ARM_TIME_MS aux_time_ms=$HTD85_AUX_TIME_MS"
 echo "target color=$VISION_TARGET_COLOR kind=$VISION_TARGET_KIND letters=$VISION_TARGET_LETTERS execute=$ABCD_EXECUTE"
 
 XAUTH_FILE="$(find "$XDG_RUNTIME_DIR" -maxdepth 1 -name '.mutter-Xwaylandauth.*' -print -quit 2>/dev/null)"

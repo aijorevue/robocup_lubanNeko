@@ -23,7 +23,8 @@ class FakeServoBridge:
         self.write_enabled = True
         self.assumed_feedback = True
         self.arm_time_ms = 1
-        self.zp_time_ms = 1
+        self.gripper_time_ms = 1
+        self.aux_time_ms = 1
         self.splitter_time_ms = 1
         self.last_command_ok = True
         self.status = "fake ready"
@@ -55,8 +56,8 @@ def make_controller(bridge=None, field_mode=target_vision.FieldMode.RED):
         preview,
         550,
         300,
-        1300,
-        1710,
+        450,
+        600,
         35,
         3,
         0.2,
@@ -90,15 +91,14 @@ def make_controller(bridge=None, field_mode=target_vision.FieldMode.RED):
 
 class ChassisStationSafetyTests(unittest.TestCase):
     def test_mixed_bridge_routes_85kg_targets_to_htd85_binary(self):
-        bridge = target_vision.DirectBusServoBridge(
+        bridge = target_vision.HiwonderSingleBusServoBridge(
             "/dev/missing", 115200, enabled=False, write_enabled=False
         )
         bridge.enabled = True
         bridge.write_enabled = True
         bridge.arm_fd = 10
-        bridge.zp_fd = 11
         writes = []
-        bridge._write_payload = lambda fd, payload, repeat=None: writes.append((fd, payload))
+        bridge._write_payload = lambda payload, repeat=None: writes.append((bridge.arm_fd, payload))
         bridge.send_targets(id1=650, id2=500, id6=350)
 
         self.assertTrue(bridge.last_command_ok)
@@ -142,7 +142,7 @@ class ChassisStationSafetyTests(unittest.TestCase):
         self.assertFalse(controller.ready_for_chassis_link(True))
 
     def test_direct_bridge_missing_ports_clears_stale_success(self):
-        bridge = target_vision.DirectBusServoBridge(
+        bridge = target_vision.HiwonderSingleBusServoBridge(
             "/dev/missing", 115200, enabled=False, write_enabled=False
         )
         bridge.enabled = True
@@ -288,13 +288,13 @@ class ChassisStationSafetyTests(unittest.TestCase):
         self.assertEqual(controller.splitter_id4, target_vision.DISC_CATCH_SPLITTER_READY_TICK)
         self.assertEqual(bridge.sent[-2]["id2"], 550)
         self.assertNotIn("id1", bridge.sent[-2])
-        self.assertEqual(bridge.sent[-2]["id4"], 1300)
+        self.assertEqual(bridge.sent[-2]["id4"], 450)
         self.assertEqual(
             bridge.sent[-2]["id5"],
             target_vision.DISC_CATCH_CATCHER_READY_TICK,
         )
-        self.assertEqual(bridge.sent[-2]["splitter_id4"], 1300)
-        self.assertEqual(bridge.sent[-1]["id1"], 460)
+        self.assertEqual(bridge.sent[-2]["splitter_id4"], 600)
+        self.assertEqual(bridge.sent[-1]["id1"], 550)
         self.assertEqual(bridge.sent[-1]["id6"], 350)
         self.assertNotIn("id2", bridge.sent[-1])
         sleep_mock.assert_called_once_with(target_vision.ARM_JOINT_SEQUENCE_DELAY_S)
@@ -336,6 +336,45 @@ class ChassisStationSafetyTests(unittest.TestCase):
         self.assertEqual(controller.algorithm_stage, "fault")
         self.assertIn("automatic motion stopped", controller.status)
 
+    def test_column_ready_uses_standalone_task_three_pose(self):
+        controller, bridge, _ = make_controller()
+        with mock.patch.object(target_vision.time, "sleep"):
+            controller.begin_chassis_station("COLUMN_CATCH")
+
+        self.assertEqual(
+            (controller.id1, controller.id2, controller.id6),
+            (650, 500, 350),
+        )
+        self.assertEqual(controller.id5, 500)
+        self.assertEqual(controller.splitter_id4, 500)
+        self.assertEqual(controller.id7, 450)
+        self.assertEqual(bridge.sent[-2], {
+            "id1": 650,
+            "id6": 350,
+            "id4": 450,
+            "id5": 500,
+            "splitter_id4": 500,
+        })
+        self.assertEqual(bridge.sent[-1], {"id2": 500})
+
+    def test_column_centering_uses_seven_and_five_tick_steps(self):
+        controller, bridge, _ = make_controller()
+        controller.active_chassis_station = "COLUMN_CATCH"
+        controller.chassis_station_stage = "column_centering"
+        controller.id1, controller.id2, controller.id6 = 650, 500, 350
+        result, _message = controller._visual_center_step(
+            {"center": (500, 400)},
+            (600, 800, 3),
+            now=1.0,
+            can_preview_step=True,
+            label="COLUMN_CATCH center",
+        )
+
+        self.assertFalse(result)
+        self.assertEqual((controller.id2, controller.id6), (493, 345))
+        self.assertEqual(bridge.sent[-1], {"id2": 493, "id6": 345})
+        self.assertEqual(bridge.arm_time_ms, 1)
+
     def test_column_stop_retracts_before_done(self):
         controller, bridge, _ = make_controller()
         with mock.patch.object(target_vision.time, "sleep"):
@@ -347,7 +386,7 @@ class ChassisStationSafetyTests(unittest.TestCase):
             "STOPPED_BY_CHASSIS",
         )
         self.assertIsNone(controller.active_chassis_station)
-        self.assertEqual(bridge.sent[-1]["id4"], 1300)
+        self.assertEqual(bridge.sent[-1]["id4"], 450)
         self.assertEqual(bridge.sent[-1]["splitter_id4"], target_vision.SPLITTER_YELLOW_TICK)
 
 

@@ -3,7 +3,13 @@ import inspect
 import unittest
 from unittest.mock import Mock, patch
 
-from ros2_test1.platform_task import PlatformTask, HIGH, LETTER_PLACE, RING_PLACE
+from ros2_test1.platform_task import (
+    PlatformTask, HIGH, LETTER_PLACE, RING_PLACE,
+    POST_OPEN_ID2_RETREAT_TICKS_BY_KIND,
+    TARGET_WINDOW_SIZE_PX, TARGET_WINDOW_MIN_AREA_FRACTION,
+    PLATFORM_LETTER_PLACE_TIME_MS,
+    _target_in_center_window,
+)
 from ros2_test1.chassis_link import ChassisArmLink
 from ros2_test1.target_vision import TargetGraspController
 from ros2_test1.target_vision import TargetDetector, detection_process_worker
@@ -12,8 +18,9 @@ import numpy as np
 
 
 def letter(value='A', center=(400, 300), depth=20):
-    return dict(kind='letter', letter=value, center=center, confidence=90,
-                distance_cm=depth, observed=True)
+    return dict(kind='letter', letter=value, center=center,
+                bbox=(center[0] - 20, center[1] - 20, 40, 40),
+                confidence=90, distance_cm=depth, observed=True)
 
 
 class Fixture:
@@ -24,8 +31,18 @@ class Fixture:
             self.pose,
             self.gripper,
             self.center,
-            ring_place_pair=self.ring_pair,
-            ring_place_id1=self.ring_id1,
+            ring_place_id6=self.ring_place_id6,
+            ring_place_id2=self.ring_place_id2,
+            ring_place_id1=self.ring_place_id1,
+            ring_return_high_id1=self.ring_return_high_id1,
+            ring_return_high_id2=self.ring_return_high_id2,
+            ring_return_high_id6=self.ring_return_high_id6,
+            letter_place_id6=self.letter_place_id6,
+            letter_place_id2=self.letter_place_id2,
+            letter_place_id1=self.letter_place_id1,
+            letter_return_high_id1=self.letter_return_high_id1,
+            letter_return_high_id2=self.letter_return_high_id2,
+            letter_return_high_id6=self.letter_return_high_id6,
             clock=lambda: self.now,
         )
 
@@ -41,13 +58,53 @@ class Fixture:
         self.writes.append(('center', id2, id6))
         return 0.12
 
-    def ring_pair(self, id2, id6):
-        self.writes.append(('ring_pair', id2, id6))
-        return 0.1
+    def ring_place_id6(self, id6):
+        self.writes.append(('ring_id6', id6))
+        return 0.5
 
-    def ring_id1(self, id1):
+    def ring_place_id2(self, id2):
+        self.writes.append(('ring_id2', id2))
+        return 0.5
+
+    def ring_place_id1(self, id1):
         self.writes.append(('ring_id1', id1))
-        return 0.1
+        return 0.7
+
+    def ring_return_high_id1(self, id1):
+        self.writes.append(('ring_high_id1', id1))
+        return 0.6
+
+    def ring_return_high_id2(self, id2):
+        self.writes.append(('ring_high_id2', id2))
+        return 0.6
+
+    def ring_return_high_id6(self, id6):
+        self.writes.append(('ring_high_id6', id6))
+        return 0.6
+
+    def letter_place_id6(self, id6):
+        self.writes.append(('letter_id6', id6))
+        return 0.5
+
+    def letter_place_id2(self, id2):
+        self.writes.append(('letter_id2', id2))
+        return 0.5
+
+    def letter_place_id1(self, id1):
+        self.writes.append(('letter_id1', id1))
+        return 0.5
+
+    def letter_return_high_id1(self, id1):
+        self.writes.append(('letter_high_id1', id1))
+        return 0.6
+
+    def letter_return_high_id2(self, id2):
+        self.writes.append(('letter_high_id2', id2))
+        return 0.6
+
+    def letter_return_high_id6(self, id6):
+        self.writes.append(('letter_high_id6', id6))
+        return 0.6
 
     def ready(self):
         self.task.begin_preselect()
@@ -71,6 +128,16 @@ class Fixture:
 
 
 class TestPlatformTask(unittest.TestCase):
+    def test_center_window_requires_400px_and_80_percent_bbox_overlap(self):
+        self.assertEqual(TARGET_WINDOW_SIZE_PX, 400)
+        self.assertEqual(TARGET_WINDOW_MIN_AREA_FRACTION, 0.80)
+        self.assertTrue(_target_in_center_window(
+            letter(center=(400, 300)), (600, 800, 3)))
+        self.assertFalse(_target_in_center_window(
+            letter(center=(650, 300)), (600, 800, 3)))
+        self.assertFalse(_target_in_center_window(
+            dict(letter(), bbox=(580, 280, 100, 40)), (600, 800, 3)))
+
     def test_pair_first_and_high_settle_barrier(self):
         f = Fixture()
         f.task.begin_preselect()
@@ -108,8 +175,11 @@ class TestPlatformTask(unittest.TestCase):
         self.assertFalse(f.writes)
 
     def test_letter_and_both_field_ring_exact_actions(self):
-        self.assertEqual(LETTER_PLACE, (600, 400, 600))
-        self.assertEqual(RING_PLACE, (535, 330, 120))
+        self.assertEqual(HIGH, (650, 600, 350))
+        self.assertEqual(LETTER_PLACE, (500, 350, 600))
+        self.assertEqual(RING_PLACE, (520, 340, 120))
+        self.assertEqual(POST_OPEN_ID2_RETREAT_TICKS_BY_KIND,
+                         {'letter': 60, 'ring': 100})
         for kind, field, placement in [('letter', 'red', LETTER_PLACE),
                                        ('ring', 'red', RING_PLACE),
                                        ('ring', 'blue', RING_PLACE)]:
@@ -119,29 +189,48 @@ class TestPlatformTask(unittest.TestCase):
                 target = letter() if kind == 'letter' else dict(letter(), kind='ring', color=field, score=.9)
                 f.feed(target)
                 f.finish()
+                retreat_ticks = POST_OPEN_ID2_RETREAT_TICKS_BY_KIND[kind]
                 expected = [
-                    ('gripper', 1650), ('pose', (600, 500, 340), False),
-                    ('pose', (488, 483, 340), False),
-                    ('gripper', 1300), ('pose', HIGH, True)]
-                if kind == 'ring':
-                    expected.extend([
-                        ('ring_pair', 330, 120), ('ring_id1', 535),
-                    ])
-                else:
-                    expected.append(('pose', placement, False))
-                expected.extend([
-                    ('gripper', 1650), ('gripper', 1300),
-                    ('pose', HIGH, True)])
+                    ('gripper', 600),
+                    ('pose', (650, 600 - retreat_ticks, 350), False),
+                    ('pose', (488, 483, 350), False),
+                    ('gripper', 450), ('pose', HIGH, True),
+                ]
+                expected += (
+                    [
+                        ('ring_id6', 120), ('ring_id2', 340),
+                        ('ring_id1', 520), ('gripper', 600),
+                        ('gripper', 450), ('ring_high_id1', 650),
+                        ('ring_high_id2', 600), ('ring_high_id6', 350),
+                    ]
+                    if kind == 'ring'
+                    else [
+                        ('letter_id6', 600), ('letter_id2', 350),
+                        ('letter_id1', 500), ('gripper', 600),
+                        ('gripper', 450), ('letter_high_id1', 650),
+                        ('letter_high_id2', 600), ('letter_high_id6', 350),
+                    ]
+                )
                 self.assertEqual(f.writes, expected)
                 self.assertEqual(f.task.done, 'PICKED_' + kind.upper())
                 self.assertTrue(f.task.high_ready)
+                if kind == 'letter':
+                    self.assertEqual(
+                        [item for item in f.writes if item[0].startswith('letter_')],
+                        [
+                            ('letter_id6', 600), ('letter_id2', 350),
+                            ('letter_id1', 500), ('letter_high_id1', 650),
+                            ('letter_high_id2', 600), ('letter_high_id6', 350),
+                        ],
+                    )
+                    self.assertEqual(PLATFORM_LETTER_PLACE_TIME_MS, 500)
 
     def test_last_high_must_settle_before_done_and_no_retract_while_waiting(self):
         f = Fixture(); f.ready(); f.writes.clear()
         f.task.begin_slot('red'); f.feed(letter())
-        while len(f.writes) < 9:
+        while len(f.writes) < 13:
             f.now = max(f.now, f.task.deadline); f.task.tick()
-        self.assertEqual(f.writes[-1], ('pose', HIGH, True))
+        self.assertEqual(f.writes[-1], ('letter_high_id6', HIGH[2]))
         self.assertIsNone(f.task.done)
         f.now = f.task.deadline - .001; f.task.tick()
         self.assertIsNone(f.task.done)
@@ -180,13 +269,13 @@ class TestPlatformTask(unittest.TestCase):
     def test_small_center_correction_and_then_calibrated_depth(self):
         f = Fixture(); f.ready(); f.writes.clear(); f.task.begin_slot('red')
         f.feed(letter(center=(470, 370)))
-        self.assertEqual(f.writes, [('center', 593, 335)])
+        self.assertEqual(f.writes, [('center', 593, 345)])
         f.now = f.task.deadline
         f.feed(letter(), 4); f.finish()
-        self.assertIn(('pose', (488, 483, 335), False), f.writes)
+        self.assertIn(('pose', (488, 483, 345), False), f.writes)
 
     def test_write_failure_at_every_action_never_completes(self):
-        for failure_index in range(9):
+        for failure_index in range(13):
             f = Fixture(); f.ready(); f.writes.clear(); f.task.begin_slot('red')
             f.feed(letter())
             actions = list(f.task.actions)
@@ -240,7 +329,7 @@ class TestControllerAndProtocol(unittest.TestCase):
             for _ in range(28):
                 c.update_platform_preselect([letter('A', (100, 200)), letter('C', (600, 200))])
         self.assertIsNone(c.consume_chassis_station_done())
-        self.assertEqual((c.id1, c.id2, c.id6, c.id5, c.splitter_id4), (600, 600, 340, 800, 1200))
+        self.assertEqual((c.id1, c.id2, c.id6, c.id5, c.splitter_id4), (650, 600, 350, 500, 500))
         c.platform_task.deadline = 0
         c.update_chassis_station('PLATFORM_PICK', [], (600, 800, 3), False)
         self.assertEqual(c.consume_chassis_station_done(), 'PRESELECT_DONE:A:C')
@@ -250,15 +339,15 @@ class TestControllerAndProtocol(unittest.TestCase):
         c.begin_chassis_station('PLATFORM_PICK')
         for _ in range(11):
             c.update_chassis_station('PLATFORM_PICK', [letter()], (600, 800, 3))
-        for _ in range(10):
+        for _ in range(20):
             c.platform_task.deadline = 0
             c.update_chassis_station('PLATFORM_PICK', [], (600, 800, 3), False)
         self.assertEqual(c.consume_chassis_station_done(), 'PICKED_LETTER')
-        self.assertEqual((c.id1, c.id2, c.id6, c.id7), (600, 600, 340, 1300))
+        self.assertEqual((c.id1, c.id2, c.id6, c.id7), (650, 600, 350, 450))
         self.assertEqual(bridge.gripper_time_ms, 210)
         pulses = [call.kwargs['id4'] for call in bridge.send_targets.call_args_list
                   if set(call.kwargs) == {'id4'}]
-        self.assertEqual(pulses, [1650, 1300, 1650, 1300])
+        self.assertEqual(pulses, [600, 450, 600, 450])
         self.assertTrue(any(call.kwargs.get('id6') == 600 for call in bridge.send_targets.call_args_list))
 
     def test_real_parser_sequence_retries_do_not_restart_preselect_or_slot(self):

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Standalone task-two test: secondary letter preselection, H7 route, main target.
 
-The app owns both camera sessions and the two direct servo-board UARTs.  It
+The app owns both camera sessions and one exclusive HTD85 servo-bus UART.  It
 does not start the formal ROS service.  H7 owns only the fixed chassis test
 route and receives one explicit TEST,TASK2 command after the high arm pose is
 sent.
@@ -31,22 +31,19 @@ MAIN_CAMERA = "/dev/v4l/by-path/platform-fc800000.usb-usb-0:1:1.0-video-index0"
 SECONDARY_CAMERA = "/dev/v4l/by-path/platform-fc880000.usb-usb-0:1.3:1.0-video-index0"
 H7_DEVICE = "/dev/h7_chassis"
 ARM_DEVICE = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5C82109853-if00"
-ZP_DEVICE = "/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0"
 
 HIGH = {1: 650, 2: 600, 6: 350}
 LETTER_WORK = {1: 500, 2: 350, 6: 600}
-RING_AFTER_HIGH = {1: 535, 2: 330, 6: 120}
-ZP_HIGH = {4: 1200, 5: 800, 7: 1300}
-# These two SG90 outputs are fixed auxiliary channels on the ZL 24-channel
-# board.  They must remain at their neutral test positions throughout the app.
-AUX_ZP_HOLD = {12: 600, 23: 1000}
-AUX_ZP_HOLD_TIME_MS = 800
-GRIPPER_CLOSED = 1300
-GRIPPER_OPEN = 1650
+RING_AFTER_HIGH = {1: 520, 2: 340, 6: 120}
+HTD85_AUX_HIGH = {14: 500, 15: 500, 17: 450}
+GRIPPER_CLOSED = 450
+GRIPPER_OPEN = 600
 ARM_TIME_MS = 600
-ZP_TIME_MS = 300
-GRIPPER_TIME_MS = 300
-RING_PLACE_TIME_MS = 800
+HTD85_AUX_TIME_MS = 200
+GRIPPER_TIME_MS = 200
+RING_PLACE_TIME_MS = 700
+RING_AXIS_TIME_MS = 500
+LETTER_PLACE_TIME_MS = 500
 CENTER_DEADBAND_PX = 45.0
 CENTER_STEP_TICKS = 7
 CENTER_ID6_STEP_TICKS = 5
@@ -70,7 +67,10 @@ RING_SIZE_MM = 55.0
 CAMERA_GRIPPER_OFFSET_MM = 50.0
 TARGET_GRIPPER_DISTANCE_MM = 20.0
 RING_DISTANCE_EXTRA_CM = 0.5
-POST_OPEN_ID2_RETREAT_TICKS = 100
+POST_OPEN_ID2_RETREAT_TICKS_BY_KIND = {
+    "letter": 60,
+    "ring": 100,
+}
 UART_OPEN_TIMEOUT_S = 10.0
 UART_RETRY_INTERVAL_S = 0.2
 UART_RETRY_ERRNOS = frozenset(
@@ -79,18 +79,28 @@ UART_RETRY_ERRNOS = frozenset(
 UART_COMMAND_TIMEOUT_S = 12.0
 UART_COMMAND_RETRY_INTERVAL_S = 0.25
 UART_COMMAND_MAX_ATTEMPTS = 6
-TARGET_WINDOW_SIZE_PX = 300
+TARGET_WINDOW_SIZE_PX = 400
 TARGET_WINDOW_MIN_AREA_FRACTION = 0.80
+
+
+def task2_sequence_state_path() -> Path:
+    """Keep the last possibly-active H7 sequence across an app crash."""
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR") or "/tmp"
+    return Path(runtime_dir) / "robocup-task2-h7-sequence"
+
+
+class H7TaskBusyError(RuntimeError):
+    """H7 rejected a new START because another task-two run is active."""
+
+
+class H7ProtocolError(RuntimeError):
+    """H7 returned a protocol-level error during the current transaction."""
 
 
 def htd85_packet(servo_id: int, position: int, time_ms: int) -> bytes:
     body = bytes((servo_id, 7, 1, position & 0xFF, position >> 8,
                   time_ms & 0xFF, time_ms >> 8))
     return b"\x55\x55" + body + bytes(((~sum(body)) & 0xFF,))
-
-
-def zp_packet(servo_id: int, position: int, time_ms: int) -> bytes:
-    return f"#{servo_id:03d}P{position:04d}T{time_ms:04d}!".encode("ascii")
 
 
 def write_all(fd: int, payload: bytes) -> None:
@@ -196,78 +206,79 @@ def send_uart_payload(path: str, payload: bytes, role: str) -> None:
 
 
 class ServoBoards:
-    def __init__(self, arm_path: str, zp_path: str):
+    """Own the single Hiwonder HTD85 bus used by every task-two action."""
+
+    def __init__(self, arm_path: str):
         self.arm_path = arm_path
-        self.zp_path = zp_path
         self.arm_fd = None
-        self.zp_fd = None
-        try:
-            for role, path in (("ZP", zp_path), ("HTD85", arm_path)):
-                fd = open_uart(path, role)
-                os.close(fd)
-            self.hold_aux_outputs()
-        except Exception:
-            self.close()
-            raise
+        for attempt in range(2):
+            try:
+                self.arm_fd = open_uart(arm_path, "HTD85")
+                break
+            except OSError:
+                if attempt:
+                    raise
+                time.sleep(0.25)
+        print(
+            f"TASK2 HTD85 BUS READY path={arm_path} physical_ids=1,2,6,14,15,17",
+            flush=True,
+        )
 
     def arm(self, targets: dict[int, int], motion_ms: int = ARM_TIME_MS) -> None:
         for servo_id, position in targets.items():
             packet = htd85_packet(servo_id, position, motion_ms)
-            send_uart_payload(
-                self.arm_path, packet, f"HTD85 ID{servo_id}"
+            write_all(self.arm_fd, packet)
+            print(
+                f"TASK2 SERVO HTD85 ID{servo_id}={position} T={motion_ms}ms",
+                flush=True,
             )
-            print(f"TASK2 SERVO HTD85 ID{servo_id}={position} T={motion_ms}ms", flush=True)
             time.sleep(0.003)
-
-    def zp(self, targets: dict[int, int], motion_ms: int = ZP_TIME_MS) -> None:
-        for servo_id, position in targets.items():
-            packet = zp_packet(servo_id, position, motion_ms)
-            send_uart_payload(self.zp_path, packet, f"ZP ID{servo_id}")
-            print(f"TASK2 SERVO ZP ID{servo_id}={position} T={motion_ms}ms", flush=True)
-            time.sleep(0.003)
-
-    def hold_aux_outputs(self) -> None:
-        """Set the fixed ZL channels without touching task-arm ZP IDs."""
-        self.zp(AUX_ZP_HOLD, AUX_ZP_HOLD_TIME_MS)
-        print(
-            "TASK2 AUX_ZP_HOLD S12=600 S23=1000 T=800ms",
-            flush=True,
-        )
 
     def pose_high(self) -> None:
-        self.arm(HIGH)
-        self.zp(ZP_HIGH)
-        time.sleep(max(ARM_TIME_MS, ZP_TIME_MS) / 1000.0)
+        self.arm(HIGH, ARM_TIME_MS)
+        self.arm(HTD85_AUX_HIGH, HTD85_AUX_TIME_MS)
+        time.sleep(max(ARM_TIME_MS, HTD85_AUX_TIME_MS) / 1000.0)
 
     def pulse_gripper(self) -> None:
         self.open_gripper()
         self.close_gripper()
 
     def open_gripper(self) -> None:
-        self.zp({7: GRIPPER_OPEN}, GRIPPER_TIME_MS)
+        self.arm({17: GRIPPER_OPEN}, GRIPPER_TIME_MS)
         time.sleep(GRIPPER_TIME_MS / 1000.0)
 
     def close_gripper(self) -> None:
-        self.zp({7: GRIPPER_CLOSED}, GRIPPER_TIME_MS)
+        self.arm({17: GRIPPER_CLOSED}, GRIPPER_TIME_MS)
         time.sleep(GRIPPER_TIME_MS / 1000.0)
 
     def place_ring(self) -> None:
-        """Move ring placement ID6/ID2 first, then ID1, each in 800 ms."""
-        self.arm(
-            {6: RING_AFTER_HIGH[6], 2: RING_AFTER_HIGH[2]},
-            RING_PLACE_TIME_MS,
-        )
-        time.sleep(RING_PLACE_TIME_MS / 1000.0)
+        """Move ring placement in ID6 -> ID2 -> ID1 order."""
+        self.arm({6: RING_AFTER_HIGH[6]}, RING_AXIS_TIME_MS)
+        time.sleep(RING_AXIS_TIME_MS / 1000.0)
+        self.arm({2: RING_AFTER_HIGH[2]}, RING_AXIS_TIME_MS)
+        time.sleep(RING_AXIS_TIME_MS / 1000.0)
         self.arm({1: RING_AFTER_HIGH[1]}, RING_PLACE_TIME_MS)
         time.sleep(RING_PLACE_TIME_MS / 1000.0)
 
-    def close(self) -> None:
-        for name in ("arm_fd", "zp_fd"):
-            fd = getattr(self, name, None)
-            if fd is not None:
-                os.close(fd)
-                setattr(self, name, None)
+    def place_letter(self) -> None:
+        """Move letter placement in ID6 -> ID2 -> ID1 order."""
+        self.arm({6: LETTER_WORK[6]}, LETTER_PLACE_TIME_MS)
+        time.sleep(LETTER_PLACE_TIME_MS / 1000.0)
+        self.arm({2: LETTER_WORK[2]}, LETTER_PLACE_TIME_MS)
+        time.sleep(LETTER_PLACE_TIME_MS / 1000.0)
+        self.arm({1: LETTER_WORK[1]}, LETTER_PLACE_TIME_MS)
+        time.sleep(LETTER_PLACE_TIME_MS / 1000.0)
 
+    def return_high_reverse(self) -> None:
+        """Return a ring placement to high in ID1 -> ID2 -> ID6 order."""
+        for servo_id in (1, 2, 6):
+            self.arm({servo_id: HIGH[servo_id]}, ARM_TIME_MS)
+            time.sleep(ARM_TIME_MS / 1000.0)
+
+    def close(self) -> None:
+        if self.arm_fd is not None:
+            os.close(self.arm_fd)
+            self.arm_fd = None
 
 class H7Link:
     def __init__(self, path: str):
@@ -280,6 +291,23 @@ class H7Link:
     def open(self) -> None:
         self.fd = open_uart(self.path, "H7")
         print(f"TASK2 H7 OPEN {self.path}", flush=True)
+
+    def drain_input(self, duration_s: float = 0.20) -> None:
+        """Discard stale log/status bytes before a new transaction begins."""
+        if self.fd is None:
+            return
+        deadline = time.monotonic() + max(0.0, duration_s)
+        drained = 0
+        while time.monotonic() < deadline:
+            ready, _, _ = select.select([self.fd], [], [], 0.02)
+            if not ready:
+                continue
+            chunk = os.read(self.fd, 4096)
+            if not chunk:
+                break
+            drained += len(chunk)
+        if drained:
+            print(f"TASK2 H7 DRAIN stale_bytes={drained}", flush=True)
 
     def send(self, line: str) -> None:
         if self.fd is None:
@@ -321,6 +349,13 @@ class H7Link:
                 line = raw.decode("ascii", "replace").strip("\r")
                 print(f"TASK2 H7 RX {line}", flush=True)
                 fields = [item.strip() for item in line.split(",")]
+                if fields[:4] == ["H7", "TEST", "TASK2", "BUSY"]:
+                    raise H7TaskBusyError(
+                        "H7 reported TASK2 BUSY; previous sequence was not cleared"
+                    )
+                if (fields[:4] == ["H7", "TEST", "TASK2", "ERR"] and
+                        self._status_matches(fields, sequence, {"ERR"}, field)):
+                    raise H7ProtocolError(line)
                 if self._status_matches(fields, sequence, statuses, field):
                     return line
         return None
@@ -945,14 +980,16 @@ def solve_descend_pose(target: dict, grasp_model):
     }
 
 
-def open_gripper_then_retreat_id2(boards: ServoBoards, current_id2: int) -> int:
-    """Open ID7, then move only ID2 back before the final IK pose."""
+def open_gripper_then_retreat_id2(
+    boards: ServoBoards, current_id2: int, retreat_ticks: int
+) -> int:
+    """Open ID17, then move only ID2 back before the final IK pose."""
     boards.open_gripper()
-    retreat_id2 = max(CENTER_ID2_RANGE[0], int(current_id2) - POST_OPEN_ID2_RETREAT_TICKS)
+    retreat_id2 = max(CENTER_ID2_RANGE[0], int(current_id2) - int(retreat_ticks))
     boards.arm({2: retreat_id2}, ARM_TIME_MS)
     print(
         f"TASK2 POST_OPEN_ID2_RETREAT ID2={current_id2}->{retreat_id2} "
-        f"DELTA=-{POST_OPEN_ID2_RETREAT_TICKS} T={ARM_TIME_MS}ms",
+        f"DELTA=-{int(retreat_ticks)} T={ARM_TIME_MS}ms",
         flush=True,
     )
     time.sleep(ARM_TIME_MS / 1000.0)
@@ -961,7 +998,7 @@ def open_gripper_then_retreat_id2(boards: ServoBoards, current_id2: int) -> int:
 
 def stop_active_h7(h7: H7Link | None, sequence: int | None,
                    field: str, active: bool) -> None:
-    """Stop an acknowledged test command before returning control to the user."""
+    """Stop a possibly accepted test command before returning control."""
     if h7 is None or sequence is None or not active:
         return
     try:
@@ -982,8 +1019,54 @@ def stop_active_h7(h7: H7Link | None, sequence: int | None,
                 f"reply={reply}",
                 flush=True,
             )
+            clear_saved_sequence(sequence)
     except Exception as exc:
         print(f"TASK2 H7 STOP_ERROR {exc}", flush=True)
+
+
+def read_saved_sequence() -> int | None:
+    path = task2_sequence_state_path()
+    try:
+        value = int(path.read_text(encoding="ascii").strip())
+    except (FileNotFoundError, OSError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def save_sequence(sequence: int) -> None:
+    path = task2_sequence_state_path()
+    path.write_text(f"{int(sequence)}\n", encoding="ascii")
+
+
+def clear_saved_sequence(sequence: int | None = None) -> None:
+    path = task2_sequence_state_path()
+    try:
+        saved = int(path.read_text(encoding="ascii").strip())
+    except (FileNotFoundError, OSError, ValueError):
+        return
+    if sequence is None or saved == int(sequence):
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def recover_previous_h7(h7: H7Link, field: str) -> None:
+    """Close the previous app-owned task before issuing a new START."""
+    previous = read_saved_sequence()
+    if previous is None:
+        return
+    print(f"TASK2 H7 RECOVER previous_seq={previous}", flush=True)
+    h7.send(f"RK,TEST,TASK2,STOP,SEQ,{previous},FIELD,{field.upper()}")
+    reply = h7.wait_status_any(previous, {"STOPPED", "DONE"}, 4.0,
+                               field.upper())
+    if reply is None:
+        raise RuntimeError(
+            f"H7_RECOVERY_REQUIRED previous_seq={previous}; "
+            "power-cycle or reset H7 before starting TASK2"
+        )
+    clear_saved_sequence(previous)
+    print(f"TASK2 H7 RECOVERED previous_seq={previous}", flush=True)
 
 
 def run(args) -> int:
@@ -1004,10 +1087,13 @@ def run(args) -> int:
         if not args.execute_h7:
             print(f"TASK2 CAMERA_ONLY COMPLETE L1={pair[0]} L2={pair[1]}", flush=True)
             return 0
-        boards = ServoBoards(args.arm_uart, args.zp_uart)
+        boards = ServoBoards(args.arm_uart)
         boards.pose_high()
-        print("TASK2 HIGH_POSE_READY ID1=650 ID2=600 ID6=350 ZP4=1200 ZP5=800 ZP7=1300", flush=True)
+        print("TASK2 HIGH_POSE_READY ID1=650 ID2=600 ID6=350 ID14=500 ID15=500 ID17=450", flush=True)
         h7 = H7Link(args.h7_device)
+        h7.open()
+        h7.drain_input()
+        recover_previous_h7(h7, args.field)
         session_sequence = (int(time.time() * 1000)) & 0xFFFFFFFF
         for slot in range(8):
             if slot == 0:
@@ -1017,10 +1103,14 @@ def run(args) -> int:
                 command = (f"RK,TEST,TASK2,NEXT,SEQ,{session_sequence},FIELD,{args.field.upper()},"
                            f"STEP,{slot}")
             h7.send(command)
+            # START can be accepted by H7 even when its ACK is delayed or
+            # lost. Mark it active before waiting so exception cleanup sends
+            # STOP and does not leave a background chassis route behind.
+            h7_active = True
+            save_sequence(session_sequence)
             if not h7.wait_status(
                     session_sequence, "ACK", 4.0, args.field.upper()):
                 raise RuntimeError(f"H7_ACK_TIMEOUT slot={slot + 1}")
-            h7_active = True
             if not h7.wait_status(
                     session_sequence, "RUNNING", 8.0, args.field.upper()):
                 raise RuntimeError(f"H7_RUNNING_TIMEOUT slot={slot + 1}")
@@ -1029,7 +1119,7 @@ def run(args) -> int:
                 print(
                     f"TASK2 MAIN CAMERA_OPEN path={args.main_camera} "
                     "WHITE_LINE_REF_Y10=2000,TOL=100,ACCEL=0.10m/s2,"
-                    "AFTER_CROSSED_FORWARD=170mm",
+                    "AFTER_CROSSED_FORWARD=190mm",
                     flush=True,
                 )
             done = (
@@ -1079,7 +1169,9 @@ def run(args) -> int:
             if target.get("kind") == "ring":
                 descend = solve_descend_pose(target, grasp_model)
                 current_id2 = int(target.get("center_id2", HIGH[2]))
-                open_gripper_then_retreat_id2(boards, current_id2)
+                open_gripper_then_retreat_id2(
+                    boards, current_id2, POST_OPEN_ID2_RETREAT_TICKS_BY_KIND["ring"]
+                )
                 boards.arm({1: descend["id1"], 2: descend["id2"],
                             6: int(target.get("center_id6", HIGH[6]))})
                 print(
@@ -1093,15 +1185,17 @@ def run(args) -> int:
                 boards.pose_high()
                 boards.place_ring()
                 boards.pulse_gripper()
-                boards.pose_high()
-                print("TASK2 RING_DONE after_high ID1=535 ID2=330 ID6=120", flush=True)
+                boards.return_high_reverse()
+                print("TASK2 RING_DONE after_high ID1=520 ID2=340 ID6=120", flush=True)
             elif (
                     target.get("kind") == "letter"
                     and str(target.get("letter", "")).upper() in pair
             ):
                 descend = solve_descend_pose(target, grasp_model)
                 current_id2 = int(target.get("center_id2", HIGH[2]))
-                open_gripper_then_retreat_id2(boards, current_id2)
+                open_gripper_then_retreat_id2(
+                    boards, current_id2, POST_OPEN_ID2_RETREAT_TICKS_BY_KIND["letter"]
+                )
                 boards.arm({1: descend["id1"], 2: descend["id2"],
                             6: int(target.get("center_id6", HIGH[6]))})
                 print(
@@ -1114,10 +1208,9 @@ def run(args) -> int:
                 time.sleep(ARM_TIME_MS / 1000.0)
                 boards.close_gripper()
                 boards.pose_high()
-                boards.arm(LETTER_WORK)
-                time.sleep(ARM_TIME_MS / 1000.0)
+                boards.place_letter()
                 boards.pulse_gripper()
-                boards.pose_high()
+                boards.return_high_reverse()
                 print(
                     f"TASK2 LETTER_DONE letter={target['letter']} "
                     "ID1=500 ID2=350 ID6=600", flush=True
@@ -1133,6 +1226,8 @@ def run(args) -> int:
                 flush=True,
             )
         print(f"TASK2 TEST COMPLETE pair={pair[0]},{pair[1]} slots=8", flush=True)
+        clear_saved_sequence(session_sequence)
+        h7_active = False
         return 0
     except KeyboardInterrupt:
         stop_active_h7(h7, session_sequence, args.field, h7_active)
@@ -1161,7 +1256,6 @@ def main() -> int:
     parser.add_argument("--main-camera", default=MAIN_CAMERA)
     parser.add_argument("--h7-device", default=H7_DEVICE)
     parser.add_argument("--arm-uart", default=ARM_DEVICE)
-    parser.add_argument("--zp-uart", default=ZP_DEVICE)
     parser.add_argument("--execute-h7", action="store_true",
                         help="after letter lock, drive the arm and H7 test route")
     parser.add_argument("--letter-timeout-s", type=float, default=30.0)

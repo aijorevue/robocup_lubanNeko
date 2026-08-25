@@ -11,22 +11,83 @@ from .grasp_calibration import calibrated_grasp_ticks
 
 HIGH = (650, 600, 350)
 LETTER_PLACE = (500, 350, 600)
-RING_PLACE = (535, 330, 120)
-POST_OPEN_ID2_RETREAT_TICKS = 100
+RING_PLACE = (520, 340, 120)
+HTD85_AUX_HIGH = (500, 500, 450)  # physical ID14, ID15, ID17
+PLATFORM_GRIPPER_CLOSED = 450
+PLATFORM_GRIPPER_OPEN = 600
+PLATFORM_ARM_TIME_MS = 600
+PLATFORM_AUX_TIME_MS = 200
+PLATFORM_GRIPPER_TIME_MS = 200
+PLATFORM_RING_PLACE_TIME_MS = 700
+PLATFORM_RING_AXIS_TIME_MS = 500
+PLATFORM_LETTER_PLACE_TIME_MS = 500
+PLATFORM_CENTER_TIME_MS = 100
+POST_OPEN_ID2_RETREAT_TICKS_BY_KIND = {
+    "letter": 60,
+    "ring": 100,
+}
+CENTER_DEADBAND_PX = 45
 CENTER_ID6_STEP_TICKS = 5
 CENTER_ID2_STEP_TICKS = 7
+CENTER_ID2_RANGE = (450, 700)
 CENTER_ID6_RANGE = (0, 700)
 PLATFORM_NO_TARGET_TIMEOUT_S = 1.5
+TARGET_WINDOW_SIZE_PX = 400
+TARGET_WINDOW_MIN_AREA_FRACTION = 0.80
+
+
+def _target_in_center_window(target, frame_shape):
+    """Require at least 80% of a target bbox inside the centered 400x400 window."""
+    bbox = target.get("bbox")
+    if bbox is None or len(bbox) != 4:
+        return False
+    try:
+        x, y, width, height = (float(value) for value in bbox)
+    except (TypeError, ValueError):
+        return False
+    if width <= 0.0 or height <= 0.0:
+        return False
+    frame_height, frame_width = frame_shape[:2]
+    window_size = min(
+        float(TARGET_WINDOW_SIZE_PX), float(frame_width), float(frame_height)
+    )
+    window_left = (float(frame_width) - window_size) / 2.0
+    window_top = (float(frame_height) - window_size) / 2.0
+    intersection_width = max(
+        0.0,
+        min(x + width, window_left + window_size) - max(x, window_left),
+    )
+    intersection_height = max(
+        0.0,
+        min(y + height, window_top + window_size) - max(y, window_top),
+    )
+    inside_fraction = (intersection_width * intersection_height) / (width * height)
+    return inside_fraction >= TARGET_WINDOW_MIN_AREA_FRACTION
 
 
 class PlatformTask:
-    def __init__(self, pose, gripper, center, *, ring_place_pair=None,
-                 ring_place_id1=None, clock=time.monotonic):
+    def __init__(self, pose, gripper, center, *, ring_place_id6=None,
+                 ring_place_id2=None, ring_place_id1=None,
+                 ring_return_high_id1=None, ring_return_high_id2=None,
+                 ring_return_high_id6=None, letter_place_id6=None,
+                 letter_place_id2=None, letter_place_id1=None,
+                 letter_return_high_id1=None, letter_return_high_id2=None,
+                 letter_return_high_id6=None, clock=time.monotonic):
         self.pose = pose
         self.gripper = gripper
         self.center = center
-        self.ring_place_pair = ring_place_pair or pose
-        self.ring_place_id1 = ring_place_id1 or pose
+        self.ring_place_id6 = ring_place_id6
+        self.ring_place_id2 = ring_place_id2
+        self.ring_place_id1 = ring_place_id1
+        self.ring_return_high_id1 = ring_return_high_id1
+        self.ring_return_high_id2 = ring_return_high_id2
+        self.ring_return_high_id6 = ring_return_high_id6
+        self.letter_place_id6 = letter_place_id6
+        self.letter_place_id2 = letter_place_id2
+        self.letter_place_id1 = letter_place_id1
+        self.letter_return_high_id1 = letter_return_high_id1
+        self.letter_return_high_id2 = letter_return_high_id2
+        self.letter_return_high_id6 = letter_return_high_id6
         self.clock = clock
         self.reset()
 
@@ -144,7 +205,8 @@ class PlatformTask:
                       and d.get("observed", True)
                       and (float(d.get("confidence") or 0) >= 45 if d.get("kind") == "letter"
                            else float(d.get("score") or 0) >= 0.55)
-                      and d.get("center") is not None]
+                      and d.get("center") is not None
+                      and _target_in_center_window(d, shape)]
         allowed = [d for d in candidates if self._allowed(d)]
         if allowed:
             candidates = allowed
@@ -167,16 +229,16 @@ class PlatformTask:
             return
         self.target_key, self.target_center = key, point
         dx, dy = point[0] - width / 2, point[1] - height / 2
-        if abs(dx) > 45 or abs(dy) > 45:
-            id2 = max(450, min(700, self.center_id2 + (
-                -CENTER_ID2_STEP_TICKS if dy > 45
-                else CENTER_ID2_STEP_TICKS if dy < -45 else 0
+        if abs(dx) > CENTER_DEADBAND_PX or abs(dy) > CENTER_DEADBAND_PX:
+            id2 = max(CENTER_ID2_RANGE[0], min(CENTER_ID2_RANGE[1], self.center_id2 + (
+                -CENTER_ID2_STEP_TICKS if dy > CENTER_DEADBAND_PX
+                else CENTER_ID2_STEP_TICKS if dy < -CENTER_DEADBAND_PX else 0
             )))
             id6 = max(
                 CENTER_ID6_RANGE[0],
                 min(CENTER_ID6_RANGE[1], self.center_id6 + (
-                    -CENTER_ID6_STEP_TICKS if dx > 45
-                    else CENTER_ID6_STEP_TICKS if dx < -45 else 0
+                    -CENTER_ID6_STEP_TICKS if dx > CENTER_DEADBAND_PX
+                    else CENTER_ID6_STEP_TICKS if dx < -CENTER_DEADBAND_PX else 0
                 )),
             )
             if (id2, id6) == (self.center_id2, self.center_id6):
@@ -201,31 +263,63 @@ class PlatformTask:
         print(f"PLATFORM_PICK TARGET kind={key[0]} label={key[1]} depth_cm={depth:.2f} "
               f"down={id1}/{id2}/{self.center_id6} model=measured_7_30cm", flush=True)
         self.finish_reason = f"PICKED_{key[0].upper()}"
-        retreat_id2 = max(450, self.center_id2 - POST_OPEN_ID2_RETREAT_TICKS)
+        retreat_ticks = POST_OPEN_ID2_RETREAT_TICKS_BY_KIND[key[0]]
+        retreat_id2 = max(
+            CENTER_ID2_RANGE[0],
+            self.center_id2 - retreat_ticks,
+        )
         actions = [
-            ("GRIPPER_OPEN", self.gripper, (1650,)),
+            ("GRIPPER_OPEN", self.gripper, (PLATFORM_GRIPPER_OPEN,)),
             ("POST_OPEN_ID2_RETREAT", self.pose,
              ((self.center_id1, retreat_id2, self.center_id6), False)),
             ("DESCEND", self.pose, ((id1, id2, self.center_id6), False)),
-            ("GRIPPER_CLOSE", self.gripper, (1300,)),
+            ("GRIPPER_CLOSE", self.gripper, (PLATFORM_GRIPPER_CLOSED,)),
             ("LIFT_HIGH", self.pose, (HIGH, True)),
         ]
         if key[0] == "ring":
-            # Ring placement is deliberately sequenced: yaw/pitch first,
-            # then ID1, so the arm does not swing all three joints together.
+            # Ring placement is deliberately sequenced ID6 -> ID2 -> ID1,
+            # followed by the reverse high-pose order ID1 -> ID2 -> ID6.
             actions.extend([
-                ("PLACE_RING_ID2_ID6", self.ring_place_pair,
-                 (RING_PLACE[1], RING_PLACE[2])),
+                ("PLACE_RING_ID6", self.ring_place_id6,
+                 (RING_PLACE[2],)),
+                ("PLACE_RING_ID2", self.ring_place_id2,
+                 (RING_PLACE[1],)),
                 ("PLACE_RING_ID1", self.ring_place_id1,
-                 (RING_PLACE[0],)),
+                (RING_PLACE[0],)),
             ])
         else:
-            actions.append(("PLACE_LETTER", self.pose, (placement, False)))
+            # Letter placement uses the same staged joint order as the
+            # standalone app: ID6 -> ID2 -> ID1, 500 ms each.
+            actions.extend([
+                ("PLACE_LETTER_ID6", self.letter_place_id6,
+                 (placement[2],)),
+                ("PLACE_LETTER_ID2", self.letter_place_id2,
+                 (placement[1],)),
+                ("PLACE_LETTER_ID1", self.letter_place_id1,
+                 (placement[0],)),
+            ])
         actions.extend([
-            ("PLACE_OPEN", self.gripper, (1650,)),
-            ("PLACE_CLOSE", self.gripper, (1300,)),
-            ("RETURN_HIGH", self.pose, (HIGH, True)),
+            ("PLACE_OPEN", self.gripper, (PLATFORM_GRIPPER_OPEN,)),
+            ("PLACE_CLOSE", self.gripper, (PLATFORM_GRIPPER_CLOSED,)),
         ])
+        if key[0] == "ring":
+            actions.extend([
+                ("RETURN_RING_HIGH_ID1", self.ring_return_high_id1,
+                 (HIGH[0],)),
+                ("RETURN_RING_HIGH_ID2", self.ring_return_high_id2,
+                 (HIGH[1],)),
+                ("RETURN_RING_HIGH_ID6", self.ring_return_high_id6,
+                (HIGH[2],)),
+            ])
+        else:
+            actions.extend([
+                ("RETURN_LETTER_HIGH_ID1", self.letter_return_high_id1,
+                 (HIGH[0],)),
+                ("RETURN_LETTER_HIGH_ID2", self.letter_return_high_id2,
+                 (HIGH[1],)),
+                ("RETURN_LETTER_HIGH_ID6", self.letter_return_high_id6,
+                 (HIGH[2],)),
+            ])
         self.actions = deque(actions)
         self.stage = "platform_actions"
 

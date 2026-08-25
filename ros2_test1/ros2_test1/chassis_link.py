@@ -43,7 +43,7 @@ class ChassisArmLink:
         self.pending_platform_slots = []
         self.pending_stops = []
         self.pending_preps = []
-        self.pending_aux_zp = []
+        self.pending_aux_requests = []
         self.pending_white_line_queries = []
         self.formal_column_control_state = None
         self.formal_column_control_sequence = None
@@ -150,7 +150,7 @@ class ChassisArmLink:
         if self.device_arg == "auto":
             self.status = (
                 "CHASSIS LINK waiting for /dev/h7_chassis or an H7 USB CDC "
-                "device (Hiwonder/ZL servo boards excluded)"
+                "device (servo-board direct control is owned by RK)"
             )
             if now - self.last_open_failure_log >= 10.0:
                 print(self.status, flush=True)
@@ -219,7 +219,7 @@ class ChassisArmLink:
         return self.send_line(self._task_line(task, state, sequence, *details))
 
     def _send_aux_state(self, state, sequence=None, *details):
-        parts = ["RK", "AUX_ZP", state]
+        parts = ["RK", "AUX_HTD85", state]
         if sequence is not None:
             parts.extend(("SEQ", str(sequence)))
         parts.extend(str(detail) for detail in details)
@@ -648,20 +648,19 @@ class ChassisArmLink:
             )
             return
 
-        if len(parts) >= 3 and parts[:3] == ["ARM", "AUX_ZP", "SET"]:
+        if len(parts) >= 3 and parts[:3] == ["ARM", "AUX_HTD85", "SET"]:
             channel = self._int_from_parts(parts, "CHANNEL")
             servo_id = self._int_from_parts(parts, "SERVO_ID")
             pulse = self._int_from_parts(parts, "PULSE")
             time_ms = self._int_from_parts(parts, "TIME")
             requested = self._field_from_parts(parts[3:])
-            channel_valid = channel in {12, 23} and servo_id is None
             servo_valid = channel is None and servo_id == 3
             request_valid = (
-                (channel_valid or servo_valid)
+                servo_valid
                 and pulse is not None
-                and 500 <= pulse <= 2500
+                and 0 <= pulse <= 1000
                 and time_ms is not None
-                and 0 <= time_ms <= 9999
+                and 0 <= time_ms <= 30000
             )
             if not request_valid:
                 self._send_aux_state(
@@ -677,9 +676,9 @@ class ChassisArmLink:
                     self._send_aux_state("DONE", sequence, "FIELD", self.field_mode.wire_name)
                 return
             if sequence is None or not any(
-                item.get("sequence") == sequence for item in self.pending_aux_zp
+                item.get("sequence") == sequence for item in self.pending_aux_requests
             ):
-                self.pending_aux_zp.append(
+                self.pending_aux_requests.append(
                     {
                         "sequence": sequence,
                         "channel": channel,
@@ -775,12 +774,12 @@ class ChassisArmLink:
         self.pending_preps = []
         return preps
 
-    def consume_aux_zp(self):
-        requests = self.pending_aux_zp
-        self.pending_aux_zp = []
+    def consume_aux_requests(self):
+        requests = self.pending_aux_requests
+        self.pending_aux_requests = []
         return requests
 
-    def complete_aux_zp(self, request, success, reason=""):
+    def complete_aux_request(self, request, success, reason=""):
         sequence = request.get("sequence")
         self.last_aux_sequence = sequence
         self.last_aux_success = bool(success)
@@ -892,7 +891,7 @@ class ChassisArmLink:
         self.reset_in_progress = False
         self.pending_starts.clear()
         self.pending_preps.clear()
-        self.pending_aux_zp.clear()
+        self.pending_aux_requests.clear()
         self.pending_preselects.clear()
         self.pending_platform_slots.clear()
         self.pending_stops.clear()
