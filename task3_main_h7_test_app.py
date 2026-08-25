@@ -42,8 +42,8 @@ from task2_secondary_h7_test_app import (  # noqa: E402
     LETTERS,
     MAIN_LETTER_MIN_CONFIDENCE,
     TARGET_TRACK_MISSING_TIMEOUT_S,
-    HTD85_AUX_HIGH,
-    HTD85_AUX_TIME_MS,
+    ZP_HIGH,
+    ZP_TIME_MS,
     ServoBoards,
     import_main_detector,
     letter_detections,
@@ -54,6 +54,7 @@ from task2_secondary_h7_test_app import (  # noqa: E402
 MAIN_CAMERA = "/dev/v4l/by-path/platform-fc800000.usb-usb-0:1:1.0-video-index0"
 H7_DEVICE = "/dev/h7_chassis"
 ARM_DEVICE = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5C82109853-if00"
+ZP_DEVICE = "/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0"
 
 TARGET_VOTE_WINDOW = 10
 # One valid observation inside the capture window is sufficient to stop H7.
@@ -75,7 +76,6 @@ TASK3_HIGH = {1: 650, 2: 500, 6: 350}
 # The pickup depth is relative to the final centered pose. Do not reuse the
 # removed fixed task-two/task-three descent model here.
 TASK3_DESCEND_OFFSET_TICKS = 100
-POST_OPEN_ID2_RETREAT_TICKS = 100
 # Candidates may be tracked while they cross the image, but a target is
 # actionable only inside the center window below. This prevents a side target
 # from pausing the orbit before it reaches the gripper axis.
@@ -550,19 +550,9 @@ def _letter_grasp(boards: ServoBoards, target: dict) -> None:
     boards.open_gripper()
     centered_id1 = int(target.get("center_id1", TASK3_HIGH[1]))
     centered_id2 = int(target.get("center_id2", TASK3_HIGH[2]))
-    retreat_id2 = max(
-        CENTER_ID2_RANGE[0], centered_id2 - POST_OPEN_ID2_RETREAT_TICKS
-    )
-    boards.arm({2: retreat_id2})
-    print(
-        f"TASK3 POST_OPEN_ID2_RETREAT ID2={centered_id2}->{retreat_id2} "
-        f"DELTA=-{POST_OPEN_ID2_RETREAT_TICKS}",
-        flush=True,
-    )
-    time.sleep(ARM_TIME_MS / 1000.0)
     descend = {
         "id1": max(0, centered_id1 - TASK3_DESCEND_OFFSET_TICKS),
-        "id2": retreat_id2,
+        "id2": max(0, centered_id2 - TASK3_DESCEND_OFFSET_TICKS),
     }
     boards.arm(
         {
@@ -598,8 +588,8 @@ def _letter_grasp(boards: ServoBoards, target: dict) -> None:
 def _task3_pose_high(boards: ServoBoards) -> None:
     """Use task-three's independent high pose without changing task two."""
     boards.arm(TASK3_HIGH)
-    boards.arm(HTD85_AUX_HIGH, HTD85_AUX_TIME_MS)
-    time.sleep(max(ARM_TIME_MS, HTD85_AUX_TIME_MS) / 1000.0)
+    boards.zp(ZP_HIGH)
+    time.sleep(max(ARM_TIME_MS, ZP_TIME_MS) / 1000.0)
 
 
 def _center_task3_target(
@@ -761,11 +751,11 @@ def run(args) -> int:
                     break
             return 0
 
-        boards = ServoBoards(args.arm_uart)
+        boards = ServoBoards(args.arm_uart, args.zp_uart)
         _task3_pose_high(boards)
         print(
             "TASK3 ARM_HIGH ID1=650 ID2=500 ID6=350 "
-            "ID14=300 ID15=600 ID17=450",
+            "ZP4=1200 ZP5=800 ZP7=1300",
             flush=True,
         )
         h7 = Task3H7Link(args.h7_device)
@@ -906,6 +896,7 @@ def main() -> int:
     parser.add_argument("--main-camera", default=MAIN_CAMERA)
     parser.add_argument("--h7-device", default=H7_DEVICE)
     parser.add_argument("--arm-uart", default=ARM_DEVICE)
+    parser.add_argument("--zp-uart", default=ZP_DEVICE)
     parser.add_argument("--execute-h7", action="store_true")
     parser.add_argument("--camera-timeout-s", type=float, default=30.0)
     parser.add_argument("--ack-timeout-s", type=float, default=4.0)

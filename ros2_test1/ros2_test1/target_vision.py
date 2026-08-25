@@ -141,7 +141,7 @@ TASK1_ID3_RETRACT_TIME_MS = 600
 TASK1_ID14_RETRACT_TICK = 300
 TASK1_ID14_FIELD_TICK = 700
 TASK1_ID14_YELLOW_TICK = 300
-TASK1_ID14_TIME_MS = 70
+TASK1_ID14_TIME_MS = 50
 TASK1_ID15_RETRACT_TICK = 600
 TASK1_ID15_OPEN_TICK = 730
 TASK1_AUX_TIME_MS = 100
@@ -837,6 +837,7 @@ class HiwonderSingleBusServoBridge:
         self.last_ack = {}
         self.assumed_feedback = True
         self._arm_io_lock = threading.RLock()
+        self._next_open_retry = 0.0
         self.status = "single HTD85 bus disabled"
         if self.enabled:
             self._open()
@@ -861,19 +862,29 @@ class HiwonderSingleBusServoBridge:
         return fd
 
     def _open(self):
+        if not self.enabled or self.arm_fd is not None:
+            return self.arm_fd is not None
+        now = time.monotonic()
+        if now < self._next_open_retry:
+            return False
+        self._next_open_retry = now + 0.5
         try:
             self.arm_fd = self._open_device(self.arm_device)
+            self._next_open_retry = 0.0
             self.status = (
                 f"single HTD85 bus={self.arm_device} baud={self.baudrate} "
                 "physical_ids=1,2,3,6,14,15,17 exclusive=yes"
             )
             print(self.status, flush=True)
+            return True
         except (OSError, subprocess.CalledProcessError) as exc:
             self.close()
-            self.enabled = False
-            self.write_enabled = False
             self.status = f"single HTD85 bus open failed: {exc}"
             print(self.status, flush=True)
+            return False
+
+    def _ensure_open(self):
+        return self.arm_fd is not None or self._open()
 
     def _write_payload(self, payload, repeat=None):
         count = self.repeat if repeat is None else max(1, min(8, int(repeat)))
@@ -917,6 +928,10 @@ class HiwonderSingleBusServoBridge:
                     )
                     time.sleep(0.003)
         except (OSError, TimeoutError) as exc:
+            # EIO/ENODEV leaves the old descriptor unusable after a USB
+            # adapter reset.  Drop it so the next readiness poll can reopen
+            # the stable by-id path and let H7 retry RESET/PREP_HIGH.
+            self.close()
             warning = f"HTD85 UART write failed: {exc}"
             print(warning, flush=True)
             return False, warning
@@ -929,7 +944,7 @@ class HiwonderSingleBusServoBridge:
     def send_targets(self, id1=None, id2=None, id3=None, id4=None, id6=None,
                      id5=None, splitter_id4=None, repeat=None,
                      aux_time_ms=None, splitter_time_ms=None):
-        if not self.enabled or self.arm_fd is None:
+        if not self.enabled or not self._ensure_open():
             self.last_command_ok = False
             return self.status
         if not self.write_enabled:
@@ -983,7 +998,7 @@ class HiwonderSingleBusServoBridge:
         """Send the dedicated HTD85 ID3 request on the same exclusive bus."""
         if (
             not self.enabled
-            or self.arm_fd is None
+            or not self._ensure_open()
             or not self.write_enabled
             or int(servo_id or 0) != 3
             or pulse is None
@@ -1003,7 +1018,7 @@ class HiwonderSingleBusServoBridge:
         return self.status
 
     def _read_htd85_position(self, servo_id, timeout_s=0.25):
-        if self.arm_fd is None:
+        if not self._ensure_open():
             return None
         with self._arm_io_lock:
             try:
@@ -1015,7 +1030,7 @@ class HiwonderSingleBusServoBridge:
                 return None
 
     def query_positions(self, timeout_s=0.90):
-        if not self.enabled or self.arm_fd is None:
+        if not self.enabled or not self._ensure_open():
             return None
         positions = {}
         per_servo_timeout = max(0.08, min(0.30, float(timeout_s) / 3.0))
@@ -1030,12 +1045,14 @@ class HiwonderSingleBusServoBridge:
         return None
 
     def ready_for_commands(self):
-        return self.enabled and self.write_enabled and self.arm_fd is not None and self.last_command_ok
+        return self.enabled and self.write_enabled and self._ensure_open()
 
     def wait_ready(self, timeout_s=0.2):
-        return self.enabled and self.arm_fd is not None
+        return self.enabled and self._ensure_open()
 
     def command_arm_ready(self, timeout_s=4.0):
+        if not self._ensure_open():
+            return None
         feedback = self.query_positions(timeout_s=min(0.8, max(0.2, float(timeout_s))))
         if feedback is not None:
             self.last_command_ok = True
@@ -2237,6 +2254,7 @@ class TargetGraspController:
             and self.chassis_station_stage is None
             and self.locked_target is None
             and self.algorithm_stage == "centering"
+            and not self.platform_task.target_seen
         )
 
     def begin_chassis_station(self, station):
@@ -5431,7 +5449,16 @@ class TargetDetector:
             )
         elif mode == DETECTION_MODE_PLATFORM_TARGETS:
             # Use standalone task-two ring depth without the generic ratio overwrite.
-            return [*self._detect_letters(frame), *detect_platform_rings(frame)]
+            selected_letters = {
+                str(letter).upper()
+                for letter in target_letters
+                if str(letter).upper() in LETTERS
+            }
+            letters = [
+                det for det in self._detect_letters(frame)
+                if det.get("letter") in selected_letters
+            ]
+            return [*letters, *detect_platform_rings(frame)]
         elif mode == DETECTION_MODE_COLUMN_LETTERS:
             letters = self._detect_letters(frame)
         else:
@@ -5869,9 +5896,16 @@ class LatestFrameReader:
 
     def _run(self):
         while not self._stop.is_set():
-            started = time.perf_counter()
-            ok, frame = self.cap.read()
-            elapsed = time.perf_counter() - started
+            try:
+                started = time.perf_counter()
+                ok, frame = self.cap.read()
+                elapsed = time.perf_counter() - started
+            except Exception as exc:
+                with self._lock:
+                    self._error = (
+                        f"camera read exception: {type(exc).__name__}: {exc}"
+                    )
+                return
             if not ok:
                 with self._lock:
                     self._error = "camera read failed"
@@ -6057,8 +6091,11 @@ def build_arg_parser():
     parser.add_argument(
         "--station-no-target-timeout",
         type=float,
-        default=float(os.environ.get("STATION_NO_TARGET_TIMEOUT", "1.5")),
-        help="finish the active chassis station after this many seconds with no target",
+        default=float(os.environ.get("STATION_NO_TARGET_TIMEOUT", "5.0")),
+        help=(
+            "finish a formal PLATFORM_PICK station after this many seconds "
+            "before any valid target is observed"
+        ),
     )
     parser.add_argument(
         "--post-center-direct-descend",
@@ -6831,7 +6868,8 @@ def main(argv=None):
                     grasp_controller.field_mode.value,
                     tuple(
                         grasp_controller.platform_selected_letters
-                        or target_letters
+                        if requested_detection_mode == DETECTION_MODE_PLATFORM_TARGETS
+                        else target_letters
                     ),
                 )
             detection_frame_index += 1
@@ -6839,7 +6877,6 @@ def main(argv=None):
             active_target_letters = (
                 grasp_controller.platform_selected_letters
                 if grasp_controller.active_chassis_station == "PLATFORM_PICK"
-                and grasp_controller.platform_selected_letters
                 else target_letters
             )
             active_target_kind = (
@@ -6885,7 +6922,13 @@ def main(argv=None):
                 )
                 if chassis_link.enabled:
                     if detection_fresh:
-                        chassis_link.note_target(preview_target)
+                        # PLATFORM_PICK has its own filtered target gate and
+                        # target_seen latch.  Do not let an arbitrary visible
+                        # object reset the station's no-target observation
+                        # window; only a selected letter or own-field ring
+                        # can release that watchdog.
+                        if chassis_link.active_task != "PLATFORM_PICK":
+                            chassis_link.note_target(preview_target)
                 if chassis_active:
                     station_info = None
                     if (
@@ -6907,15 +6950,14 @@ def main(argv=None):
                                     float(det.get("projected_area") or 0.0),
                                 ),
                             )
-                            station_info = (
-                                "PLATFORM_PICK skipped wrong target "
+                            print(
+                                "PLATFORM_PICK observed non-selected target; "
+                                "continue target observation window "
                                 f"kind={best_rejected.get('kind')} "
-                                f"letter={best_rejected.get('letter', '-')}"
+                                f"letter={best_rejected.get('letter', '-')} "
+                                f"color={best_rejected.get('color', '-')}",
+                                flush=True,
                             )
-                            grasp_controller.skip_platform_slot(
-                                "LETTER_OR_RING_NOT_SELECTED"
-                            )
-                            station_info = resolve_station_outcome(station_info)
                     if station_info is None:
                         station_info = grasp_controller.update_chassis_station(
                             chassis_link.active_task,

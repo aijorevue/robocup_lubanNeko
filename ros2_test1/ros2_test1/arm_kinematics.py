@@ -6,12 +6,12 @@ from .arm_kinematics_common import ArmKinematicsProfile, build_exports
 
 
 _PROFILE = ArmKinematicsProfile(
-    HOME_ID1_TICK=446,
+    HOME_ID1_TICK=550,
     HOME_ID2_TICK=227,
     READY_ID1_TICK=446,
     READY_ID2_TICK=227,
-    GRIPPER_CLOSED_TICK=450,
-    GRIPPER_OPEN_TICK=600,
+    GRIPPER_CLOSED_TICK=1300,
+    GRIPPER_OPEN_TICK=1710,
     BASE_YAW_CENTER_TICK=472,
     BASE_YAW_HOME_TICK=472,
     BASE_YAW_READY_TICK=300,
@@ -31,6 +31,5 @@ __all__ = [name for name in globals() if name.isupper() and not name.startswith(
     "has_safe_angle_gap",
     "enforce_angle_gap",
     "gripper_position_mm",
-    "solve_gripper_position",
     "joint_positions",
 ]

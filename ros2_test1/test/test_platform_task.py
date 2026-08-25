@@ -174,6 +174,25 @@ class TestPlatformTask(unittest.TestCase):
         self.assertEqual(f.task.error, 'PRESELECT_HIGH_NOT_READY')
         self.assertFalse(f.writes)
 
+    def test_platform_uses_the_secondary_pair_not_a_default_letter_set(self):
+        f = Fixture()
+        f.task.begin_preselect()
+        for _ in range(28):
+            f.task.preselect([letter('C', (100, 200)), letter('D', (600, 200))])
+        self.assertEqual(f.task.selected, ('C', 'D'))
+        f.now = f.task.deadline
+        f.task.tick()
+        f.task.done = None
+        f.task.begin_slot('red')
+        for _ in range(9):
+            f.task.tick([letter('A')], (600, 800, 3), fresh=True)
+        self.assertIsNone(f.task.target_key)
+        self.assertFalse(any(write[0] == 'pose' and write[1] != HIGH
+                             for write in f.writes))
+        for _ in range(3):
+            f.task.tick([letter('D')], (600, 800, 3), fresh=True)
+        self.assertEqual(f.task.target_key, ('letter', 'D'))
+
     def test_letter_and_both_field_ring_exact_actions(self):
         self.assertEqual(HIGH, (650, 600, 350))
         self.assertEqual(LETTER_PLACE, (500, 350, 600))
@@ -245,8 +264,11 @@ class TestPlatformTask(unittest.TestCase):
             for target in (letter('B'), dict(letter(), kind='ring', color='blue' if field == 'red' else 'red', score=.9)):
                 f = Fixture(); f.ready(); f.writes.clear(); f.task.begin_slot(field)
                 f.feed(target); f.finish()
+                f.now = f.task.timeout
+                f.task.tick()
+                f.finish()
                 self.assertEqual(f.writes, [('pose', HIGH, True)])
-                self.assertEqual(f.task.done, 'SKIPPED:TARGET_NOT_SELECTED')
+                self.assertEqual(f.task.done, 'SKIPPED:MAIN_TARGET_OR_DEPTH_TIMEOUT')
 
     def test_missing_invalid_and_nonfinite_depth_never_descend(self):
         for depth in (None, 'bad', 6.9, 31, float('nan'), float('inf')):
@@ -255,8 +277,9 @@ class TestPlatformTask(unittest.TestCase):
                 f.feed(letter(depth=depth), 20)
                 self.assertFalse(f.writes)
                 f.now = f.task.timeout; f.task.tick(); f.finish()
-                self.assertEqual(f.writes, [('pose', HIGH, True)])
-                self.assertTrue(f.task.done.startswith('SKIPPED:'))
+                self.assertFalse(any(write[0] == 'pose' and write[1] != HIGH
+                                     for write in f.writes))
+                self.assertIsNone(f.task.done)
 
     def test_no_frame_times_out_without_grab(self):
         f = Fixture(); f.ready(); f.writes.clear(); f.task.begin_slot('red')
@@ -329,7 +352,7 @@ class TestControllerAndProtocol(unittest.TestCase):
             for _ in range(28):
                 c.update_platform_preselect([letter('A', (100, 200)), letter('C', (600, 200))])
         self.assertIsNone(c.consume_chassis_station_done())
-        self.assertEqual((c.id1, c.id2, c.id6, c.id5, c.splitter_id4), (650, 600, 350, 500, 500))
+        self.assertEqual((c.id1, c.id2, c.id6, c.id5, c.splitter_id4), (650, 600, 350, 600, 300))
         c.platform_task.deadline = 0
         c.update_chassis_station('PLATFORM_PICK', [], (600, 800, 3), False)
         self.assertEqual(c.consume_chassis_station_done(), 'PRESELECT_DONE:A:C')

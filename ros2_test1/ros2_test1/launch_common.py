@@ -99,7 +99,7 @@ MODE_PROFILES = {
             "--chassis-uart",
             "auto",
             "--station-no-target-timeout",
-            "1.5",
+            "5.0",
         ],
         "kill_before_start": True,
     },

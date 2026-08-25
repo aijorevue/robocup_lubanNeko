@@ -1,6 +1,9 @@
 import unittest
 from unittest import mock
 
+import numpy as np
+import cv2
+
 from ros2_test1 import target_vision
 
 
@@ -90,6 +93,20 @@ def make_controller(bridge=None, field_mode=target_vision.FieldMode.RED):
 
 
 class ChassisStationSafetyTests(unittest.TestCase):
+    def test_blue_disc_detector_accepts_dark_cyan_ball(self):
+        detector = target_vision.TargetDetector()
+        frame = np.zeros((600, 800, 3), dtype=np.uint8)
+        # Low-light cyan-blue is the task-one failure case; it should still
+        # pass the field-specific blue-ball detector and policy.
+        cv2.circle(frame, (400, 300), 20, (150, 95, 35), -1)
+        detections = detector.detect(
+            frame,
+            mode=target_vision.DETECTION_MODE_DISC_BALLS,
+            field_name="blue",
+        )
+        balls = [d for d in detections if d.get("kind") == "ball"]
+        self.assertTrue(any(d.get("color") == "blue" for d in balls))
+
     def test_mixed_bridge_routes_85kg_targets_to_htd85_binary(self):
         bridge = target_vision.HiwonderSingleBusServoBridge(
             "/dev/missing", 115200, enabled=False, write_enabled=False
@@ -293,7 +310,7 @@ class ChassisStationSafetyTests(unittest.TestCase):
             bridge.sent[-2]["id5"],
             target_vision.DISC_CATCH_CATCHER_READY_TICK,
         )
-        self.assertEqual(bridge.sent[-2]["splitter_id4"], 600)
+        self.assertEqual(bridge.sent[-2]["splitter_id4"], target_vision.SPLITTER_RETRACT_TICK)
         self.assertEqual(bridge.sent[-1]["id1"], 550)
         self.assertEqual(bridge.sent[-1]["id6"], 350)
         self.assertNotIn("id2", bridge.sent[-1])
@@ -345,15 +362,15 @@ class ChassisStationSafetyTests(unittest.TestCase):
             (controller.id1, controller.id2, controller.id6),
             (650, 500, 350),
         )
-        self.assertEqual(controller.id5, 500)
-        self.assertEqual(controller.splitter_id4, 500)
+        self.assertEqual(controller.id5, target_vision.TASK1_ID15_RETRACT_TICK)
+        self.assertEqual(controller.splitter_id4, target_vision.SPLITTER_RETRACT_TICK)
         self.assertEqual(controller.id7, 450)
         self.assertEqual(bridge.sent[-2], {
             "id1": 650,
             "id6": 350,
             "id4": 450,
-            "id5": 500,
-            "splitter_id4": 500,
+            "id5": target_vision.TASK1_ID15_RETRACT_TICK,
+            "splitter_id4": target_vision.SPLITTER_RETRACT_TICK,
         })
         self.assertEqual(bridge.sent[-1], {"id2": 500})
 
@@ -387,7 +404,7 @@ class ChassisStationSafetyTests(unittest.TestCase):
         )
         self.assertIsNone(controller.active_chassis_station)
         self.assertEqual(bridge.sent[-1]["id4"], 450)
-        self.assertEqual(bridge.sent[-1]["splitter_id4"], target_vision.SPLITTER_YELLOW_TICK)
+        self.assertEqual(bridge.sent[-1]["splitter_id4"], target_vision.SPLITTER_RETRACT_TICK)
 
 
 def test_platform_letter_policy_matches_selected_letters():

@@ -31,10 +31,7 @@ CENTER_ID6_STEP_TICKS = 5
 CENTER_ID2_STEP_TICKS = 7
 CENTER_ID2_RANGE = (450, 700)
 CENTER_ID6_RANGE = (0, 700)
-# Only the target-observation phase is bounded.  Once a valid selected
-# letter/own-field ring has been seen, the grasp transaction is allowed to
-# finish without the no-target watchdog interrupting it.
-PLATFORM_NO_TARGET_TIMEOUT_S = 5.0
+PLATFORM_NO_TARGET_TIMEOUT_S = 10.0
 TARGET_WINDOW_SIZE_PX = 400
 TARGET_WINDOW_MIN_AREA_FRACTION = 0.80
 
@@ -101,7 +98,6 @@ class PlatformTask:
         self.deadline = 0.0
         self.actions = deque()
         self.high_ready = False
-        self.target_seen = False
         self.status = "PLATFORM_PICK idle"
 
     def _fail(self, reason):
@@ -176,7 +172,6 @@ class PlatformTask:
         self.votes = deque(maxlen=8)
         self.target_key = None
         self.target_center = None
-        self.target_seen = False
         self.center_id1 = HIGH[0]
         self.center_id2, self.center_id6 = HIGH[1:]
         self.status = "PLATFORM_PICK main camera: waiting target"
@@ -229,12 +224,6 @@ class PlatformTask:
             return
         key = self._key(target)
         point = tuple(target["center"])
-        if not self.target_seen:
-            self.target_seen = True
-            self.status = (
-                "PLATFORM_PICK target observed; "
-                "grasp transaction has no deadline"
-            )
         self.votes.append((key, point))
         if sum(v is not None and v[0] == key and math.dist(v[1], point) <= 140
                for v in self.votes) < 3:
@@ -348,7 +337,7 @@ class PlatformTask:
             self.done = "PRESELECT_DONE:" + ":".join(self.selected)
             self.status = "PLATFORM_PICK ARM_HIGH_READY; release H7 approach"
         elif self.stage == "platform_detect":
-            if not self.target_seen and now >= self.timeout:
+            if now >= self.timeout:
                 self.skip("MAIN_TARGET_OR_DEPTH_TIMEOUT")
             elif now >= self.deadline and fresh:
                 self._detect(detections, shape)

@@ -2,8 +2,11 @@ from .common import build_mask, detect_color_balls
 
 
 COLOR_NAME = "blue"
-COLOR_RANGES = [((95, 50, 50), (135, 255, 255))]
-MASK_SETTINGS = {"kernel_size": 5, "close_iterations": 2}
+# Blue balls are frequently underexposed or shifted toward cyan by the RK
+# camera. Keep the hue window broad enough for both cases, while the shared
+# contour filters below still reject small/noisy candidates.
+COLOR_RANGES = [((88, 42, 42), (142, 255, 255))]
+MASK_SETTINGS = {"kernel_size": 3, "close_iterations": 2}
 BALL_SETTINGS = {
     "min_area": 180,
     "min_circularity": 0.68,
