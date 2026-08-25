@@ -29,11 +29,14 @@ NEAR_ID2_START_TICK = 540
 NEAR_ID2_END_TICK = 530
 
 
-def calibrated_grasp_ticks(distance_cm: float) -> tuple[int, int]:
+def calibrated_grasp_ticks(
+    distance_cm: float, *, id1_offset_ticks: int = 50,
+) -> tuple[int, int]:
     """Interpolate the measured pose for 7-30 cm.
 
     The first measured segment (10-11 cm) is linearly extrapolated down to
     7 cm until dedicated 7-10 cm calibration points are available.
+    Formal task two supplies its own ID1 offset; other callers keep +50.
     """
 
     distance_cm = float(distance_cm)
@@ -60,7 +63,7 @@ def calibrated_grasp_ticks(distance_cm: float) -> tuple[int, int]:
     ratio = 0.0 if span <= 0.0 else (distance_cm - lower[0]) / span
     # Apply the current mechanical calibration offset after interpolation.
     # This affects only distance-derived descent poses, not fixed poses.
-    id1 = round(lower[1] + (upper[1] - lower[1]) * ratio) + 50
+    id1 = round(lower[1] + (upper[1] - lower[1]) * ratio) + id1_offset_ticks
     id2 = round(lower[2] + (upper[2] - lower[2]) * ratio)
     if NEAR_ID2_START_DISTANCE_CM <= distance_cm <= NEAR_ID2_END_DISTANCE_CM:
         near_ratio = (

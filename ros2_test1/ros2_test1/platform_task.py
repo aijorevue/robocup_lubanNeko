@@ -23,9 +23,10 @@ PLATFORM_RING_AXIS_TIME_MS = 500
 PLATFORM_LETTER_PLACE_TIME_MS = 500
 PLATFORM_CENTER_TIME_MS = 100
 POST_OPEN_ID2_RETREAT_TICKS_BY_KIND = {
-    "letter": 60,
-    "ring": 100,
+    "letter": 30,
+    "ring": 50,
 }
+PLATFORM_GRASP_ID1_OFFSET_TICKS = 40
 CENTER_DEADBAND_PX = 45
 CENTER_ID6_STEP_TICKS = 5
 CENTER_ID2_STEP_TICKS = 7
@@ -269,7 +270,9 @@ class PlatformTask:
             depth = float(target.get("distance_cm"))
             if not math.isfinite(depth):
                 raise ValueError("non-finite depth")
-            id1, id2 = calibrated_grasp_ticks(depth)
+            id1, id2 = calibrated_grasp_ticks(
+                depth, id1_offset_ticks=PLATFORM_GRASP_ID1_OFFSET_TICKS,
+            )
         except (ValueError, TypeError):
             self.status = "PLATFORM_PICK waiting valid measured depth 7..30cm"
             return

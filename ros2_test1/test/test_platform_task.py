@@ -128,6 +128,29 @@ class Fixture:
 
 
 class TestPlatformTask(unittest.TestCase):
+    def test_formal_offset_preserves_other_calibration_callers(self):
+        from ros2_test1.grasp_calibration import calibrated_grasp_ticks
+
+        self.assertEqual(calibrated_grasp_ticks(20), (488, 483))
+        self.assertEqual(
+            calibrated_grasp_ticks(20, id1_offset_ticks=40), (478, 483),
+        )
+
+    def test_retreat_floor_after_visual_centering(self):
+        for kind in ('letter', 'ring'):
+            with self.subTest(kind=kind):
+                f = Fixture(); f.ready(); f.writes.clear()
+                f.task.begin_slot('red')
+                f.task.center_id2 = 460
+                f.task.center_id6 = 365
+                target = letter() if kind == 'letter' else dict(
+                    letter(), kind='ring', color='red', score=.9,
+                )
+                f.feed(target); f.finish()
+                self.assertEqual(f.writes[1], ('pose', (650, 450, 365), False))
+                self.assertEqual(f.writes[2], ('pose', (478, 483, 365), False))
+                self.assertEqual(f.task.done, 'PICKED_' + kind.upper())
+
     def test_center_window_requires_400px_and_80_percent_bbox_overlap(self):
         self.assertEqual(TARGET_WINDOW_SIZE_PX, 400)
         self.assertEqual(TARGET_WINDOW_MIN_AREA_FRACTION, 0.80)
@@ -198,7 +221,7 @@ class TestPlatformTask(unittest.TestCase):
         self.assertEqual(LETTER_PLACE, (500, 350, 600))
         self.assertEqual(RING_PLACE, (520, 340, 120))
         self.assertEqual(POST_OPEN_ID2_RETREAT_TICKS_BY_KIND,
-                         {'letter': 60, 'ring': 100})
+                         {'letter': 30, 'ring': 50})
         for kind, field, placement in [('letter', 'red', LETTER_PLACE),
                                        ('ring', 'red', RING_PLACE),
                                        ('ring', 'blue', RING_PLACE)]:
@@ -212,7 +235,7 @@ class TestPlatformTask(unittest.TestCase):
                 expected = [
                     ('gripper', 600),
                     ('pose', (650, 600 - retreat_ticks, 350), False),
-                    ('pose', (488, 483, 350), False),
+                    ('pose', (478, 483, 350), False),
                     ('gripper', 450), ('pose', HIGH, True),
                 ]
                 expected += (
@@ -295,7 +318,7 @@ class TestPlatformTask(unittest.TestCase):
         self.assertEqual(f.writes, [('center', 593, 345)])
         f.now = f.task.deadline
         f.feed(letter(), 4); f.finish()
-        self.assertIn(('pose', (488, 483, 345), False), f.writes)
+        self.assertIn(('pose', (478, 483, 345), False), f.writes)
 
     def test_write_failure_at_every_action_never_completes(self):
         for failure_index in range(13):
