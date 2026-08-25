@@ -138,14 +138,14 @@ HTD85_GRIPPER_ID = 17
 # high-pose values because the same physical bus IDs have different jobs.
 TASK1_ID3_RETRACT_TICK = 300
 TASK1_ID3_RETRACT_TIME_MS = 600
-TASK1_ID14_RETRACT_TICK = 750
-TASK1_ID14_RED_TICK = 750
-TASK1_ID14_YELLOW_TICK = 1000
+TASK1_ID14_RETRACT_TICK = 300
+TASK1_ID14_FIELD_TICK = 700
+TASK1_ID14_YELLOW_TICK = 300
+TASK1_ID14_TIME_MS = 70
 TASK1_ID15_RETRACT_TICK = 600
 TASK1_ID15_OPEN_TICK = 730
 TASK1_AUX_TIME_MS = 100
-SPLITTER_YELLOW_TICK = 500
-SPLITTER_OTHER_BALL_TICK = 500
+SPLITTER_RETRACT_TICK = 300
 CATCHER_HOME_TICK = 600
 CATCHER_RELEASE_READY_TICK = TASK1_ID15_OPEN_TICK
 POST_GRAB_ID2_RETREAT_TICK = 100
@@ -158,7 +158,7 @@ DISC_CATCH_CATCHER_READY_TICK = TASK1_ID15_OPEN_TICK
 DISC_CATCH_PREP_SPLITTER_TICK = TASK1_ID14_RETRACT_TICK
 DISC_CATCH_SPLITTER_READY_TICK = TASK1_ID14_RETRACT_TICK
 DISC_CATCH_TARGET_TIMEOUT_S = 5.0
-DISC_CATCH_SPLITTER_FIELD_TICK = TASK1_ID14_RED_TICK
+DISC_CATCH_SPLITTER_FIELD_TICK = TASK1_ID14_FIELD_TICK
 DISC_CATCH_SPLITTER_YELLOW_TICK = TASK1_ID14_YELLOW_TICK
 DISC_CATCH_SPLITTER_RESET_TICK = TASK1_ID14_RETRACT_TICK
 DISC_CATCH_CATCHER_FIELD_TICK = TASK1_ID15_OPEN_TICK
@@ -1104,7 +1104,7 @@ class TargetGraspController:
         self.id2 = int(id2_ready)
         self.id7 = int(id7_closed if initial_id4 is None else initial_id4)
         self.id6 = int(arm_preview.id6)
-        self.splitter_id4 = SPLITTER_YELLOW_TICK
+        self.splitter_id4 = SPLITTER_RETRACT_TICK
         self.id5 = CATCHER_HOME_TICK
         self.field_mode = parse_field(field_mode)
         self.target_policy = policy_for(self.field_mode)
@@ -2119,7 +2119,7 @@ class TargetGraspController:
             id5=catcher_target,
             id4=self.id7_open,
             aux_time_ms=TASK1_AUX_TIME_MS,
-            splitter_time_ms=TASK1_AUX_TIME_MS,
+            splitter_time_ms=TASK1_ID14_TIME_MS,
         )
         self.last_command_time = time.monotonic()
         if self.servo_bridge.write_enabled and not self.servo_bridge.last_command_ok:
@@ -2150,11 +2150,11 @@ class TargetGraspController:
             return ""
         balls = [det for det in detections if det.get("kind") == "ball"]
         if any(det.get("color") == "yellow" for det in balls):
-            target = SPLITTER_YELLOW_TICK
+            target = SPLITTER_RETRACT_TICK
             reason = "yellow ball detected; ID14 neutral"
         elif balls:
-            target = SPLITTER_OTHER_BALL_TICK
-            reason = "non-yellow ball detected; splitter extend"
+            target = SPLITTER_RETRACT_TICK
+            reason = "ball detected; ID14 remains retracted outside DISC_CATCH"
         else:
             return ""
         if target == self.splitter_id4:
@@ -2265,13 +2265,13 @@ class TargetGraspController:
             self.chassis_station_stage = None
             self.id1, self.id2, self.id6 = PLATFORM_HIGH_POSE
             self.id5 = CATCHER_HOME_TICK
-            self.splitter_id4 = SPLITTER_OTHER_BALL_TICK
+            self.splitter_id4 = SPLITTER_RETRACT_TICK
         else:
             self.id1 = READY_ID1_TICK
             self.id2 = READY_ID2_TICK
             self.id6 = BASE_YAW_CENTER_TICK
             self.id5 = CATCHER_HOME_TICK
-            self.splitter_id4 = SPLITTER_YELLOW_TICK
+            self.splitter_id4 = SPLITTER_RETRACT_TICK
         self.id7 = self.id7_closed
         self._enforce_angle_gap()
         self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
@@ -2604,6 +2604,8 @@ class TargetGraspController:
             id7=self.id7,
             id5=self.id5,
             splitter_id4=self.splitter_id4,
+            aux_time_ms=TASK1_AUX_TIME_MS,
+            splitter_time_ms=TASK1_ID14_TIME_MS,
         )
         if not self.servo_bridge.last_command_ok:
             self.state = "fault"
@@ -2660,7 +2662,7 @@ class TargetGraspController:
             id5=self.id5,
             splitter_id4=self.splitter_id4,
             aux_time_ms=TASK1_AUX_TIME_MS,
-            splitter_time_ms=TASK1_AUX_TIME_MS,
+            splitter_time_ms=TASK1_ID14_TIME_MS,
         )
         if not self.servo_bridge.last_command_ok:
             self.chassis_station_stage = None
@@ -3090,7 +3092,7 @@ class TargetGraspController:
             status = self._send_splitter_id4(
                 DISC_CATCH_SPLITTER_RESET_TICK,
                 "DISC_CATCH yellow splitter reset",
-                splitter_time_ms=TASK1_AUX_TIME_MS,
+                splitter_time_ms=TASK1_ID14_TIME_MS,
             )
             if self.servo_bridge.last_command_ok:
                 self.chassis_station_stage = "disc_yellow_cooldown"
@@ -3469,12 +3471,12 @@ class TargetGraspController:
         home_splitter = (
             TASK1_ID14_RETRACT_TICK
             if task1_contract
-            else SPLITTER_YELLOW_TICK
+            else SPLITTER_RETRACT_TICK
         )
         aux_timing = (
             {
                 "aux_time_ms": TASK1_AUX_TIME_MS,
-                "splitter_time_ms": TASK1_AUX_TIME_MS,
+                "splitter_time_ms": TASK1_ID14_TIME_MS,
             }
             if task1_contract
             else {}
@@ -3595,7 +3597,7 @@ class TargetGraspController:
     def _startup_send_targets(self, id1, id2, id4, label, *, raising):
         self.id7 = int(id4)
         self.id6 = BASE_YAW_CENTER_TICK
-        self.splitter_id4 = SPLITTER_YELLOW_TICK
+        self.splitter_id4 = SPLITTER_RETRACT_TICK
         self.id5 = CATCHER_HOME_TICK
         status = self._send_fixed_arm_pose_staged(
             id1,
@@ -3639,7 +3641,7 @@ class TargetGraspController:
                 return self._startup_fault(self.servo_bridge.status)
             self.id7 = self.id7_closed
             self.id6 = BASE_YAW_CENTER_TICK
-            self.splitter_id4 = SPLITTER_YELLOW_TICK
+            self.splitter_id4 = SPLITTER_RETRACT_TICK
             self.id5 = CATCHER_HOME_TICK
             yaw_status = self.servo_bridge.send_targets(id6=self.id6)
             if not self.servo_bridge.last_command_ok:
@@ -4886,7 +4888,7 @@ class TargetGraspController:
                 self.id1, self.id2, self.id6 = PLATFORM_HIGH_POSE
                 self.id7 = self.id7_closed
                 self.id5 = CATCHER_HOME_TICK
-                self.splitter_id4 = SPLITTER_OTHER_BALL_TICK
+                self.splitter_id4 = SPLITTER_RETRACT_TICK
                 self._enforce_angle_gap()
                 self.arm_preview.set_targets(
                     self.id1, self.id2, self.id7, self.id6
@@ -4928,7 +4930,7 @@ class TargetGraspController:
                 expand_id1, expand_id2, expand_id6 = PLATFORM_HIGH_POSE
                 self.id7 = self.id7_closed
                 self.id5 = CATCHER_HOME_TICK
-                self.splitter_id4 = SPLITTER_OTHER_BALL_TICK
+                self.splitter_id4 = SPLITTER_RETRACT_TICK
                 self._enforce_angle_gap()
                 self.arm_preview.set_targets(
                     expand_id1, expand_id2, self.id7, expand_id6
