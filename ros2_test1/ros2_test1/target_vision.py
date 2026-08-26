@@ -154,7 +154,7 @@ DISC_CATCH_PREP_ID1_TICK = 650
 DISC_CATCH_PREP_ID2_TICK = 600
 DISC_CATCH_READY_ID1_TICK = 550
 DISC_CATCH_READY_ID2_TICK = 550
-DISC_CATCH_ID6_TICK = 420
+DISC_CATCH_ID6_TICK = 415
 DISC_CATCH_CATCHER_READY_TICK = TASK1_ID15_OPEN_TICK
 DISC_CATCH_PREP_SPLITTER_TICK = TASK1_ID14_RETRACT_TICK
 DISC_CATCH_SPLITTER_READY_TICK = TASK1_ID14_RETRACT_TICK
@@ -190,7 +190,7 @@ COLUMN_CATCH_READY_ID1_TICK = 650
 COLUMN_CATCH_READY_ID2_TICK = 500
 # Formal task three keeps its own high-pose calibration. Task-two alignment
 # must not change the column-catch pose implicitly.
-COLUMN_CATCH_READY_ID6_TICK = 420
+COLUMN_CATCH_READY_ID6_TICK = 415
 COLUMN_CATCH_AUX14_TICK, COLUMN_CATCH_AUX15_TICK, COLUMN_CATCH_GRIPPER_CLOSED_TICK = HTD85_AUX_HIGH
 COLUMN_CATCH_SPLITTER_TICK = COLUMN_CATCH_AUX14_TICK
 COLUMN_CATCH_CATCHER_HOME_TICK = COLUMN_CATCH_AUX15_TICK
@@ -201,8 +201,8 @@ COLUMN_CATCH_ID2_CENTER_RANGE = PLATFORM_CENTER_ID2_RANGE
 COLUMN_CATCH_ID6_CENTER_RANGE = PLATFORM_CENTER_ID6_RANGE
 COLUMN_CATCH_ID2_CENTER_STEP_TICKS = PLATFORM_CENTER_ID2_STEP_TICKS
 COLUMN_CATCH_ID6_CENTER_STEP_TICKS = PLATFORM_CENTER_ID6_STEP_TICKS
-TASK3_RING_PLACE_HIGH = (650, 500, 420)
-TASK3_RING_PLACE_RETURN_HIGH = (650, 600, 420)
+TASK3_RING_PLACE_HIGH = (650, 500, 415)
+TASK3_RING_PLACE_RETURN_HIGH = (650, 600, 415)
 TASK3_RING_PLACE_POSE = (480, 340, 190)
 TASK3_RING_PLACE_AXIS_TIME_MS = 500
 TASK3_RING_PLACE_ID1_TIME_MS = 700
@@ -2763,6 +2763,13 @@ class TargetGraspController:
                 ("ID1_RETRACT", self._task3_ring_single,
                  ("id1", TASK3_RING_PLACE_RETURN_HIGH[0],
                   TASK3_RING_PLACE_HIGH_TIME_MS, "retract ID1")),
+                # The placement transaction opens ID17 during release. Close
+                # it after all three axes are retracted so DONE always means
+                # the arm is mechanically safe and contracted.
+                ("FINAL_CLOSE_ID17", self._task3_ring_gripper,
+                 (TASK3_RING_PLACE_GRIPPER_CLOSED_TICK,
+                  TASK3_RING_PLACE_GRIPPER_TIME_MS,
+                  "final close ID17")),
             ])
             self.chassis_station_stage = "task3_ring_place_actions"
             self.chassis_station_deadline = now
@@ -2772,6 +2779,18 @@ class TargetGraspController:
         if now < self.chassis_station_deadline:
             return f"TASK3_RING_PLACE action settling {self.chassis_station_deadline - now:.1f}s"
         if not self.task3_ring_place_actions:
+            if self.id7 != TASK3_RING_PLACE_GRIPPER_CLOSED_TICK:
+                self.chassis_station_stage = None
+                self.active_chassis_station = None
+                self.chassis_station_error_reason = (
+                    "TASK3_RING_PLACE_FINAL_GRIPPER_NOT_CLOSED"
+                )
+                self.state = self.algorithm_stage = "fault"
+                self.status = (
+                    "TASK3_RING_PLACE failed: final ID17 close not confirmed"
+                )
+                self.arm_preview.publish(self.status)
+                return self.status
             self.chassis_station_stage = None
             self.active_chassis_station = None
             self.chassis_station_done_reason = "TASK3_RING_PLACE_DONE"

@@ -8,7 +8,8 @@ from ros2_test1.platform_task import (
     POST_OPEN_ID2_RETREAT_TICKS_BY_KIND, PLATFORM_GRIPPER_CLOSED,
     PLATFORM_GRIPPER_OPEN,
     TARGET_WINDOW_SIZE_PX, TARGET_WINDOW_MIN_AREA_FRACTION,
-    PLATFORM_LETTER_PLACE_TIME_MS,
+    PLATFORM_LETTER_PLACE_TIME_MS, PLATFORM_RING_RELEASE_HOLD_S,
+    PLATFORM_NO_TARGET_TIMEOUT_S,
     _target_in_center_window,
 )
 from ros2_test1.chassis_link import ChassisArmLink
@@ -137,6 +138,52 @@ class TestPlatformTask(unittest.TestCase):
             calibrated_grasp_ticks(20, id1_offset_ticks=40), (478, 483),
         )
 
+    def test_id1_correction_and_ring_extra_are_limited_to_20_5_through_25_cm(self):
+        from ros2_test1.grasp_calibration import calibrated_grasp_ticks
+
+        self.assertEqual(calibrated_grasp_ticks(20.49), (480, 480))
+        self.assertEqual(calibrated_grasp_ticks(20.5), (519, 480))
+        self.assertEqual(
+            calibrated_grasp_ticks(20.5, target_kind="ring"), (539, 480),
+        )
+        self.assertEqual(calibrated_grasp_ticks(23.0), (482, 468))
+        self.assertEqual(
+            calibrated_grasp_ticks(23.0, target_kind="ring"), (502, 468),
+        )
+        self.assertEqual(
+            calibrated_grasp_ticks(23.01, target_kind="ring"), (502, 468),
+        )
+        self.assertEqual(calibrated_grasp_ticks(25.0), (452, 458))
+        self.assertEqual(
+            calibrated_grasp_ticks(25.0, target_kind="ring"), (472, 458),
+        )
+        self.assertEqual(
+            calibrated_grasp_ticks(25.01, target_kind="ring"), (413, 458),
+        )
+        self.assertEqual(
+            calibrated_grasp_ticks(21.77, id1_offset_ticks=40), (490, 474),
+        )
+        self.assertEqual(
+            calibrated_grasp_ticks(
+                21.77, id1_offset_ticks=40, target_kind="ring",
+            ), (510, 474),
+        )
+
+    def test_formal_long_range_ring_trim_and_three_second_station_timeout(self):
+        from ros2_test1.grasp_calibration import calibrated_grasp_ticks
+
+        self.assertEqual(PLATFORM_NO_TARGET_TIMEOUT_S, 3.0)
+        raw_id1, raw_id2 = calibrated_grasp_ticks(
+            22.83, id1_offset_ticks=40, target_kind="ring",
+        )
+        self.assertEqual((raw_id1 - 20, raw_id2 + 30), (474, 499))
+
+        f = Fixture(); f.ready(); f.writes.clear(); f.task.begin_slot('red')
+        f.feed(dict(letter(depth=22.83), kind='ring', color='red', score=.9))
+        f.finish()
+        self.assertEqual(f.writes[2][0], 'pose')
+        self.assertEqual(f.writes[2][1][0:2], (474, 499))
+
     def test_retreat_floor_after_visual_centering(self):
         for kind in ('letter', 'ring'):
             with self.subTest(kind=kind):
@@ -149,7 +196,10 @@ class TestPlatformTask(unittest.TestCase):
                 )
                 f.feed(target); f.finish()
                 self.assertEqual(f.writes[1], ('pose', (650, 450, 365), False))
-                self.assertEqual(f.writes[2], ('pose', (478, 483, 365), False))
+                expected_id2 = 450 if kind == 'ring' else 483
+                self.assertEqual(
+                    f.writes[2], ('pose', (478, expected_id2, 365), False),
+                )
                 self.assertEqual(f.task.done, 'PICKED_' + kind.upper())
 
     def test_center_window_requires_400px_and_80_percent_bbox_overlap(self):
@@ -218,9 +268,9 @@ class TestPlatformTask(unittest.TestCase):
         self.assertEqual(f.task.target_key, ('letter', 'D'))
 
     def test_letter_and_both_field_ring_exact_actions(self):
-        self.assertEqual(HIGH, (650, 600, 420))
+        self.assertEqual(HIGH, (650, 600, 415))
         self.assertEqual(LETTER_PLACE, (500, 350, 670))
-        self.assertEqual(RING_PLACE, (520, 340, 185))
+        self.assertEqual(RING_PLACE, (520, 345, 160))
         self.assertEqual(POST_OPEN_ID2_RETREAT_TICKS_BY_KIND,
                          {'letter': 30, 'ring': 50})
         for kind, field, placement in [('letter', 'red', LETTER_PLACE),
@@ -233,48 +283,73 @@ class TestPlatformTask(unittest.TestCase):
                 f.feed(target)
                 f.finish()
                 retreat_ticks = POST_OPEN_ID2_RETREAT_TICKS_BY_KIND[kind]
+                expected_descent_id2 = 450 if kind == 'ring' else 483
                 expected = [
                     ('gripper', PLATFORM_GRIPPER_OPEN),
-                    ('pose', (650, 600 - retreat_ticks, 420), False),
-                    ('pose', (478, 483, 420), False),
+                    ('pose', (650, 600 - retreat_ticks, 415), False),
+                    ('pose', (478, expected_descent_id2, 415), False),
                     ('gripper', PLATFORM_GRIPPER_CLOSED), ('pose', HIGH, True),
                 ]
                 expected += (
                     [
-                        ('ring_id6', 185), ('ring_id2', 340),
+                        ('ring_id6', 160), ('ring_id2', 345),
                         ('ring_id1', 520), ('gripper', PLATFORM_GRIPPER_OPEN),
                         ('gripper', PLATFORM_GRIPPER_CLOSED), ('ring_high_id1', 650),
-                        ('ring_high_id2', 600), ('ring_high_id6', 420),
+                        ('ring_high_id2', 600), ('ring_high_id6', 415),
                     ]
                     if kind == 'ring'
                     else [
                         ('letter_id6', 670), ('letter_id2', 350),
                         ('letter_id1', 500), ('gripper', PLATFORM_GRIPPER_OPEN),
                         ('gripper', PLATFORM_GRIPPER_CLOSED), ('letter_high_id1', 650),
-                        ('letter_high_id2', 600), ('letter_high_id6', 420),
+                        ('letter_high_id2', 600), ('letter_high_id6', 415),
                     ]
                 )
                 self.assertEqual(f.writes, expected)
                 self.assertEqual(f.task.done, 'PICKED_' + kind.upper())
                 self.assertTrue(f.task.high_ready)
+                if kind == 'ring':
+                    self.assertEqual(PLATFORM_RING_RELEASE_HOLD_S, 1.0)
                 if kind == 'letter':
                     self.assertEqual(
                         [item for item in f.writes if item[0].startswith('letter_')],
                         [
                             ('letter_id6', 670), ('letter_id2', 350),
                             ('letter_id1', 500), ('letter_high_id1', 650),
-                            ('letter_high_id2', 600), ('letter_high_id6', 420),
+                            ('letter_high_id2', 600), ('letter_high_id6', 415),
                         ],
                     )
                     self.assertEqual(PLATFORM_LETTER_PLACE_TIME_MS, 500)
 
-    def test_near_grasp_adjustments_apply_only_from_7_to_10cm(self):
+    def test_ring_waits_one_second_after_axes_before_release(self):
+        f = Fixture(); f.ready(); f.writes.clear()
+        f.task.begin_slot('red')
+        f.feed(dict(letter(), kind='ring', color='red', score=.9))
+        labels = [action[0] for action in f.task.actions]
+        self.assertEqual(
+            labels[labels.index('PLACE_RING_ID1') + 1],
+            'RING_RELEASE_HOLD',
+        )
+        self.assertEqual(
+            labels[labels.index('RING_RELEASE_HOLD') + 1],
+            'PLACE_OPEN',
+        )
+        hold = next(action for action in f.task.actions
+                    if action[0] == 'RING_RELEASE_HOLD')
+        self.assertEqual(hold[1](*hold[2]), 1.0)
+
+    def test_formal_id2_adjustment_applies_to_letters_and_rings_7_to_13cm(self):
         cases = [
-            ('letter', 7.0, 610, 520, 570),
-            ('letter', 9.0, 590, 510, 570),
-            ('letter', 10.0, 580, 430, 570),
-            ('ring', 7.0, 610, 540, 520),
-            ('ring', 9.0, 590, 530, 520),
+            ('letter', 7.0, 630, 590, 570),
+            ('letter', 9.0, 610, 580, 570),
+            ('letter', 10.0, 600, 500, 570),
+            ('letter', 11.0, 590, 520, 570),
+            ('letter', 13.0, 570, 560, 570),
+            ('ring', 7.0, 630, 590, 520),
+            ('ring', 9.0, 610, 580, 520),
+            ('ring', 10.0, 600, 500, 520),
+            ('ring', 11.0, 590, 520, 550),
+            ('ring', 13.0, 570, 560, 550),
         ]
         for kind, depth, expected_descent_id1, expected_descent_id2, expected_retreat_id2 in cases:
             with self.subTest(kind=kind, depth=depth):
@@ -285,10 +360,10 @@ class TestPlatformTask(unittest.TestCase):
                 )
                 f.feed(target); f.finish()
                 self.assertEqual(f.writes[1], (
-                    'pose', (650, expected_retreat_id2, 420), False,
+                    'pose', (650, expected_retreat_id2, 415), False,
                 ))
                 self.assertEqual(f.writes[2], (
-                    'pose', (expected_descent_id1, expected_descent_id2, 420), False,
+                    'pose', (expected_descent_id1, expected_descent_id2, 415), False,
                 ))
                 self.assertIn(('gripper', PLATFORM_GRIPPER_CLOSED), f.writes)
 
@@ -340,10 +415,10 @@ class TestPlatformTask(unittest.TestCase):
     def test_small_center_correction_and_then_calibrated_depth(self):
         f = Fixture(); f.ready(); f.writes.clear(); f.task.begin_slot('red')
         f.feed(letter(center=(470, 370)))
-        self.assertEqual(f.writes, [('center', 593, 415)])
+        self.assertEqual(f.writes, [('center', 593, 410)])
         f.now = f.task.deadline
         f.feed(letter(), 4); f.finish()
-        self.assertIn(('pose', (478, 483, 415), False), f.writes)
+        self.assertIn(('pose', (478, 483, 410), False), f.writes)
 
     def test_write_failure_at_every_action_never_completes(self):
         for failure_index in range(13):
@@ -385,7 +460,7 @@ class TestControllerAndProtocol(unittest.TestCase):
         kwargs = {name: 1 for name, param in inspect.signature(TargetGraspController).parameters.items()
                   if param.default is inspect.Parameter.empty}
         kwargs.update(enabled=True, servo_bridge=bridge, arm_preview=preview,
-                      id1_ready=446, id2_ready=227, id7_closed=329, id7_open=450,
+                      id1_ready=446, id2_ready=227, id7_closed=320, id7_open=450,
                       id1_limits=(150, 710), id2_limits=(0, 769), angle_gap_degrees=20,
                       startup_sequence=False, one_shot=False)
         controller = TargetGraspController(**kwargs)
@@ -400,7 +475,7 @@ class TestControllerAndProtocol(unittest.TestCase):
             for _ in range(28):
                 c.update_platform_preselect([letter('A', (100, 200)), letter('C', (600, 200))])
         self.assertIsNone(c.consume_chassis_station_done())
-        self.assertEqual((c.id1, c.id2, c.id6, c.id5, c.splitter_id4), (650, 600, 420, 600, 300))
+        self.assertEqual((c.id1, c.id2, c.id6, c.id5, c.splitter_id4), (650, 600, 415, 600, 300))
         c.platform_task.deadline = 0
         c.update_chassis_station('PLATFORM_PICK', [], (600, 800, 3), False)
         self.assertEqual(c.consume_chassis_station_done(), 'PRESELECT_DONE:A:C')
@@ -416,7 +491,7 @@ class TestControllerAndProtocol(unittest.TestCase):
         self.assertEqual(c.consume_chassis_station_done(), 'PICKED_LETTER')
         self.assertEqual(
             (c.id1, c.id2, c.id6, c.id7),
-            (650, 600, 420, PLATFORM_GRIPPER_CLOSED),
+            (650, 600, 415, PLATFORM_GRIPPER_CLOSED),
         )
         self.assertEqual(bridge.gripper_time_ms, 210)
         pulses = [call.kwargs['id4'] for call in bridge.send_targets.call_args_list

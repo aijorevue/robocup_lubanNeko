@@ -9,6 +9,9 @@ import numpy as np
 
 
 LETTERS = ("A", "B", "C", "D")
+SECONDARY_TIGHT_DARK_THRESHOLD = 70
+SECONDARY_TIGHT_MIN_CONFIDENCE = 0.50
+SECONDARY_TIGHT_MIN_SIZE_FRACTION = 0.06
 
 
 class SecondaryLetterDetector:
@@ -69,7 +72,36 @@ class SecondaryLetterDetector:
             y1 = min(height, y + box_height + pad)
             roi = frame[y0:y1, x0:x1]
             letter, confidence, occupancy = self._classify(roi)
+            # Low-contrast cards can make the padded Otsu window absorb the
+            # wall and card edge. Reclassify weak C/D candidates in the tight
+            # contour box so the serif's dark body is scored independently.
+            tight = (None, 0.0, 0.0)
+            min_tight_size = max(
+                32, int(round(min(height, width) * SECONDARY_TIGHT_MIN_SIZE_FRACTION))
+            )
+            if min(box_width, box_height) >= min_tight_size:
+                tight = self._classify_tight(
+                    frame[y : y + box_height, x : x + box_width]
+                )
+            tight_letter, tight_confidence, tight_occupancy = tight
+            if (
+                tight_letter in {"C", "D"}
+                and tight_confidence >= SECONDARY_TIGHT_MIN_CONFIDENCE
+                and (
+                    letter not in {"C", "D"}
+                    or tight_confidence > confidence + 0.05
+                )
+            ):
+                letter, confidence, occupancy = tight
             if letter is None or confidence < self.min_confidence:
+                continue
+            min_candidate_size = max(
+                32, int(round(min(height, width) * SECONDARY_TIGHT_MIN_SIZE_FRACTION))
+            )
+            if (
+                min(box_width, box_height) < min_candidate_size
+                and confidence < SECONDARY_TIGHT_MIN_CONFIDENCE
+            ):
                 continue
             detections.append(
                 {
@@ -103,6 +135,26 @@ class SecondaryLetterDetector:
         # and fixed masks made the distant A fluctuate to B as exposure moved.
         glyph = cv2.morphologyEx(otsu, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8))
         glyph = self._normalize_glyph(glyph)
+        return self._classify_glyph(glyph)
+
+    def _classify_tight(self, roi):
+        """Classify a weak card candidate from its dark serif strokes."""
+        if roi is None or roi.size == 0:
+            return None, 0.0, 0.0
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        gray = cv2.createCLAHE(clipLimit=2.2, tileGridSize=(4, 4)).apply(gray)
+        _, dark_strokes = cv2.threshold(
+            gray,
+            SECONDARY_TIGHT_DARK_THRESHOLD,
+            255,
+            cv2.THRESH_BINARY_INV,
+        )
+        dark_strokes = cv2.morphologyEx(
+            dark_strokes, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8)
+        )
+        return self._classify_glyph(self._normalize_glyph(dark_strokes))
+
+    def _classify_glyph(self, glyph):
         glyph_binary = glyph > 127
         occupancy = float(np.count_nonzero(glyph_binary)) / glyph_binary.size
         if not 0.025 <= occupancy <= 0.60:

@@ -71,7 +71,7 @@ TASK3_LETTERS = tuple(sorted(LETTERS))
 TASK3_ORBIT_RADIUS_MM = 400
 TASK3_ORBIT_ANGLE_DEG = 360
 TASK3_LETTER_MIN_CONFIDENCE = max(40.0, MAIN_LETTER_MIN_CONFIDENCE - 5.0)
-TASK3_HIGH = {1: 650, 2: 500, 6: 420}
+TASK3_HIGH = {1: 650, 2: 500, 6: 415}
 # The pickup depth is relative to the final centered pose. Do not reuse the
 # removed fixed task-two/task-three descent model here.
 TASK3_DESCEND_OFFSET_TICKS = 100
@@ -753,8 +753,8 @@ def run(args) -> int:
         boards = ServoBoards(args.arm_uart)
         _task3_pose_high(boards)
         print(
-            "TASK3 ARM_HIGH ID1=650 ID2=500 ID6=420 "
-            "ID14=300 ID15=600 ID17=329",
+            "TASK3 ARM_HIGH ID1=650 ID2=500 ID6=415 "
+            "ID14=300 ID15=600 ID17=320",
             flush=True,
         )
         h7 = Task3H7Link(args.h7_device)

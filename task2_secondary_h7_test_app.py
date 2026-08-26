@@ -30,17 +30,18 @@ MAIN_CAMERA = "/dev/v4l/by-path/platform-fc800000.usb-usb-0:1:1.0-video-index0"
 SECONDARY_CAMERA = "/dev/v4l/by-path/platform-fc880000.usb-usb-0:1.3:1.0-video-index0"
 H7_DEVICE = "/dev/h7_chassis"
 ARM_DEVICE = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5C82109853-if00"
-HIGH = {1: 650, 2: 600, 6: 420}
+HIGH = {1: 650, 2: 600, 6: 415}
 LETTER_WORK = {1: 500, 2: 350, 6: 670}
-RING_AFTER_HIGH = {1: 520, 2: 340, 6: 185}
-HTD85_AUX_HIGH = {14: 300, 15: 600, 17: 329}
-GRIPPER_CLOSED = 329
+RING_AFTER_HIGH = {1: 520, 2: 345, 6: 160}
+HTD85_AUX_HIGH = {14: 300, 15: 600, 17: 320}
+GRIPPER_CLOSED = 320
 GRIPPER_OPEN = 450
 ARM_TIME_MS = 600
 HTD85_AUX_TIME_MS = 200
 GRIPPER_TIME_MS = 200
 RING_AXIS_TIME_MS = 500
 RING_ID1_TIME_MS = 700
+RING_RELEASE_HOLD_S = 1.0
 LETTER_AXIS_TIME_MS = 500
 LETTER_ID1_TIME_MS = 500
 CENTER_DEADBAND_PX = 45.0
@@ -232,13 +233,15 @@ class ServoBoards:
         time.sleep(GRIPPER_TIME_MS / 1000.0)
 
     def place_ring(self) -> None:
-        """Move ring placement ID6, ID2, then ID1 with explicit timings."""
+        """Move ring placement ID6, ID2, then ID1, then hold before release."""
         self.arm({6: RING_AFTER_HIGH[6]}, RING_AXIS_TIME_MS)
         time.sleep(RING_AXIS_TIME_MS / 1000.0)
         self.arm({2: RING_AFTER_HIGH[2]}, RING_AXIS_TIME_MS)
         time.sleep(RING_AXIS_TIME_MS / 1000.0)
         self.arm({1: RING_AFTER_HIGH[1]}, RING_ID1_TIME_MS)
         time.sleep(RING_ID1_TIME_MS / 1000.0)
+        print("TASK2 RING_RELEASE_HOLD 1.0s", flush=True)
+        time.sleep(RING_RELEASE_HOLD_S)
 
     def place_letter(self) -> None:
         """Move letter placement ID6, ID2, then ID1 with 500 ms each."""
@@ -918,7 +921,9 @@ def solve_descend_pose(target: dict, grasp_model):
     if distance_cm is None:
         raise RuntimeError("TARGET_DEPTH_INVALID")
     try:
-        id1, id2 = grasp_model(float(distance_cm))
+        id1, id2 = grasp_model(
+            float(distance_cm), target_kind=target.get("kind", "letter")
+        )
     except ValueError as exc:
         raise RuntimeError(f"TARGET_DEPTH_INVALID {exc}") from exc
     return {
@@ -993,8 +998,8 @@ def run(args) -> int:
         boards = ServoBoards(args.arm_uart)
         boards.pose_high()
         print(
-            "TASK2 HIGH_POSE_READY ID1=650 ID2=600 ID6=420 "
-            "ID14=300 ID15=600 ID17=329",
+            "TASK2 HIGH_POSE_READY ID1=650 ID2=600 ID6=415 "
+            "ID14=300 ID15=600 ID17=320",
             flush=True,
         )
         h7 = H7Link(args.h7_device)
@@ -1084,7 +1089,7 @@ def run(args) -> int:
                 boards.place_ring()
                 boards.pulse_gripper()
                 boards.pose_high()
-                print("TASK2 RING_DONE after_high ID1=520 ID2=340 ID6=185", flush=True)
+                print("TASK2 RING_DONE after_high ID1=520 ID2=345 ID6=160", flush=True)
             elif (
                     target.get("kind") == "letter"
                     and str(target.get("letter", "")).upper() in pair

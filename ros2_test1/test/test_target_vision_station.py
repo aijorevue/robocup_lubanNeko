@@ -59,7 +59,7 @@ def make_controller(bridge=None, field_mode=target_vision.FieldMode.RED):
         preview,
         550,
         300,
-        329,
+        320,
         450,
         35,
         3,
@@ -115,19 +115,19 @@ class ChassisStationSafetyTests(unittest.TestCase):
         bridge.arm_fd = 10
         writes = []
         bridge._write_payload = lambda payload, repeat=None: writes.append((bridge.arm_fd, payload))
-        bridge.send_targets(id1=650, id2=500, id6=420)
+        bridge.send_targets(id1=650, id2=500, id6=415)
 
         self.assertTrue(bridge.last_command_ok)
         self.assertEqual(
             [
                 (10, target_vision.htd85_move_packet(1, 650, bridge.arm_time_ms)),
                 (10, target_vision.htd85_move_packet(2, 500, bridge.arm_time_ms)),
-                (10, target_vision.htd85_move_packet(6, 420, bridge.arm_time_ms)),
+                (10, target_vision.htd85_move_packet(6, 415, bridge.arm_time_ms)),
             ],
             writes,
         )
 
-    def test_disc_prep_high_keeps_id6_at_420_and_is_idempotent(self):
+    def test_disc_prep_high_keeps_id6_at_415_and_is_idempotent(self):
         controller, bridge, _ = make_controller()
         prep = {"task": "DISC_CATCH", "id1": 650, "id2": 600}
         with mock.patch.object(target_vision.time, "sleep") as sleep_mock:
@@ -135,9 +135,9 @@ class ChassisStationSafetyTests(unittest.TestCase):
             first_command_count = len(bridge.sent)
             controller.prepare_chassis_station_high(prep)
 
-        self.assertEqual(controller.id6, 420)
+        self.assertEqual(controller.id6, 415)
         self.assertEqual(bridge.sent[-2]["id1"], 650)
-        self.assertEqual(bridge.sent[-2]["id6"], 420)
+        self.assertEqual(bridge.sent[-2]["id6"], 415)
         self.assertNotIn("id2", bridge.sent[-2])
         self.assertEqual(bridge.sent[-1], {"id2": 600})
         sleep_mock.assert_called_once_with(target_vision.ARM_JOINT_SEQUENCE_DELAY_S)
@@ -224,7 +224,7 @@ class ChassisStationSafetyTests(unittest.TestCase):
             if item.get("id2") == target_vision.HOME_ID2_TICK
         )
         self.assertEqual(high_first["id1"], 650)
-        self.assertEqual(high_first["id6"], 420)
+        self.assertEqual(high_first["id6"], 415)
         self.assertLess(high_second_index, home_id2_index)
         self.assertEqual(bridge.sent[-1]["id1"], target_vision.HOME_ID1_TICK)
         self.assertNotIn("id2", bridge.sent[-1])
@@ -417,14 +417,14 @@ class ChassisStationSafetyTests(unittest.TestCase):
         self.assertEqual(controller.splitter_id4, target_vision.DISC_CATCH_SPLITTER_READY_TICK)
         self.assertEqual(bridge.sent[-2]["id2"], 550)
         self.assertNotIn("id1", bridge.sent[-2])
-        self.assertEqual(bridge.sent[-2]["id4"], 329)
+        self.assertEqual(bridge.sent[-2]["id4"], 320)
         self.assertEqual(
             bridge.sent[-2]["id5"],
             target_vision.DISC_CATCH_CATCHER_READY_TICK,
         )
         self.assertEqual(bridge.sent[-2]["splitter_id4"], target_vision.SPLITTER_RETRACT_TICK)
         self.assertEqual(bridge.sent[-1]["id1"], 550)
-        self.assertEqual(bridge.sent[-1]["id6"], 420)
+        self.assertEqual(bridge.sent[-1]["id6"], 415)
         self.assertNotIn("id2", bridge.sent[-1])
         sleep_mock.assert_called_once_with(target_vision.ARM_JOINT_SEQUENCE_DELAY_S)
 
@@ -472,25 +472,45 @@ class ChassisStationSafetyTests(unittest.TestCase):
 
         self.assertEqual(
             (controller.id1, controller.id2, controller.id6),
-            (650, 500, 420),
+            (650, 500, 415),
         )
         self.assertEqual(controller.id5, target_vision.TASK1_ID15_RETRACT_TICK)
         self.assertEqual(controller.splitter_id4, target_vision.SPLITTER_RETRACT_TICK)
-        self.assertEqual(controller.id7, 329)
+        self.assertEqual(controller.id7, 320)
         self.assertEqual(bridge.sent[-2], {
             "id1": 650,
-            "id6": 420,
-            "id4": 329,
+            "id6": 415,
+            "id4": 320,
             "id5": target_vision.TASK1_ID15_RETRACT_TICK,
             "splitter_id4": target_vision.SPLITTER_RETRACT_TICK,
         })
         self.assertEqual(bridge.sent[-1], {"id2": 500})
 
+    def test_task3_ring_place_finishes_with_closed_gripper_after_retract(self):
+        controller, bridge, _ = make_controller()
+        with mock.patch.object(target_vision.time, "monotonic", return_value=1000.0), mock.patch.object(
+            target_vision.time, "sleep"
+        ):
+            controller.begin_chassis_station("TASK3_RING_PLACE")
+            for _ in range(32):
+                controller.chassis_station_deadline = 0.0
+                controller.update_chassis_station(
+                    "TASK3_RING_PLACE", [], (600, 800, 3), detection_fresh=False
+                )
+
+        self.assertEqual(controller.consume_chassis_station_done(), "TASK3_RING_PLACE_DONE")
+        self.assertEqual(controller.id7, 320)
+        self.assertEqual(bridge.sent[-1], {"id4": 320})
+        self.assertEqual(
+            (controller.id1, controller.id2, controller.id6),
+            target_vision.TASK3_RING_PLACE_RETURN_HIGH,
+        )
+
     def test_column_centering_uses_seven_and_five_tick_steps(self):
         controller, bridge, _ = make_controller()
         controller.active_chassis_station = "COLUMN_CATCH"
         controller.chassis_station_stage = "column_centering"
-        controller.id1, controller.id2, controller.id6 = 650, 500, 420
+        controller.id1, controller.id2, controller.id6 = 650, 500, 415
         result, _message = controller._visual_center_step(
             {"center": (500, 400)},
             (600, 800, 3),
@@ -500,8 +520,8 @@ class ChassisStationSafetyTests(unittest.TestCase):
         )
 
         self.assertFalse(result)
-        self.assertEqual((controller.id2, controller.id6), (493, 415))
-        self.assertEqual(bridge.sent[-1], {"id2": 493, "id6": 415})
+        self.assertEqual((controller.id2, controller.id6), (493, 410))
+        self.assertEqual(bridge.sent[-1], {"id2": 493, "id6": 410})
         self.assertEqual(bridge.arm_time_ms, 1)
 
     def test_column_stop_retracts_before_done(self):
@@ -515,7 +535,7 @@ class ChassisStationSafetyTests(unittest.TestCase):
             "STOPPED_BY_CHASSIS",
         )
         self.assertIsNone(controller.active_chassis_station)
-        self.assertEqual(bridge.sent[-1]["id4"], 329)
+        self.assertEqual(bridge.sent[-1]["id4"], 320)
         self.assertEqual(bridge.sent[-1]["splitter_id4"], target_vision.SPLITTER_RETRACT_TICK)
 
 

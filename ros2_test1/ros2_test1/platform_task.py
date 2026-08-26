@@ -9,17 +9,18 @@ import time
 
 from .grasp_calibration import calibrated_grasp_ticks
 
-HIGH = (650, 600, 420)
+HIGH = (650, 600, 415)
 LETTER_PLACE = (500, 350, 670)
-RING_PLACE = (520, 340, 185)
-HTD85_AUX_HIGH = (300, 600, 329)  # physical ID14, ID15, ID17; ID14 retracted
-PLATFORM_GRIPPER_CLOSED = 329
+RING_PLACE = (520, 345, 160)
+HTD85_AUX_HIGH = (300, 600, 320)  # physical ID14, ID15, ID17; ID14 retracted
+PLATFORM_GRIPPER_CLOSED = 320
 PLATFORM_GRIPPER_OPEN = 450
 PLATFORM_ARM_TIME_MS = 600
 PLATFORM_AUX_TIME_MS = 200
 PLATFORM_GRIPPER_TIME_MS = 200
 PLATFORM_RING_PLACE_TIME_MS = 700
 PLATFORM_RING_AXIS_TIME_MS = 500
+PLATFORM_RING_RELEASE_HOLD_S = 1.0
 PLATFORM_LETTER_PLACE_TIME_MS = 500
 PLATFORM_CENTER_TIME_MS = 100
 POST_OPEN_ID2_RETREAT_TICKS_BY_KIND = {
@@ -29,8 +30,17 @@ POST_OPEN_ID2_RETREAT_TICKS_BY_KIND = {
 NEAR_GRASP_MIN_DISTANCE_CM = 7.0
 NEAR_GRASP_MAX_DISTANCE_CM = 10.0
 NEAR_RING_ID2_RETREAT_EXTRA_TICKS = 30
-NEAR_LETTER_DESCENT_ID2_OFFSET_TICKS = 20
-NEAR_LETTER_DESCENT_ID2_MIN_TICKS = 0
+FORMAL_ID2_CORRECTION_MIN_DISTANCE_CM = 7.0
+FORMAL_ID2_CORRECTION_MAX_DISTANCE_CM = 13.0
+FORMAL_ID2_CORRECTION_TICKS = 20
+FORMAL_ID1_FINAL_CORRECTION_TICKS = 20
+FORMAL_ID2_FINAL_CORRECTION_TICKS = 70
+FORMAL_LETTER_ID2_REDUCTION_TICKS = 40
+FORMAL_RING_ID2_REDUCTION_TICKS = 40
+FORMAL_RING_LONG_RANGE_MIN_DISTANCE_CM = 20.5
+FORMAL_RING_LONG_RANGE_MAX_DISTANCE_CM = 25.0
+FORMAL_RING_LONG_RANGE_ID1_REDUCTION_TICKS = 20
+FORMAL_RING_LONG_RANGE_ID2_INCREASE_TICKS = 30
 PLATFORM_GRASP_ID1_OFFSET_TICKS = 40
 CENTER_DEADBAND_PX = 45
 CENTER_ID6_STEP_TICKS = 5
@@ -40,7 +50,10 @@ CENTER_ID6_RANGE = (0, 700)
 # Only the target-observation phase is bounded.  Once a valid selected
 # letter/own-field ring has been seen, the grasp transaction is allowed to
 # finish without the no-target watchdog interrupting it.
-PLATFORM_NO_TARGET_TIMEOUT_S = 5.0
+PLATFORM_NO_TARGET_TIMEOUT_S = 3.0
+# After a centering move, allow one second to reacquire the same target and
+# a valid depth before ending this slot and returning to the high pose.
+PLATFORM_CENTER_REACQUIRE_TIMEOUT_S = 1.0
 TARGET_WINDOW_SIZE_PX = 400
 TARGET_WINDOW_MIN_AREA_FRACTION = 0.80
 
@@ -105,9 +118,11 @@ class PlatformTask:
         self.selected = ()
         self.done = self.error = None
         self.deadline = 0.0
+        self.center_reacquire_deadline = 0.0
         self.actions = deque()
         self.high_ready = False
         self.target_seen = False
+        self.finish_reason = None
         self.status = "PLATFORM_PICK idle"
 
     def _fail(self, reason):
@@ -131,6 +146,10 @@ class PlatformTask:
         self.status = f"PLATFORM_PICK {label}"
         print(self.status, flush=True)
         return True
+
+    @staticmethod
+    def ring_release_hold():
+        return PLATFORM_RING_RELEASE_HOLD_S
 
     def begin_preselect(self):
         self.reset()
@@ -183,6 +202,7 @@ class PlatformTask:
         self.target_key = None
         self.target_center = None
         self.target_seen = False
+        self.center_reacquire_deadline = 0.0
         self.center_id1 = HIGH[0]
         self.center_id2, self.center_id6 = HIGH[1:]
         self.status = "PLATFORM_PICK main camera: waiting target"
@@ -206,6 +226,8 @@ class PlatformTask:
         self.actions = deque([("RETURN_HIGH", self.pose, (HIGH, True))])
         self.stage = "platform_actions"
         self.deadline = 0.0
+        self.center_reacquire_deadline = 0.0
+        self.status = f"PLATFORM_PICK {self.finish_reason}; returning high"
 
     def _detect(self, detections, shape):
         if self.discard:
@@ -267,7 +289,11 @@ class PlatformTask:
                 return
             self.high_ready = False
             self.center_id2, self.center_id6 = id2, id6
-            self._command("CENTER_STEP", self.center, id2, id6)
+            if not self._command("CENTER_STEP", self.center, id2, id6):
+                return
+            self.center_reacquire_deadline = (
+                self.deadline + PLATFORM_CENTER_REACQUIRE_TIMEOUT_S
+            )
             self.votes.clear()
             self.discard = 1
             return
@@ -277,15 +303,45 @@ class PlatformTask:
                 raise ValueError("non-finite depth")
             id1, id2 = calibrated_grasp_ticks(
                 depth, id1_offset_ticks=PLATFORM_GRASP_ID1_OFFSET_TICKS,
+                target_kind=key[0],
             )
         except (ValueError, TypeError):
             self.status = "PLATFORM_PICK waiting valid measured depth 7..30cm"
             return
         near_grasp = NEAR_GRASP_MIN_DISTANCE_CM <= depth <= NEAR_GRASP_MAX_DISTANCE_CM
-        if key[0] == "letter" and near_grasp:
+        if (FORMAL_ID2_CORRECTION_MIN_DISTANCE_CM <= depth
+                <= FORMAL_ID2_CORRECTION_MAX_DISTANCE_CM):
+            id1 += FORMAL_ID1_FINAL_CORRECTION_TICKS
+            id2 = min(
+                CENTER_ID2_RANGE[1],
+                id2 + FORMAL_ID2_CORRECTION_TICKS
+                + FORMAL_ID2_FINAL_CORRECTION_TICKS,
+            )
+        if key[0] == "ring":
+            if (FORMAL_ID2_CORRECTION_MIN_DISTANCE_CM <= depth
+                    <= FORMAL_ID2_CORRECTION_MAX_DISTANCE_CM):
+                id2 = max(
+                    CENTER_ID2_RANGE[0],
+                    id2 - FORMAL_RING_ID2_REDUCTION_TICKS,
+                )
+            elif (FORMAL_RING_LONG_RANGE_MIN_DISTANCE_CM <= depth
+                  <= FORMAL_RING_LONG_RANGE_MAX_DISTANCE_CM):
+                id1 -= FORMAL_RING_LONG_RANGE_ID1_REDUCTION_TICKS
+                id2 = min(
+                    CENTER_ID2_RANGE[1],
+                    id2 + FORMAL_RING_LONG_RANGE_ID2_INCREASE_TICKS,
+                )
+            else:
+                id2 = max(
+                    CENTER_ID2_RANGE[0],
+                    id2 - FORMAL_RING_ID2_REDUCTION_TICKS,
+                )
+        elif (key[0] == "letter"
+              and FORMAL_ID2_CORRECTION_MIN_DISTANCE_CM <= depth
+              <= FORMAL_ID2_CORRECTION_MAX_DISTANCE_CM):
             id2 = max(
-                NEAR_LETTER_DESCENT_ID2_MIN_TICKS,
-                id2 - NEAR_LETTER_DESCENT_ID2_OFFSET_TICKS,
+                CENTER_ID2_RANGE[0],
+                id2 - FORMAL_LETTER_ID2_REDUCTION_TICKS,
             )
         self.high_ready = False
         placement = LETTER_PLACE if key[0] == "letter" else RING_PLACE
@@ -317,6 +373,7 @@ class PlatformTask:
                  (RING_PLACE[1],)),
                 ("PLACE_RING_ID1", self.ring_place_id1,
                 (RING_PLACE[0],)),
+                ("RING_RELEASE_HOLD", self.ring_release_hold, ()),
             ])
         else:
             # Letter placement uses the same staged joint order as the
@@ -366,6 +423,12 @@ class PlatformTask:
         elif self.stage == "platform_detect":
             if not self.target_seen and now >= self.timeout:
                 self.skip("MAIN_TARGET_OR_DEPTH_TIMEOUT")
+            elif (
+                self.target_seen
+                and self.center_reacquire_deadline > 0.0
+                and now >= self.center_reacquire_deadline
+            ):
+                self.skip("CENTER_REACQUIRE_TIMEOUT")
             elif now >= self.deadline and fresh:
                 self._detect(detections, shape)
         elif self.stage == "platform_actions" and now >= self.deadline:
