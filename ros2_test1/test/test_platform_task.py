@@ -385,7 +385,7 @@ class TestControllerAndProtocol(unittest.TestCase):
         kwargs = {name: 1 for name, param in inspect.signature(TargetGraspController).parameters.items()
                   if param.default is inspect.Parameter.empty}
         kwargs.update(enabled=True, servo_bridge=bridge, arm_preview=preview,
-                      id1_ready=446, id2_ready=227, id7_closed=370, id7_open=520,
+                      id1_ready=446, id2_ready=227, id7_closed=329, id7_open=450,
                       id1_limits=(150, 710), id2_limits=(0, 769), angle_gap_degrees=20,
                       startup_sequence=False, one_shot=False)
         controller = TargetGraspController(**kwargs)

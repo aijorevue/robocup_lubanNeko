@@ -762,7 +762,7 @@ class ArmTuneFileBridge:
         if not servo_ready:
             return self._write_result(f"ERR SERVO_NOT_READY {controller.servo_bridge.status}")
         if (len(parts) - 1) % 2 != 0:
-            return self._write_result("ERR BAD_ARGS use pairs like: SET ID6 580 ID17 520")
+            return self._write_result("ERR BAD_ARGS use pairs like: SET ID6 580 ID17 450")
 
         targets = {}
         for index in range(1, len(parts), 2):
@@ -6565,7 +6565,11 @@ def main(argv=None):
         args.station_no_target_timeout,
     )
     white_line_detector = WhiteLineAlignmentDetector()
+    # Formal task two has a separate lower-strip detector.  Task one keeps
+    # the generic detector and its fallback unchanged.
+    task2_white_line_detector = WhiteLineAlignmentDetector()
     white_line_last_query_sequence = None
+    white_line_last_phase = None
     if args.chassis_home_on_start and execute_auto_grasp:
         startup_home_status = grasp_controller.shutdown_contract()
         print(f"CHASSIS LINK startup home requested: {startup_home_status}", flush=True)
@@ -6809,16 +6813,23 @@ def main(argv=None):
         return info
 
     def _process_white_line_queries(frame, reason):
-        nonlocal white_line_last_query_sequence
+        nonlocal white_line_last_query_sequence, white_line_last_phase
         pending_white_line_queries = chassis_link.consume_white_line_queries()
         if not pending_white_line_queries:
             return
         query_sequence = pending_white_line_queries[-1]
-        if query_sequence != white_line_last_query_sequence:
+        phase = getattr(chassis_link, "white_line_phase", None)
+        task2_phase = phase == "TASK2_AFTER_SECONDARY_SHIFT"
+        if (
+            query_sequence != white_line_last_query_sequence
+            or phase != white_line_last_phase
+        ):
             # A new H7 white-line phase must start from the current camera
             # frame, never from a held result of a previous route stage.
             white_line_detector.reset_tracking()
+            task2_white_line_detector.reset_tracking()
             white_line_last_query_sequence = query_sequence
+            white_line_last_phase = phase
         if frame is None or getattr(frame, "size", 0) == 0:
             for sequence in pending_white_line_queries:
                 chassis_link.send_white_line_result(sequence, None)
@@ -6827,7 +6838,10 @@ def main(argv=None):
                     flush=True,
                 )
             return
-        line_measurement = white_line_detector.detect(frame)
+        if task2_phase:
+            line_measurement = task2_white_line_detector.detect_task2(frame)
+        else:
+            line_measurement = white_line_detector.detect(frame)
         if line_measurement is None and pending_white_line_queries:
             # TEMP DEBUG: save the first unseen frame per query sequence so a
             # missed detection can be inspected offline. Remove after tuning.
@@ -6846,7 +6860,7 @@ def main(argv=None):
             else:
                 print(
                     "WHITE LINE "
-                    f"seq={sequence} "
+                    f"phase={phase or 'UNKNOWN'} seq={sequence} "
                     f"y_center={line_measurement['y_at_center']:.1f} "
                     f"angle={line_measurement['angle_deg']:+.2f}",
                     flush=True,

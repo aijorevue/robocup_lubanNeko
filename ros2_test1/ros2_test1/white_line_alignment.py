@@ -443,3 +443,171 @@ class WhiteLineAlignmentDetector:
         self._missed_frames = 0
         self._last_measurement = measurement
         return measurement
+
+    def detect_task2(self, frame):
+        """Detect the lower ground strip used by formal task two.
+
+        The generic detector has a deliberately permissive fallback for task
+        one.  That fallback can accept the broad, slanted underside of the
+        overhead box when the real strip is bright but solid.  Task two has a
+        stable view: the reference strip is below the box, thin, and spans
+        most of the image.  Keep this path separate so task one is unchanged.
+        """
+        if frame is None or frame.size == 0:
+            return None
+
+        height, width = frame.shape[:2]
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        gray_eq = clahe.apply(gray)
+        value_eq = clahe.apply(hsv[:, :, 2])
+        x0 = int(width * self.roi_x[0])
+        x1 = int(width * self.roi_x[1])
+        y0 = int(height * self.roi_y[0])
+        y1 = int(height * self.roi_y[1])
+        roi_mask = np.zeros((height, width), dtype=np.uint8)
+        roi_mask[y0:y1, x0:x1] = 255
+        roi_value = value_eq[y0:y1, x0:x1]
+        roi_gray = gray_eq[y0:y1, x0:x1]
+        adaptive_value = max(self.value_min, int(np.percentile(roi_value, 72)))
+        adaptive_gray = max(self.value_min, int(np.percentile(roi_gray, 74)))
+        white_mask = cv2.inRange(
+            hsv,
+            np.array((0, 0, adaptive_value), dtype=np.uint8),
+            np.array((179, self.saturation_max, 255), dtype=np.uint8),
+        )
+        gray_mask = cv2.inRange(gray_eq, adaptive_gray, 255)
+        mask = cv2.bitwise_and(
+            cv2.bitwise_or(white_mask, gray_mask), roi_mask
+        )
+        mask = cv2.morphologyEx(
+            mask,
+            cv2.MORPH_CLOSE,
+            cv2.getStructuringElement(cv2.MORPH_RECT, (17, 5)),
+        )
+        mask = cv2.morphologyEx(
+            mask,
+            cv2.MORPH_OPEN,
+            cv2.getStructuringElement(cv2.MORPH_RECT, (5, 3)),
+        )
+
+        candidates = []
+        contours, _ = cv2.findContours(
+            mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        for contour in contours:
+            x, y, box_width, box_height = cv2.boundingRect(contour)
+            area = float(cv2.contourArea(contour))
+            rect = cv2.minAreaRect(contour)
+            length = float(max(rect[1]))
+            thickness = float(min(rect[1]))
+            angle_deg, y_at_center = self._fitted_line(
+                contour, width, height
+            )
+            if y_at_center is None:
+                continue
+
+            # The actual task-two strip is below the box and above the arm.
+            # These bounds reject both the box edge and lower arm structures.
+            if not height * 0.30 <= y_at_center <= height * 0.68:
+                continue
+            if box_width < width * 0.45 or box_width > width * 0.92:
+                continue
+            if box_height > height * 0.075:
+                continue
+            if not height * 0.005 <= thickness <= height * 0.070:
+                continue
+            if length / max(1.0, thickness) < 4.5:
+                continue
+            if area < width * height * 0.0010:
+                continue
+            if abs(angle_deg) > 25.0:
+                continue
+
+            component = np.zeros((box_height, box_width), dtype=np.uint8)
+            shifted = contour.copy()
+            shifted[:, :, 0] -= x
+            shifted[:, :, 1] -= y
+            cv2.drawContours(component, [shifted], -1, 255, cv2.FILLED)
+            horizontal_coverage = float(
+                np.count_nonzero(np.any(component > 0, axis=0)) /
+                max(1.0, box_width)
+            )
+            if horizontal_coverage < 0.65:
+                continue
+
+            # Prefer the lowest thin strip in the valid band.  This is what
+            # separates the ground line from the larger slanted box edge.
+            vertical_score = float(
+                np.clip(
+                    (y_at_center - height * 0.30) /
+                    max(1.0, height * 0.38),
+                    0.0,
+                    1.0,
+                )
+            )
+            span_score = float(np.clip(box_width / max(1.0, width), 0.0, 1.0))
+            thin_score = float(
+                np.clip(
+                    1.0 - abs(thickness / max(1.0, height) - 0.035) / 0.035,
+                    0.0,
+                    1.0,
+                )
+            )
+            contrast = self._local_contrast(
+                gray, x, y, box_width, box_height
+            )
+            contrast_score = float(np.clip((contrast - 5.0) / 55.0, 0.0, 1.0))
+            score = (
+                4.0 * vertical_score
+                + 2.0 * span_score
+                + 2.0 * thin_score
+                + 1.5 * horizontal_coverage
+                + 1.5 * contrast_score
+            )
+            candidates.append(
+                (score, contour, rect, (x, y, box_width, box_height), area)
+            )
+
+        if not candidates:
+            self._missed_frames += 1
+            if (
+                self._last_measurement is not None
+                and self._missed_frames <= self.max_hold_frames
+            ):
+                held = dict(self._last_measurement)
+                held["held"] = True
+                return held
+            self._last_measurement = None
+            return None
+
+        _, contour, rect, bounds, area = max(
+            candidates, key=lambda candidate: candidate[0]
+        )
+        moments = cv2.moments(contour)
+        if moments["m00"] <= 0.0:
+            return None
+        center_x = float(moments["m10"] / moments["m00"])
+        center_y = float(moments["m01"] / moments["m00"])
+        length = float(max(rect[1]))
+        thickness = float(min(rect[1]))
+        angle_deg, y_at_center = self._fitted_line(
+            contour, width, height
+        )
+        measurement = {
+            "center_x": center_x,
+            "center_y": center_y,
+            "angle_deg": angle_deg,
+            "y_at_center": y_at_center,
+            "length": length,
+            "thickness": thickness,
+            "area": area,
+            "bounds": bounds,
+            "frame_width": width,
+            "frame_height": height,
+            "held": False,
+        }
+        self._missed_frames = 0
+        self._last_measurement = measurement
+        return measurement

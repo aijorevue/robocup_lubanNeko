@@ -53,6 +53,7 @@ class ChassisArmLink:
         self.formal_column_control_state = None
         self.formal_column_control_sequence = None
         self.white_line_active = False
+        self.white_line_phase = None
         self.reset_pending = False
         self.reset_in_progress = False
         self.last_reset_completed = 0.0
@@ -410,6 +411,7 @@ class ChassisArmLink:
             # H7 repeats queries until a fresh result arrives. Keep only the
             # newest request so a slow camera cannot build an obsolete queue.
             self.pending_white_line_queries[:] = [sequence]
+            self.white_line_phase = phase
             self.white_line_active = True
             return
 
@@ -425,6 +427,7 @@ class ChassisArmLink:
             requested = self._field_from_parts(parts[2:])
             if "RESET" in parts[2:]:
                 self.white_line_active = False
+                self.white_line_phase = None
                 self._force_field_from_reset(requested)
                 now = time.monotonic()
                 if (
@@ -490,6 +493,7 @@ class ChassisArmLink:
                 return
             if self.active_task is None:
                 self.white_line_active = False
+                self.white_line_phase = None
                 if requested is not None:
                     self._set_field_from_wire(requested, "ARM,PRESELECT")
                 now = time.monotonic()
@@ -565,6 +569,7 @@ class ChassisArmLink:
         if len(parts) >= 3 and parts[0] == "ARM" and parts[2] == "START":
             task = parts[1]
             self.white_line_active = False
+            self.white_line_phase = None
             if task not in self.VALID_TASKS:
                 self._send_task_state(task, "ERR", sequence, "REASON", "UNKNOWN_TASK")
                 return
@@ -907,6 +912,7 @@ class ChassisArmLink:
         self.pending_stops.clear()
         self.pending_white_line_queries.clear()
         self.white_line_active = False
+        self.white_line_phase = None
         if not success:
             self.status = f"CHASSIS reset failed: {reason}"
             self.send_line(

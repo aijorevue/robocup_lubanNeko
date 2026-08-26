@@ -33,9 +33,9 @@ ARM_DEVICE = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5C82109853-if00"
 HIGH = {1: 650, 2: 600, 6: 420}
 LETTER_WORK = {1: 500, 2: 350, 6: 670}
 RING_AFTER_HIGH = {1: 520, 2: 340, 6: 185}
-HTD85_AUX_HIGH = {14: 300, 15: 600, 17: 370}
-GRIPPER_CLOSED = 350
-GRIPPER_OPEN = 520
+HTD85_AUX_HIGH = {14: 300, 15: 600, 17: 329}
+GRIPPER_CLOSED = 329
+GRIPPER_OPEN = 450
 ARM_TIME_MS = 600
 HTD85_AUX_TIME_MS = 200
 GRIPPER_TIME_MS = 200
@@ -994,7 +994,7 @@ def run(args) -> int:
         boards.pose_high()
         print(
             "TASK2 HIGH_POSE_READY ID1=650 ID2=600 ID6=420 "
-            "ID14=300 ID15=600 ID17=370",
+            "ID14=300 ID15=600 ID17=329",
             flush=True,
         )
         h7 = H7Link(args.h7_device)

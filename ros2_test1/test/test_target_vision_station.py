@@ -59,8 +59,8 @@ def make_controller(bridge=None, field_mode=target_vision.FieldMode.RED):
         preview,
         550,
         300,
-        370,
-        520,
+        329,
+        450,
         35,
         3,
         0.2,
@@ -417,7 +417,7 @@ class ChassisStationSafetyTests(unittest.TestCase):
         self.assertEqual(controller.splitter_id4, target_vision.DISC_CATCH_SPLITTER_READY_TICK)
         self.assertEqual(bridge.sent[-2]["id2"], 550)
         self.assertNotIn("id1", bridge.sent[-2])
-        self.assertEqual(bridge.sent[-2]["id4"], 370)
+        self.assertEqual(bridge.sent[-2]["id4"], 329)
         self.assertEqual(
             bridge.sent[-2]["id5"],
             target_vision.DISC_CATCH_CATCHER_READY_TICK,
@@ -476,11 +476,11 @@ class ChassisStationSafetyTests(unittest.TestCase):
         )
         self.assertEqual(controller.id5, target_vision.TASK1_ID15_RETRACT_TICK)
         self.assertEqual(controller.splitter_id4, target_vision.SPLITTER_RETRACT_TICK)
-        self.assertEqual(controller.id7, 370)
+        self.assertEqual(controller.id7, 329)
         self.assertEqual(bridge.sent[-2], {
             "id1": 650,
             "id6": 420,
-            "id4": 370,
+            "id4": 329,
             "id5": target_vision.TASK1_ID15_RETRACT_TICK,
             "splitter_id4": target_vision.SPLITTER_RETRACT_TICK,
         })
@@ -515,7 +515,7 @@ class ChassisStationSafetyTests(unittest.TestCase):
             "STOPPED_BY_CHASSIS",
         )
         self.assertIsNone(controller.active_chassis_station)
-        self.assertEqual(bridge.sent[-1]["id4"], 370)
+        self.assertEqual(bridge.sent[-1]["id4"], 329)
         self.assertEqual(bridge.sent[-1]["splitter_id4"], target_vision.SPLITTER_RETRACT_TICK)
 
 
