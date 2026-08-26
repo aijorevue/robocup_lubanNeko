@@ -270,7 +270,7 @@ class TestPlatformTask(unittest.TestCase):
     def test_letter_and_both_field_ring_exact_actions(self):
         self.assertEqual(HIGH, (650, 600, 415))
         self.assertEqual(LETTER_PLACE, (500, 350, 670))
-        self.assertEqual(RING_PLACE, (520, 345, 171))
+        self.assertEqual(RING_PLACE, (520, 345, 167))
         self.assertEqual(POST_OPEN_ID2_RETREAT_TICKS_BY_KIND,
                          {'letter': 30, 'ring': 50})
         for kind, field, placement in [('letter', 'red', LETTER_PLACE),
@@ -292,7 +292,7 @@ class TestPlatformTask(unittest.TestCase):
                 ]
                 expected += (
                     [
-                        ('ring_id6', 171), ('ring_id2', 345),
+                        ('ring_id6', 167), ('ring_id2', 345),
                         ('ring_id1', 520), ('gripper', PLATFORM_GRIPPER_OPEN),
                         ('gripper', PLATFORM_GRIPPER_CLOSED), ('ring_high_id1', 650),
                         ('ring_high_id2', 600), ('ring_high_id6', 415),

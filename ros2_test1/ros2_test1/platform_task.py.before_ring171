@@ -11,7 +11,7 @@ from .grasp_calibration import calibrated_grasp_ticks
 
 HIGH = (650, 600, 415)
 LETTER_PLACE = (500, 350, 670)
-RING_PLACE = (520, 345, 171)
+RING_PLACE = (520, 345, 167)
 HTD85_AUX_HIGH = (300, 600, 320)  # physical ID14, ID15, ID17; ID14 retracted
 PLATFORM_GRIPPER_CLOSED = 320
 PLATFORM_GRIPPER_OPEN = 450

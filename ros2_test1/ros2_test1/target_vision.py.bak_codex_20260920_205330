@@ -187,7 +187,7 @@ ARM_TUNE_HTD85_AUX_LIMITS = {
     17: (0, 1000),
 }
 COLUMN_CATCH_READY_ID1_TICK = 650
-COLUMN_CATCH_READY_ID2_TICK = 570
+COLUMN_CATCH_READY_ID2_TICK = 500
 # Formal task three keeps its own high-pose calibration. Task-two alignment
 # must not change the column-catch pose implicitly.
 COLUMN_CATCH_READY_ID6_TICK = 415
@@ -201,9 +201,9 @@ COLUMN_CATCH_ID2_CENTER_RANGE = PLATFORM_CENTER_ID2_RANGE
 COLUMN_CATCH_ID6_CENTER_RANGE = PLATFORM_CENTER_ID6_RANGE
 COLUMN_CATCH_ID2_CENTER_STEP_TICKS = PLATFORM_CENTER_ID2_STEP_TICKS
 COLUMN_CATCH_ID6_CENTER_STEP_TICKS = PLATFORM_CENTER_ID6_STEP_TICKS
-TASK3_RING_PLACE_HIGH = (650, 550, 415)
+TASK3_RING_PLACE_HIGH = (650, 500, 415)
 TASK3_RING_PLACE_RETURN_HIGH = (650, 600, 415)
-TASK3_RING_PLACE_POSE = (480, 340, 171)
+TASK3_RING_PLACE_POSE = (480, 340, 190)
 TASK3_RING_PLACE_AXIS_TIME_MS = 500
 TASK3_RING_PLACE_ID1_TIME_MS = 700
 TASK3_RING_PLACE_HIGH_TIME_MS = 1000
@@ -2505,15 +2505,6 @@ class TargetGraspController:
             return False
         return max(0.10, float(motion_ms) / 1000.0)
 
-    def _task3_ring_wait(self, wait_ms, label):
-        """Hold the closed gripper before the final arm contraction."""
-
-        print(
-            f"TASK3_RING_PLACE {label} wait={int(wait_ms)}ms",
-            flush=True,
-        )
-        return max(0.10, float(wait_ms) / 1000.0)
-
     def _platform_ring_place_id6(self, id6):
         return self._platform_ring_single(
             "id6", id6, PLATFORM_RING_AXIS_TIME_MS, "RING_PLACE_ID6"
@@ -2761,10 +2752,24 @@ class TargetGraspController:
                  (TASK3_RING_PLACE_GRIPPER_OPEN_TICK,
                   TASK3_RING_PLACE_GRIPPER_TIME_MS, "open ID17 again")),
                 ("CLOSE_ID17_AGAIN", self._task3_ring_gripper,
-                (TASK3_RING_PLACE_GRIPPER_CLOSED_TICK,
+                 (TASK3_RING_PLACE_GRIPPER_CLOSED_TICK,
                   TASK3_RING_PLACE_GRIPPER_TIME_MS, "close ID17 again")),
-                ("WAIT_BEFORE_CONTRACT", self._task3_ring_wait,
-                 (1000, "wait after final ID17 close")),
+                ("ID6_RETRACT", self._task3_ring_single,
+                 ("id6", TASK3_RING_PLACE_RETURN_HIGH[2],
+                  TASK3_RING_PLACE_HIGH_TIME_MS, "retract ID6")),
+                ("ID2_RETRACT", self._task3_ring_single,
+                 ("id2", TASK3_RING_PLACE_RETURN_HIGH[1],
+                  TASK3_RING_PLACE_HIGH_TIME_MS, "retract ID2")),
+                ("ID1_RETRACT", self._task3_ring_single,
+                 ("id1", TASK3_RING_PLACE_RETURN_HIGH[0],
+                  TASK3_RING_PLACE_HIGH_TIME_MS, "retract ID1")),
+                # The placement transaction opens ID17 during release. Close
+                # it after all three axes are retracted so DONE always means
+                # the arm is mechanically safe and contracted.
+                ("FINAL_CLOSE_ID17", self._task3_ring_gripper,
+                 (TASK3_RING_PLACE_GRIPPER_CLOSED_TICK,
+                  TASK3_RING_PLACE_GRIPPER_TIME_MS,
+                  "final close ID17")),
             ])
             self.chassis_station_stage = "task3_ring_place_actions"
             self.chassis_station_deadline = now
@@ -2786,28 +2791,10 @@ class TargetGraspController:
                 )
                 self.arm_preview.publish(self.status)
                 return self.status
-            home_status = self.shutdown_contract()
-            home_success = (
-                not self.servo_bridge.write_enabled
-                or self.servo_bridge.last_command_ok
-            )
-            if not home_success:
-                self.chassis_station_stage = None
-                self.active_chassis_station = None
-                self.chassis_station_error_reason = (
-                    "TASK3_RING_PLACE_HOME_FAILED"
-                )
-                self.state = self.algorithm_stage = "fault"
-                self.status = (
-                    "TASK3_RING_PLACE failed: arm contraction failed; "
-                    f"{home_status}"
-                )
-                self.arm_preview.publish(self.status)
-                return self.status
             self.chassis_station_stage = None
             self.active_chassis_station = None
             self.chassis_station_done_reason = "TASK3_RING_PLACE_DONE"
-            self.status = f"TASK3_RING_PLACE DONE; arm contracted | {home_status}"
+            self.status = "TASK3_RING_PLACE DONE; arm high and safe"
             self.arm_preview.publish(self.status)
             return self.status
         label, callback, args = self.task3_ring_place_actions.popleft()

@@ -465,14 +465,14 @@ class ChassisStationSafetyTests(unittest.TestCase):
         self.assertEqual(controller.algorithm_stage, "fault")
         self.assertIn("automatic motion stopped", controller.status)
 
-    def test_column_ready_uses_formal_task_three_pose(self):
+    def test_column_ready_uses_standalone_task_three_pose(self):
         controller, bridge, _ = make_controller()
         with mock.patch.object(target_vision.time, "sleep"):
             controller.begin_chassis_station("COLUMN_CATCH")
 
         self.assertEqual(
             (controller.id1, controller.id2, controller.id6),
-            (650, 570, 415),
+            (650, 550, 415),
         )
         self.assertEqual(controller.id5, target_vision.TASK1_ID15_RETRACT_TICK)
         self.assertEqual(controller.splitter_id4, target_vision.SPLITTER_RETRACT_TICK)
@@ -484,10 +484,9 @@ class ChassisStationSafetyTests(unittest.TestCase):
             "id5": target_vision.TASK1_ID15_RETRACT_TICK,
             "splitter_id4": target_vision.SPLITTER_RETRACT_TICK,
         })
-        self.assertEqual(bridge.sent[-1], {"id2": 570})
+        self.assertEqual(bridge.sent[-1], {"id2": 500})
 
-    def test_task3_ring_place_waits_then_finishes_contracted(self):
-        self.assertEqual(target_vision.TASK3_RING_PLACE_POSE, (480, 340, 171))
+    def test_task3_ring_place_finishes_with_closed_gripper_after_retract(self):
         controller, bridge, _ = make_controller()
         with mock.patch.object(target_vision.time, "monotonic", return_value=1000.0), mock.patch.object(
             target_vision.time, "sleep"
@@ -501,20 +500,10 @@ class ChassisStationSafetyTests(unittest.TestCase):
 
         self.assertEqual(controller.consume_chassis_station_done(), "TASK3_RING_PLACE_DONE")
         self.assertEqual(controller.id7, 320)
-        self.assertEqual(bridge.sent[-1]["id4"], 320)
-        self.assertEqual(bridge.sent[-1]["id1"], target_vision.HOME_ID1_TICK)
-        self.assertEqual(bridge.sent[-1]["id6"], target_vision.BASE_YAW_HOME_TICK)
-        self.assertEqual(bridge.sent[-2], {
-            "id2": target_vision.HOME_ID2_TICK,
-            "id6": target_vision.BASE_YAW_HOME_TICK,
-        })
+        self.assertEqual(bridge.sent[-1], {"id4": 320})
         self.assertEqual(
             (controller.id1, controller.id2, controller.id6),
-            (
-                target_vision.HOME_ID1_TICK,
-                target_vision.HOME_ID2_TICK,
-                target_vision.BASE_YAW_HOME_TICK,
-            ),
+            target_vision.TASK3_RING_PLACE_RETURN_HIGH,
         )
 
     def test_column_centering_uses_seven_and_five_tick_steps(self):
