@@ -284,6 +284,14 @@ class ABCDDetector:
         contours, _ = cv2.findContours(
             candidate_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
+        # Serif glyphs touching a narrow white border can split the patch.
+        joined_mask = cv2.morphologyEx(
+            white_mask, cv2.MORPH_CLOSE, np.ones((15, 15), dtype=np.uint8)
+        )
+        joined_contours, _ = cv2.findContours(
+            joined_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        contours = list(contours) + list(joined_contours)
         frame_area = float(height * width)
         edge_margin = max(5, int(min(width, height) * 0.012))
         results = []
@@ -312,6 +320,13 @@ class ABCDDetector:
             )
             rectified = self._rectify(frame, box, 128)
             letter, confidence, occupancy = self._classify(rectified)
+            edge_letter, edge_confidence, edge_occupancy = self._classify(
+                rectified, inset=2
+            )
+            if edge_letter is not None and edge_confidence > confidence:
+                letter, confidence, occupancy = (
+                    edge_letter, edge_confidence, edge_occupancy
+                )
             if letter is None:
                 continue
             if confidence < max(self.min_confidence, 0.45):
@@ -480,9 +495,9 @@ class ABCDDetector:
         matrix = cv2.getPerspectiveTransform(box.astype(np.float32), destination)
         return cv2.warpPerspective(frame, matrix, (side, side))
 
-    def _classify(self, rectified):
+    def _classify(self, rectified, inset=14):
         gray = cv2.cvtColor(rectified, cv2.COLOR_BGR2GRAY)
-        inner = gray[14:-14, 14:-14]
+        inner = gray[inset:-inset, inset:-inset]
         inner = cv2.GaussianBlur(inner, (3, 3), 0)
         _, glyph = cv2.threshold(
             inner, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU

@@ -170,7 +170,9 @@ DISC_CATCH_GRIPPER_TIME_MS = 80
 # Blue-field ID14 must remain on the detected ball's channel for a full
 # half-second before preparing the other channel for the next target.
 DISC_CATCH_BLUE_CHANNEL_HOLD_S = 0.5
-DISC_CATCH_BLUE_REARM_DISTANCE_PX = 70.0
+# Blue-field pulses are re-armed only after the completed close plus a full
+# cooldown; target-center displacement is intentionally not used as a lock.
+DISC_CATCH_BLUE_GRIPPER_COOLDOWN_S = 0.5
 ARM_JOINT_SEQUENCE_DELAY_S = 0.2
 ARM_TUNE_COMMAND_PATH = Path("/home/cat/ros2_ws/arm_tune_command.txt")
 ARM_TUNE_RESULT_PATH = Path("/home/cat/ros2_ws/arm_tune_result.txt")
@@ -2829,34 +2831,6 @@ class TargetGraspController:
         if not allowed:
             return None
 
-        # Keep the last same-color target locked after a pulse. A brief missed
-        # frame must not re-arm the ball that was just pushed down, while a
-        # different color or a spatially distinct same-color ball may proceed.
-        if (
-            self.field_mode == FieldMode.BLUE
-            and self.disc_pulse_done
-            and self.disc_last_pulsed_center is not None
-        ):
-            reference_x, reference_y = self.disc_last_pulsed_center
-            moved = []
-            for det in allowed:
-                if det.get("color") != self.disc_last_pulsed_color:
-                    moved.append(det)
-                    continue
-                center = det.get("center")
-                if not center or len(center) < 2:
-                    continue
-                distance = math.hypot(
-                    float(center[0]) - reference_x,
-                    float(center[1]) - reference_y,
-                )
-                if distance >= DISC_CATCH_BLUE_REARM_DISTANCE_PX:
-                    moved.append(det)
-            allowed = moved
-
-        if not allowed:
-            return None
-
         return max(allowed, key=lambda det: float(det.get("area_percent") or 0.0))
 
     def _column_letter_visible(self, detections):
@@ -3057,25 +3031,6 @@ class TargetGraspController:
                     f"field {self.field_mode.wire_name}; waiting allowed color "
                     f"{remaining:.1f}s"
                 )
-            if (
-                self.field_mode == FieldMode.BLUE
-                and self.disc_pulse_done
-                and self.disc_last_pulsed_center is not None
-            ):
-                center = ball.get("center")
-                if center and len(center) >= 2:
-                    distance = math.hypot(
-                        float(center[0]) - self.disc_last_pulsed_center[0],
-                        float(center[1]) - self.disc_last_pulsed_center[1],
-                    )
-                    if distance < DISC_CATCH_BLUE_REARM_DISTANCE_PX:
-                        return (
-                            "DISC_CATCH blue target still at previous position; "
-                            f"waiting for next target ({distance:.0f}px)"
-                        )
-                self.disc_pulse_done = False
-                self.disc_last_pulsed_color = None
-                self.disc_last_pulsed_center = None
             if self.disc_pulse_done and ball_color == self.disc_last_pulsed_color:
                 return (
                     f"DISC_CATCH already pulsed {ball_color} ball; waiting new target"
@@ -3205,13 +3160,20 @@ class TargetGraspController:
                 return f"DISC_CATCH close wait {self.chassis_station_deadline - now:.1f}s"
             if self.field_mode == FieldMode.BLUE:
                 self.chassis_station_stage = "disc_blue_channel_wait"
-                self.chassis_station_deadline = max(
-                    now,
-                    self.disc_blue_channel_hold_deadline,
+                blue_cooldown = self.disc_last_pulsed_color == "blue"
+                self.chassis_station_deadline = (
+                    now + DISC_CATCH_BLUE_GRIPPER_COOLDOWN_S
+                    if blue_cooldown
+                    else max(now, self.disc_blue_channel_hold_deadline)
                 )
                 return (
-                    "DISC_CATCH blue-field ID17 closed; holding current ID14 "
-                    f"channel for {max(0.0, self.chassis_station_deadline - now):.2f}s"
+                    "DISC_CATCH blue-field ID17 closed; "
+                    + (
+                        "blue-ball cooldown before next target "
+                        f"for {DISC_CATCH_BLUE_GRIPPER_COOLDOWN_S:.2f}s"
+                        if blue_cooldown
+                        else "yellow-ball channel hold before returning to blue"
+                    )
                 )
             if self.disc_last_pulsed_color == "yellow":
                 self.chassis_station_stage = "disc_yellow_reset"
@@ -3233,18 +3195,20 @@ class TargetGraspController:
                     "DISC_CATCH blue-field ID14 target channel hold "
                     f"{self.chassis_station_deadline - now:.2f}s"
                 )
-            next_channel = (
-                DISC_CATCH_SPLITTER_YELLOW_TICK
-                if self.disc_last_pulsed_color == "blue"
-                else DISC_CATCH_SPLITTER_FIELD_TICK
-            )
-            status = self._send_splitter_id4(
-                next_channel,
-                f"DISC_CATCH blue-field ID14 switch after {self.disc_last_pulsed_color}",
-                splitter_time_ms=TASK1_ID14_TIME_MS,
-            )
-            if self.servo_bridge.last_command_ok:
+            blue_pulse = self.disc_last_pulsed_color == "blue"
+            if blue_pulse:
+                status = "DISC_CATCH blue cooldown complete; ID14 stays on blue channel"
+            else:
+                status = self._send_splitter_id4(
+                    DISC_CATCH_SPLITTER_FIELD_TICK,
+                    "DISC_CATCH blue-field ID14 return to blue after yellow",
+                    splitter_time_ms=TASK1_ID14_TIME_MS,
+                )
+            if blue_pulse or self.servo_bridge.last_command_ok:
                 self.disc_blue_channel_hold_deadline = 0.0
+                self.disc_pulse_done = False
+                self.disc_last_pulsed_color = None
+                self.disc_last_pulsed_center = None
                 self.chassis_station_stage = "disc_detect"
                 self.chassis_station_deadline = 0.0
                 self.chassis_station_no_target_deadline = (

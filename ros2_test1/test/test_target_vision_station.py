@@ -250,39 +250,108 @@ class ChassisStationSafetyTests(unittest.TestCase):
         self.assertIsNone(controller._disc_catch_ball_visible([red_ball]))
         self.assertIs(controller._disc_catch_ball_visible([blue_ball]), blue_ball)
 
-    def test_disc_blue_field_does_not_rearm_same_target_after_missed_frame(self):
+    def test_disc_blue_field_does_not_filter_by_previous_target_position(self):
         controller, _bridge, _ = make_controller(field_mode=target_vision.FieldMode.BLUE)
-        yellow_ball = {
+        blue_ball = {
             "kind": "ball",
-            "color": "yellow",
+            "color": "blue",
             "center": (320, 240),
             "area_percent": 1.0,
         }
         controller.disc_pulse_done = True
-        controller.disc_last_pulsed_color = "yellow"
+        controller.disc_last_pulsed_color = "blue"
         controller.disc_last_pulsed_center = (320.0, 240.0)
 
-        self.assertIsNone(controller._disc_catch_ball_visible([]))
-        self.assertIsNone(controller._disc_catch_ball_visible([yellow_ball]))
-        self.assertTrue(controller.disc_pulse_done)
-        self.assertEqual(controller.disc_last_pulsed_color, "yellow")
-
-        moved_ball = dict(yellow_ball, center=(410, 240))
+        self.assertIs(controller._disc_catch_ball_visible([blue_ball]), blue_ball)
+        moved_ball = dict(blue_ball, center=(410, 240))
         self.assertIs(controller._disc_catch_ball_visible([moved_ball]), moved_ball)
 
-    def test_disc_blue_field_allows_other_color_after_pulse(self):
-        controller, _bridge, _ = make_controller(field_mode=target_vision.FieldMode.BLUE)
+    def test_disc_blue_field_rearms_only_after_full_post_close_cooldown(self):
+        controller, bridge, _ = make_controller(field_mode=target_vision.FieldMode.BLUE)
         controller.disc_pulse_done = True
-        controller.disc_last_pulsed_color = "yellow"
+        controller.disc_last_pulsed_color = "blue"
         controller.disc_last_pulsed_center = (320.0, 240.0)
         blue_ball = {
             "kind": "ball",
             "color": "blue",
-            "center": (325, 242),
+            "center": (320, 240),
             "area_percent": 1.0,
         }
+        controller.active_chassis_station = "DISC_CATCH"
+        controller.chassis_station_stage = "disc_close_wait"
+        controller.chassis_station_deadline = 100.0
+        controller.chassis_station_no_target_deadline = 100000000000.0
+        controller.disc_blue_channel_hold_deadline = 99.0
 
-        self.assertIs(controller._disc_catch_ball_visible([blue_ball]), blue_ball)
+        clock = [100.0]
+        with mock.patch.object(target_vision.time, "monotonic", lambda: clock[0]):
+            result = controller.update_chassis_station(
+                "DISC_CATCH", [blue_ball], (600, 800, 3), detection_fresh=True
+            )
+            self.assertIn("blue-ball cooldown", result)
+            self.assertEqual(controller.chassis_station_stage, "disc_blue_channel_wait")
+            self.assertEqual(controller.chassis_station_deadline, 100.5)
+
+            sent_before_cooldown = len(bridge.sent)
+            clock[0] = 100.49
+            controller.update_chassis_station(
+                "DISC_CATCH", [blue_ball], (600, 800, 3), detection_fresh=True
+            )
+            self.assertEqual(len(bridge.sent), sent_before_cooldown)
+            self.assertTrue(controller.disc_pulse_done)
+
+            clock[0] = 100.5
+            controller.update_chassis_station(
+                "DISC_CATCH", [blue_ball], (600, 800, 3), detection_fresh=True
+            )
+            self.assertEqual(len(bridge.sent), sent_before_cooldown)
+            self.assertEqual(controller.chassis_station_stage, "disc_detect")
+            self.assertFalse(controller.disc_pulse_done)
+            self.assertIsNone(controller.disc_last_pulsed_color)
+            self.assertIsNone(controller.disc_last_pulsed_center)
+
+            clock[0] = 100.51
+            controller.update_chassis_station(
+                "DISC_CATCH", [blue_ball], (600, 800, 3), detection_fresh=True
+            )
+
+        self.assertEqual(controller.chassis_station_stage, "disc_open_wait")
+        self.assertEqual(bridge.sent[-1]["id4"], controller.id7_open)
+
+    def test_disc_blue_field_yellow_holds_channel_then_returns_to_blue(self):
+        controller, bridge, _ = make_controller(field_mode=target_vision.FieldMode.BLUE)
+        controller.active_chassis_station = "DISC_CATCH"
+        controller.chassis_station_stage = "disc_close_wait"
+        controller.chassis_station_deadline = 200.0
+        controller.chassis_station_no_target_deadline = 100000000000.0
+        controller.disc_pulse_done = True
+        controller.disc_last_pulsed_color = "yellow"
+        controller.disc_last_pulsed_center = (320.0, 240.0)
+        controller.disc_blue_channel_hold_deadline = 200.2
+
+        clock = [200.0]
+        with mock.patch.object(target_vision.time, "monotonic", lambda: clock[0]):
+            result = controller.update_chassis_station(
+                "DISC_CATCH", [], (600, 800, 3), detection_fresh=True
+            )
+            self.assertEqual(controller.chassis_station_deadline, 200.2)
+
+            sent_before_switch = len(bridge.sent)
+            clock[0] = 200.19
+            controller.update_chassis_station(
+                "DISC_CATCH", [], (600, 800, 3), detection_fresh=True
+            )
+            self.assertEqual(len(bridge.sent), sent_before_switch)
+            clock[0] = 200.2
+            controller.update_chassis_station(
+                "DISC_CATCH", [], (600, 800, 3), detection_fresh=True
+            )
+
+        self.assertEqual(len(bridge.sent), sent_before_switch + 1)
+        self.assertEqual(bridge.sent[-1]["splitter_id4"], target_vision.DISC_CATCH_SPLITTER_FIELD_TICK)
+        self.assertEqual(controller.chassis_station_stage, "disc_detect")
+        self.assertFalse(controller.disc_pulse_done)
+        self.assertIsNone(controller.disc_last_pulsed_color)
 
     def test_disc_close_completion_immediately_rearms_same_color(self):
         controller, bridge, _ = make_controller(field_mode=target_vision.FieldMode.RED)

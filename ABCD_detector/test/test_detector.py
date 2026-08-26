@@ -33,6 +33,19 @@ def letter_page(letter, size=360):
 
 
 class ABCDDetectorTests(unittest.TestCase):
+    def test_main_camera_serif_b_with_narrow_border(self):
+        frame = cv2.imread(str(Path(__file__).parent / "fixtures" / "main_serif_b.jpg"))
+        self.assertIsNotNone(frame)
+        detections = ABCDDetector().detect(frame)
+        matches = [
+            d for d in detections
+            if d["letter"] == "B"
+            and 280 <= d["center"][0] <= 440
+            and 230 <= d["center"][1] <= 410
+        ]
+        self.assertTrue(matches, detections)
+        self.assertGreater(matches[0]["confidence"], 80.0)
+
     def test_detects_each_letter_as_white_letter(self):
         detector = ABCDDetector()
         for letter in "ABCD":
