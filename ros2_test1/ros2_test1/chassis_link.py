@@ -16,7 +16,12 @@ from .field_mode import FieldMode, parse_field
 
 
 class ChassisArmLink:
-    VALID_TASKS = {"DISC_CATCH", "PLATFORM_PICK", "COLUMN_CATCH"}
+    VALID_TASKS = {
+        "DISC_CATCH",
+        "PLATFORM_PICK",
+        "COLUMN_CATCH",
+        "TASK3_RING_PLACE",
+    }
     MAX_LINE_BUFFER = 4096
     SERVO_ADAPTER_GLOBS = (
         "/dev/serial/by-id/usb-1a86_USB_Single_Serial_*",
@@ -958,7 +963,7 @@ class ChassisArmLink:
     def no_target_timed_out(self, now, searching_for_target):
         if self.active_task is None or not searching_for_target:
             return False
-        if self.active_task in {"DISC_CATCH", "COLUMN_CATCH"}:
+        if self.active_task in {"DISC_CATCH", "COLUMN_CATCH", "TASK3_RING_PLACE"}:
             return False
         return (now - self.last_target_seen) >= self.no_target_timeout_s
 

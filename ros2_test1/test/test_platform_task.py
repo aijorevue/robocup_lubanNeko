@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 from ros2_test1.platform_task import (
     PlatformTask, HIGH, LETTER_PLACE, RING_PLACE,
     POST_OPEN_ID2_RETREAT_TICKS_BY_KIND, PLATFORM_GRIPPER_CLOSED,
+    PLATFORM_GRIPPER_OPEN,
     TARGET_WINDOW_SIZE_PX, TARGET_WINDOW_MIN_AREA_FRACTION,
     PLATFORM_LETTER_PLACE_TIME_MS,
     _target_in_center_window,
@@ -217,9 +218,9 @@ class TestPlatformTask(unittest.TestCase):
         self.assertEqual(f.task.target_key, ('letter', 'D'))
 
     def test_letter_and_both_field_ring_exact_actions(self):
-        self.assertEqual(HIGH, (650, 600, 350))
-        self.assertEqual(LETTER_PLACE, (500, 350, 600))
-        self.assertEqual(RING_PLACE, (520, 340, 120))
+        self.assertEqual(HIGH, (650, 600, 420))
+        self.assertEqual(LETTER_PLACE, (500, 350, 670))
+        self.assertEqual(RING_PLACE, (520, 340, 185))
         self.assertEqual(POST_OPEN_ID2_RETREAT_TICKS_BY_KIND,
                          {'letter': 30, 'ring': 50})
         for kind, field, placement in [('letter', 'red', LETTER_PLACE),
@@ -233,24 +234,24 @@ class TestPlatformTask(unittest.TestCase):
                 f.finish()
                 retreat_ticks = POST_OPEN_ID2_RETREAT_TICKS_BY_KIND[kind]
                 expected = [
-                    ('gripper', 600),
-                    ('pose', (650, 600 - retreat_ticks, 350), False),
-                    ('pose', (478, 483, 350), False),
+                    ('gripper', PLATFORM_GRIPPER_OPEN),
+                    ('pose', (650, 600 - retreat_ticks, 420), False),
+                    ('pose', (478, 483, 420), False),
                     ('gripper', PLATFORM_GRIPPER_CLOSED), ('pose', HIGH, True),
                 ]
                 expected += (
                     [
-                        ('ring_id6', 120), ('ring_id2', 340),
-                        ('ring_id1', 520), ('gripper', 600),
+                        ('ring_id6', 185), ('ring_id2', 340),
+                        ('ring_id1', 520), ('gripper', PLATFORM_GRIPPER_OPEN),
                         ('gripper', PLATFORM_GRIPPER_CLOSED), ('ring_high_id1', 650),
-                        ('ring_high_id2', 600), ('ring_high_id6', 350),
+                        ('ring_high_id2', 600), ('ring_high_id6', 420),
                     ]
                     if kind == 'ring'
                     else [
-                        ('letter_id6', 600), ('letter_id2', 350),
-                        ('letter_id1', 500), ('gripper', 600),
+                        ('letter_id6', 670), ('letter_id2', 350),
+                        ('letter_id1', 500), ('gripper', PLATFORM_GRIPPER_OPEN),
                         ('gripper', PLATFORM_GRIPPER_CLOSED), ('letter_high_id1', 650),
-                        ('letter_high_id2', 600), ('letter_high_id6', 350),
+                        ('letter_high_id2', 600), ('letter_high_id6', 420),
                     ]
                 )
                 self.assertEqual(f.writes, expected)
@@ -260,9 +261,9 @@ class TestPlatformTask(unittest.TestCase):
                     self.assertEqual(
                         [item for item in f.writes if item[0].startswith('letter_')],
                         [
-                            ('letter_id6', 600), ('letter_id2', 350),
+                            ('letter_id6', 670), ('letter_id2', 350),
                             ('letter_id1', 500), ('letter_high_id1', 650),
-                            ('letter_high_id2', 600), ('letter_high_id6', 350),
+                            ('letter_high_id2', 600), ('letter_high_id6', 420),
                         ],
                     )
                     self.assertEqual(PLATFORM_LETTER_PLACE_TIME_MS, 500)
@@ -284,10 +285,10 @@ class TestPlatformTask(unittest.TestCase):
                 )
                 f.feed(target); f.finish()
                 self.assertEqual(f.writes[1], (
-                    'pose', (650, expected_retreat_id2, 350), False,
+                    'pose', (650, expected_retreat_id2, 420), False,
                 ))
                 self.assertEqual(f.writes[2], (
-                    'pose', (expected_descent_id1, expected_descent_id2, 350), False,
+                    'pose', (expected_descent_id1, expected_descent_id2, 420), False,
                 ))
                 self.assertIn(('gripper', PLATFORM_GRIPPER_CLOSED), f.writes)
 
@@ -339,10 +340,10 @@ class TestPlatformTask(unittest.TestCase):
     def test_small_center_correction_and_then_calibrated_depth(self):
         f = Fixture(); f.ready(); f.writes.clear(); f.task.begin_slot('red')
         f.feed(letter(center=(470, 370)))
-        self.assertEqual(f.writes, [('center', 593, 345)])
+        self.assertEqual(f.writes, [('center', 593, 415)])
         f.now = f.task.deadline
         f.feed(letter(), 4); f.finish()
-        self.assertIn(('pose', (478, 483, 345), False), f.writes)
+        self.assertIn(('pose', (478, 483, 415), False), f.writes)
 
     def test_write_failure_at_every_action_never_completes(self):
         for failure_index in range(13):
@@ -380,11 +381,11 @@ class TestControllerAndProtocol(unittest.TestCase):
         bridge = Mock(enabled=True, write_enabled=True, assumed_feedback=True,
                       last_command_ok=True, arm_time_ms=600, gripper_time_ms=210,
                       zp_time_ms=300, status='fake write ok')
-        preview = Mock(id6=340)
+        preview = Mock(id6=410)
         kwargs = {name: 1 for name, param in inspect.signature(TargetGraspController).parameters.items()
                   if param.default is inspect.Parameter.empty}
         kwargs.update(enabled=True, servo_bridge=bridge, arm_preview=preview,
-                      id1_ready=446, id2_ready=227, id7_closed=1300, id7_open=1710,
+                      id1_ready=446, id2_ready=227, id7_closed=370, id7_open=520,
                       id1_limits=(150, 710), id2_limits=(0, 769), angle_gap_degrees=20,
                       startup_sequence=False, one_shot=False)
         controller = TargetGraspController(**kwargs)
@@ -399,7 +400,7 @@ class TestControllerAndProtocol(unittest.TestCase):
             for _ in range(28):
                 c.update_platform_preselect([letter('A', (100, 200)), letter('C', (600, 200))])
         self.assertIsNone(c.consume_chassis_station_done())
-        self.assertEqual((c.id1, c.id2, c.id6, c.id5, c.splitter_id4), (650, 600, 350, 600, 300))
+        self.assertEqual((c.id1, c.id2, c.id6, c.id5, c.splitter_id4), (650, 600, 420, 600, 300))
         c.platform_task.deadline = 0
         c.update_chassis_station('PLATFORM_PICK', [], (600, 800, 3), False)
         self.assertEqual(c.consume_chassis_station_done(), 'PRESELECT_DONE:A:C')
@@ -415,16 +416,17 @@ class TestControllerAndProtocol(unittest.TestCase):
         self.assertEqual(c.consume_chassis_station_done(), 'PICKED_LETTER')
         self.assertEqual(
             (c.id1, c.id2, c.id6, c.id7),
-            (650, 600, 350, PLATFORM_GRIPPER_CLOSED),
+            (650, 600, 420, PLATFORM_GRIPPER_CLOSED),
         )
         self.assertEqual(bridge.gripper_time_ms, 210)
         pulses = [call.kwargs['id4'] for call in bridge.send_targets.call_args_list
                   if set(call.kwargs) == {'id4'}]
         self.assertEqual(
             pulses,
-            [600, PLATFORM_GRIPPER_CLOSED, 600, PLATFORM_GRIPPER_CLOSED],
+            [PLATFORM_GRIPPER_OPEN, PLATFORM_GRIPPER_CLOSED,
+             PLATFORM_GRIPPER_OPEN, PLATFORM_GRIPPER_CLOSED],
         )
-        self.assertTrue(any(call.kwargs.get('id6') == 600 for call in bridge.send_targets.call_args_list))
+        self.assertTrue(any(call.kwargs.get('id6') == 670 for call in bridge.send_targets.call_args_list))
 
     def test_real_parser_sequence_retries_do_not_restart_preselect_or_slot(self):
         link = ChassisArmLink(False, 'unused', 115200, 5)
