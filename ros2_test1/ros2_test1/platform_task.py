@@ -40,7 +40,7 @@ CENTER_ID6_RANGE = (0, 700)
 # Only the target-observation phase is bounded.  Once a valid selected
 # letter/own-field ring has been seen, the grasp transaction is allowed to
 # finish without the no-target watchdog interrupting it.
-PLATFORM_NO_TARGET_TIMEOUT_S = 5.0
+PLATFORM_NO_TARGET_TIMEOUT_S = 3.5
 TARGET_WINDOW_SIZE_PX = 400
 TARGET_WINDOW_MIN_AREA_FRACTION = 0.80
 

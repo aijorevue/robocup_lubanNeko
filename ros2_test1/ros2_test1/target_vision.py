@@ -6213,7 +6213,7 @@ def build_arg_parser():
     parser.add_argument(
         "--station-no-target-timeout",
         type=float,
-        default=float(os.environ.get("STATION_NO_TARGET_TIMEOUT", "5.0")),
+        default=float(os.environ.get("STATION_NO_TARGET_TIMEOUT", "3.5")),
         help=(
             "finish a formal PLATFORM_PICK station after this many seconds "
             "before any valid target is observed"
