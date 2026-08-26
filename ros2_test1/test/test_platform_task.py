@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 
 from ros2_test1.platform_task import (
     PlatformTask, HIGH, LETTER_PLACE, RING_PLACE,
-    POST_OPEN_ID2_RETREAT_TICKS_BY_KIND,
+    POST_OPEN_ID2_RETREAT_TICKS_BY_KIND, PLATFORM_GRIPPER_CLOSED,
     TARGET_WINDOW_SIZE_PX, TARGET_WINDOW_MIN_AREA_FRACTION,
     PLATFORM_LETTER_PLACE_TIME_MS,
     _target_in_center_window,
@@ -236,20 +236,20 @@ class TestPlatformTask(unittest.TestCase):
                     ('gripper', 600),
                     ('pose', (650, 600 - retreat_ticks, 350), False),
                     ('pose', (478, 483, 350), False),
-                    ('gripper', 450), ('pose', HIGH, True),
+                    ('gripper', PLATFORM_GRIPPER_CLOSED), ('pose', HIGH, True),
                 ]
                 expected += (
                     [
                         ('ring_id6', 120), ('ring_id2', 340),
                         ('ring_id1', 520), ('gripper', 600),
-                        ('gripper', 450), ('ring_high_id1', 650),
+                        ('gripper', PLATFORM_GRIPPER_CLOSED), ('ring_high_id1', 650),
                         ('ring_high_id2', 600), ('ring_high_id6', 350),
                     ]
                     if kind == 'ring'
                     else [
                         ('letter_id6', 600), ('letter_id2', 350),
                         ('letter_id1', 500), ('gripper', 600),
-                        ('gripper', 450), ('letter_high_id1', 650),
+                        ('gripper', PLATFORM_GRIPPER_CLOSED), ('letter_high_id1', 650),
                         ('letter_high_id2', 600), ('letter_high_id6', 350),
                     ]
                 )
@@ -266,6 +266,30 @@ class TestPlatformTask(unittest.TestCase):
                         ],
                     )
                     self.assertEqual(PLATFORM_LETTER_PLACE_TIME_MS, 500)
+
+    def test_near_grasp_adjustments_apply_only_from_7_to_10cm(self):
+        cases = [
+            ('letter', 7.0, 610, 520, 570),
+            ('letter', 9.0, 590, 510, 570),
+            ('letter', 10.0, 580, 430, 570),
+            ('ring', 7.0, 610, 540, 520),
+            ('ring', 9.0, 590, 530, 520),
+        ]
+        for kind, depth, expected_descent_id1, expected_descent_id2, expected_retreat_id2 in cases:
+            with self.subTest(kind=kind, depth=depth):
+                f = Fixture(); f.ready(); f.writes.clear()
+                f.task.begin_slot('red')
+                target = letter(depth=depth) if kind == 'letter' else dict(
+                    letter(depth=depth), kind='ring', color='red', score=.9,
+                )
+                f.feed(target); f.finish()
+                self.assertEqual(f.writes[1], (
+                    'pose', (650, expected_retreat_id2, 350), False,
+                ))
+                self.assertEqual(f.writes[2], (
+                    'pose', (expected_descent_id1, expected_descent_id2, 350), False,
+                ))
+                self.assertIn(('gripper', PLATFORM_GRIPPER_CLOSED), f.writes)
 
     def test_last_high_must_settle_before_done_and_no_retract_while_waiting(self):
         f = Fixture(); f.ready(); f.writes.clear()
@@ -389,11 +413,17 @@ class TestControllerAndProtocol(unittest.TestCase):
             c.platform_task.deadline = 0
             c.update_chassis_station('PLATFORM_PICK', [], (600, 800, 3), False)
         self.assertEqual(c.consume_chassis_station_done(), 'PICKED_LETTER')
-        self.assertEqual((c.id1, c.id2, c.id6, c.id7), (650, 600, 350, 450))
+        self.assertEqual(
+            (c.id1, c.id2, c.id6, c.id7),
+            (650, 600, 350, PLATFORM_GRIPPER_CLOSED),
+        )
         self.assertEqual(bridge.gripper_time_ms, 210)
         pulses = [call.kwargs['id4'] for call in bridge.send_targets.call_args_list
                   if set(call.kwargs) == {'id4'}]
-        self.assertEqual(pulses, [600, 450, 600, 450])
+        self.assertEqual(
+            pulses,
+            [600, PLATFORM_GRIPPER_CLOSED, 600, PLATFORM_GRIPPER_CLOSED],
+        )
         self.assertTrue(any(call.kwargs.get('id6') == 600 for call in bridge.send_targets.call_args_list))
 
     def test_real_parser_sequence_retries_do_not_restart_preselect_or_slot(self):

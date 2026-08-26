@@ -265,9 +265,14 @@ class ChassisArmLink:
 
     @staticmethod
     def _field_from_parts(parts):
-        for index, item in enumerate(parts[:-1]):
-            if item in {"FIELD", "FIELD="}:
-                value = parts[index + 1]
+        for index, item in enumerate(parts):
+            token = str(item).strip().upper()
+            if token.startswith("FIELD="):
+                value = token.split("=", 1)[1]
+                if value in {"RED", "BLUE"}:
+                    return FieldMode(value.lower())
+            if token == "FIELD" and index + 1 < len(parts):
+                value = str(parts[index + 1]).strip().upper().lstrip("=")
                 if value in {"RED", "BLUE"}:
                     return FieldMode(value.lower())
         for item in parts:

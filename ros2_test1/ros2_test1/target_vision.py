@@ -143,7 +143,7 @@ TASK1_ID14_FIELD_TICK = 700
 TASK1_ID14_YELLOW_TICK = 300
 TASK1_ID14_TIME_MS = 50
 TASK1_ID15_RETRACT_TICK = 600
-TASK1_ID15_OPEN_TICK = 730
+TASK1_ID15_OPEN_TICK = 710
 TASK1_AUX_TIME_MS = 100
 SPLITTER_RETRACT_TICK = 300
 CATCHER_HOME_TICK = 600
@@ -166,6 +166,11 @@ DISC_CATCH_CATCHER_YELLOW_TICK = TASK1_ID15_OPEN_TICK
 DISC_CATCH_YELLOW_COOLDOWN_S = 0.5
 DISC_CATCH_OPEN_HOLD_MARGIN_S = 0.1
 DISC_CATCH_CLOSE_CONFIRM_DELAY_S = 0.05
+DISC_CATCH_GRIPPER_TIME_MS = 80
+# Blue-field ID14 must remain on the detected ball's channel for a full
+# half-second before preparing the other channel for the next target.
+DISC_CATCH_BLUE_CHANNEL_HOLD_S = 0.5
+DISC_CATCH_BLUE_REARM_DISTANCE_PX = 70.0
 ARM_JOINT_SEQUENCE_DELAY_S = 0.2
 ARM_TUNE_COMMAND_PATH = Path("/home/cat/ros2_ws/arm_tune_command.txt")
 ARM_TUNE_RESULT_PATH = Path("/home/cat/ros2_ws/arm_tune_result.txt")
@@ -501,10 +506,21 @@ def detection_process_worker(
     if _PROCESS_DETECTOR is None:
         _PROCESS_DETECTOR = TargetDetector()
     detect_started = time.perf_counter()
-    if detection_scale < 0.999:
+    # Formal task-one blue balls are small at the station. Keep the full
+    # 800x600 frame for that path; task-two/task-three retain their launch
+    # scale and timing.
+    effective_detection_scale = (
+        1.0
+        if (
+            detection_mode == DETECTION_MODE_DISC_BALLS
+            and str(field_name or "").strip().lower() == "blue"
+        )
+        else detection_scale
+    )
+    if effective_detection_scale < 0.999:
         source_height, source_width = source_frame.shape[:2]
-        detect_width = max(1, int(round(source_width * detection_scale)))
-        detect_height = max(1, int(round(source_height * detection_scale)))
+        detect_width = max(1, int(round(source_width * effective_detection_scale)))
+        detect_height = max(1, int(round(source_height * effective_detection_scale)))
         detect_frame = cv2.resize(
             source_frame,
             (detect_width, detect_height),
@@ -1218,6 +1234,9 @@ class TargetGraspController:
         self.chassis_station_no_target_deadline = 0.0
         self.disc_pulse_done = False
         self.disc_last_pulsed_color = None
+        self.disc_last_pulsed_center = None
+        self.disc_fast_blue_cycle = False
+        self.disc_blue_channel_hold_deadline = 0.0
         self.disc_prep_high_active = False
         self.column_target_armed = True
         self.column_target_absent_frames = 0
@@ -1335,11 +1354,23 @@ class TargetGraspController:
         )
 
     def _disc_open_hold_s(self):
-        return max(
-            self._gripper_settle_s(),
-            getattr(self.servo_bridge, "gripper_time_ms", 450) / 1000.0
-            + DISC_CATCH_OPEN_HOLD_MARGIN_S,
+        gripper_time_ms = (
+            DISC_CATCH_GRIPPER_TIME_MS
+            if self.disc_fast_blue_cycle
+            else getattr(self.servo_bridge, "gripper_time_ms", 200)
         )
+        return max(
+            0.12,
+            gripper_time_ms / 1000.0 + DISC_CATCH_OPEN_HOLD_MARGIN_S,
+        )
+
+    def _disc_gripper_motion_s(self):
+        gripper_time_ms = (
+            DISC_CATCH_GRIPPER_TIME_MS
+            if self.disc_fast_blue_cycle
+            else getattr(self.servo_bridge, "gripper_time_ms", 200)
+        )
+        return max(0.10, gripper_time_ms / 1000.0)
 
     def _splitter_settle_s(self):
         return max(
@@ -2047,7 +2078,7 @@ class TargetGraspController:
         return f"{reason}: id2={self.id2} id6={self.id6} | {self.status}"
 
     # The logical gripper state is sent to physical HTD85 ID17.
-    def _send_gripper_id7(self, target, reason):
+    def _send_gripper_id7(self, target, reason, motion_ms=None):
         previous_id7 = self.id7
         target = int(target)
         self.arm_preview.set_targets(self.id1, self.id2, target, self.id6)
@@ -2057,7 +2088,16 @@ class TargetGraspController:
             f"ID2={self.id2} ID6={self.id6} ID7={previous_id7}->{target}",
             flush=True,
         )
-        self.status = self.servo_bridge.send_targets(id4=target)
+        previous_gripper_time = getattr(
+            self.servo_bridge, "gripper_time_ms", None
+        )
+        try:
+            if motion_ms is not None:
+                self.servo_bridge.gripper_time_ms = int(motion_ms)
+            self.status = self.servo_bridge.send_targets(id4=target)
+        finally:
+            if motion_ms is not None and previous_gripper_time is not None:
+                self.servo_bridge.gripper_time_ms = previous_gripper_time
         self.last_command_time = time.monotonic()
         if self.servo_bridge.write_enabled and not self.servo_bridge.last_command_ok:
             self.id7 = previous_id7
@@ -2131,13 +2171,22 @@ class TargetGraspController:
             f"ID17={previous_id7}->{self.id7_open}",
             flush=True,
         )
-        self.status = self.servo_bridge.send_targets(
-            splitter_id4=splitter_target,
-            id5=catcher_target,
-            id4=self.id7_open,
-            aux_time_ms=TASK1_AUX_TIME_MS,
-            splitter_time_ms=TASK1_ID14_TIME_MS,
+        previous_gripper_time = getattr(
+            self.servo_bridge, "gripper_time_ms", None
         )
+        try:
+            if self.disc_fast_blue_cycle:
+                self.servo_bridge.gripper_time_ms = DISC_CATCH_GRIPPER_TIME_MS
+            self.status = self.servo_bridge.send_targets(
+                splitter_id4=splitter_target,
+                id5=catcher_target,
+                id4=self.id7_open,
+                aux_time_ms=TASK1_AUX_TIME_MS,
+                splitter_time_ms=TASK1_ID14_TIME_MS,
+            )
+        finally:
+            if previous_gripper_time is not None:
+                self.servo_bridge.gripper_time_ms = previous_gripper_time
         self.last_command_time = time.monotonic()
         if self.servo_bridge.write_enabled and not self.servo_bridge.last_command_ok:
             self.splitter_id4 = previous_splitter
@@ -2648,6 +2697,9 @@ class TargetGraspController:
         self.chassis_station_stage = "disc_app_low_settle"
         self.disc_pulse_done = False
         self.disc_last_pulsed_color = None
+        self.disc_last_pulsed_center = None
+        self.disc_fast_blue_cycle = False
+        self.disc_blue_channel_hold_deadline = 0.0
         self.chassis_station_deadline = 0.0
         self.chassis_station_no_target_deadline = 0.0
         self.arm_preview.set_targets(
@@ -2777,6 +2829,34 @@ class TargetGraspController:
         if not allowed:
             return None
 
+        # Keep the last same-color target locked after a pulse. A brief missed
+        # frame must not re-arm the ball that was just pushed down, while a
+        # different color or a spatially distinct same-color ball may proceed.
+        if (
+            self.field_mode == FieldMode.BLUE
+            and self.disc_pulse_done
+            and self.disc_last_pulsed_center is not None
+        ):
+            reference_x, reference_y = self.disc_last_pulsed_center
+            moved = []
+            for det in allowed:
+                if det.get("color") != self.disc_last_pulsed_color:
+                    moved.append(det)
+                    continue
+                center = det.get("center")
+                if not center or len(center) < 2:
+                    continue
+                distance = math.hypot(
+                    float(center[0]) - reference_x,
+                    float(center[1]) - reference_y,
+                )
+                if distance >= DISC_CATCH_BLUE_REARM_DISTANCE_PX:
+                    moved.append(det)
+            allowed = moved
+
+        if not allowed:
+            return None
+
         return max(allowed, key=lambda det: float(det.get("area_percent") or 0.0))
 
     def _column_letter_visible(self, detections):
@@ -2842,6 +2922,9 @@ class TargetGraspController:
         self.chassis_station_no_target_deadline = 0.0
         self.disc_pulse_done = False
         self.disc_last_pulsed_color = None
+        self.disc_last_pulsed_center = None
+        self.disc_fast_blue_cycle = False
+        self.disc_blue_channel_hold_deadline = 0.0
         self.disc_prep_high_active = False
         self.platform_high_hold = False
         self.platform_high_pose_sent = False
@@ -2961,8 +3044,6 @@ class TargetGraspController:
             if now < self.chassis_station_deadline:
                 return f"DISC_CATCH descend settling {self.chassis_station_deadline - now:.1f}s"
             if ball is None:
-                self.disc_pulse_done = False
-                self.disc_last_pulsed_color = None
                 remaining = max(0.0, self.chassis_station_no_target_deadline - now)
                 return (
                     f"DISC_CATCH waiting {self.field_mode.wire_name.lower()}/yellow "
@@ -2976,6 +3057,25 @@ class TargetGraspController:
                     f"field {self.field_mode.wire_name}; waiting allowed color "
                     f"{remaining:.1f}s"
                 )
+            if (
+                self.field_mode == FieldMode.BLUE
+                and self.disc_pulse_done
+                and self.disc_last_pulsed_center is not None
+            ):
+                center = ball.get("center")
+                if center and len(center) >= 2:
+                    distance = math.hypot(
+                        float(center[0]) - self.disc_last_pulsed_center[0],
+                        float(center[1]) - self.disc_last_pulsed_center[1],
+                    )
+                    if distance < DISC_CATCH_BLUE_REARM_DISTANCE_PX:
+                        return (
+                            "DISC_CATCH blue target still at previous position; "
+                            f"waiting for next target ({distance:.0f}px)"
+                        )
+                self.disc_pulse_done = False
+                self.disc_last_pulsed_color = None
+                self.disc_last_pulsed_center = None
             if self.disc_pulse_done and ball_color == self.disc_last_pulsed_color:
                 return (
                     f"DISC_CATCH already pulsed {ball_color} ball; waiting new target"
@@ -2995,6 +3095,17 @@ class TargetGraspController:
                 f"ID2={self.id2}; sync ID4 with ID7 open"
             )
             print(f"CHASSIS STATION {self.status}", flush=True)
+            self.disc_fast_blue_cycle = self.field_mode == FieldMode.BLUE
+            self.disc_blue_channel_hold_deadline = (
+                now + DISC_CATCH_BLUE_CHANNEL_HOLD_S
+                if self.disc_fast_blue_cycle
+                else 0.0
+            )
+            if ball.get("center") and len(ball["center"]) >= 2:
+                self.disc_last_pulsed_center = (
+                    float(ball["center"][0]),
+                    float(ball["center"][1]),
+                )
             if not self.servo_bridge.write_enabled:
                 self.disc_last_pulsed_color = ball_color
                 self.disc_pulse_done = True
@@ -3028,7 +3139,11 @@ class TargetGraspController:
                 self.chassis_station_deadline = now + self._disc_open_hold_s()
                 self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
                 return "preview DISC_CATCH open ID7 pulse"
-            status = self._send_gripper_id7(self.id7_open, "DISC_CATCH open ID7 pulse")
+            status = self._send_gripper_id7(
+                self.id7_open,
+                "DISC_CATCH open ID7 pulse",
+                motion_ms=(DISC_CATCH_GRIPPER_TIME_MS if self.disc_fast_blue_cycle else None),
+            )
             if self.servo_bridge.last_command_ok:
                 self.chassis_station_stage = "disc_open_wait"
                 self.chassis_station_deadline = time.monotonic() + self._disc_open_hold_s()
@@ -3049,7 +3164,11 @@ class TargetGraspController:
                 self.chassis_station_deadline = now + DISC_CATCH_CLOSE_CONFIRM_DELAY_S
                 self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
                 return "preview DISC_CATCH close ID7 pulse"
-            status = self._send_gripper_id7(self.id7_closed, "DISC_CATCH close ID7 pulse")
+            status = self._send_gripper_id7(
+                self.id7_closed,
+                "DISC_CATCH close ID7 pulse",
+                motion_ms=(DISC_CATCH_GRIPPER_TIME_MS if self.disc_fast_blue_cycle else None),
+            )
             if self.servo_bridge.last_command_ok:
                 self.chassis_station_stage = "disc_close_confirm"
                 self.chassis_station_deadline = (
@@ -3066,16 +3185,17 @@ class TargetGraspController:
                 )
             if not self.servo_bridge.write_enabled:
                 self.chassis_station_stage = "disc_close_wait"
-                self.chassis_station_deadline = now + self._gripper_motion_s()
+                self.chassis_station_deadline = now + self._disc_gripper_motion_s()
                 return "preview DISC_CATCH close ID7 confirm"
             status = self._send_gripper_id7(
                 self.id7_closed,
                 "DISC_CATCH close ID7 confirm",
+                motion_ms=(DISC_CATCH_GRIPPER_TIME_MS if self.disc_fast_blue_cycle else None),
             )
             if self.servo_bridge.last_command_ok:
                 self.chassis_station_stage = "disc_close_wait"
                 self.chassis_station_deadline = (
-                    time.monotonic() + self._gripper_motion_s()
+                    time.monotonic() + self._disc_gripper_motion_s()
                 )
             return status
 
@@ -3083,17 +3203,54 @@ class TargetGraspController:
             self.state = "DISC_CATCH close wait"
             if now < self.chassis_station_deadline:
                 return f"DISC_CATCH close wait {self.chassis_station_deadline - now:.1f}s"
+            if self.field_mode == FieldMode.BLUE:
+                self.chassis_station_stage = "disc_blue_channel_wait"
+                self.chassis_station_deadline = max(
+                    now,
+                    self.disc_blue_channel_hold_deadline,
+                )
+                return (
+                    "DISC_CATCH blue-field ID17 closed; holding current ID14 "
+                    f"channel for {max(0.0, self.chassis_station_deadline - now):.2f}s"
+                )
             if self.disc_last_pulsed_color == "yellow":
                 self.chassis_station_stage = "disc_yellow_reset"
                 return "DISC_CATCH yellow pulse closed; resetting splitter"
             self.disc_pulse_done = False
             self.disc_last_pulsed_color = None
+            self.disc_last_pulsed_center = None
             self.chassis_station_stage = "disc_detect"
             self.chassis_station_deadline = 0.0
             self.chassis_station_no_target_deadline = (
                 time.monotonic() + DISC_CATCH_TARGET_TIMEOUT_S
             )
             return "DISC_CATCH pulse complete; ready for next target frame"
+
+        if self.chassis_station_stage == "disc_blue_channel_wait":
+            self.state = "DISC_CATCH blue channel hold"
+            if now < self.chassis_station_deadline:
+                return (
+                    "DISC_CATCH blue-field ID14 target channel hold "
+                    f"{self.chassis_station_deadline - now:.2f}s"
+                )
+            next_channel = (
+                DISC_CATCH_SPLITTER_YELLOW_TICK
+                if self.disc_last_pulsed_color == "blue"
+                else DISC_CATCH_SPLITTER_FIELD_TICK
+            )
+            status = self._send_splitter_id4(
+                next_channel,
+                f"DISC_CATCH blue-field ID14 switch after {self.disc_last_pulsed_color}",
+                splitter_time_ms=TASK1_ID14_TIME_MS,
+            )
+            if self.servo_bridge.last_command_ok:
+                self.disc_blue_channel_hold_deadline = 0.0
+                self.chassis_station_stage = "disc_detect"
+                self.chassis_station_deadline = 0.0
+                self.chassis_station_no_target_deadline = (
+                    time.monotonic() + DISC_CATCH_TARGET_TIMEOUT_S
+                )
+            return status
 
         if self.chassis_station_stage == "disc_yellow_reset":
             self.state = "DISC_CATCH yellow splitter reset"
@@ -3128,6 +3285,7 @@ class TargetGraspController:
                 )
             self.disc_pulse_done = False
             self.disc_last_pulsed_color = None
+            self.disc_last_pulsed_center = None
             self.chassis_station_stage = "disc_detect"
             self.chassis_station_deadline = 0.0
             self.chassis_station_no_target_deadline = (
@@ -6319,6 +6477,7 @@ def main(argv=None):
     secondary_open_future = None
     detection_future = None
     detection_future_mode = None
+    detection_future_field = None
     detection_pending_frame = None
     detection_source_frame = None
     detection_epoch = 0
@@ -6329,11 +6488,11 @@ def main(argv=None):
     def current_detection_mode():
         """Select the smallest detector set required by the current H7 phase."""
 
-        if chassis_link.white_line_active:
-            return DETECTION_MODE_WHITE_LINE
         station = chassis_link.active_task
         if station == "DISC_CATCH":
             return DETECTION_MODE_DISC_BALLS
+        if chassis_link.white_line_active:
+            return DETECTION_MODE_WHITE_LINE
         if station == "COLUMN_CATCH":
             return DETECTION_MODE_COLUMN_LETTERS
         if station == "PLATFORM_PICK":
@@ -6830,8 +6989,11 @@ def main(argv=None):
             if detection_future is not None and detection_future.done():
                 try:
                     completed_mode = detection_future_mode
+                    completed_field = detection_future_field
                     result, detect_elapsed = detection_future.result()
-                    if completed_mode == requested_detection_mode:
+                    current_field = grasp_controller.field_mode.value
+                    if (completed_mode == requested_detection_mode
+                            and completed_field == current_field):
                         detections = detection_smoother.update(result)
                         perf_detect_frames += 1
                         detection_source_frame = detection_pending_frame
@@ -6842,13 +7004,15 @@ def main(argv=None):
                     else:
                         print(
                             "VISION stale result discarded "
-                            f"mode={completed_mode} current={requested_detection_mode}",
+                            f"mode={completed_mode} field={completed_field} "
+                            f"current={requested_detection_mode}/{current_field}",
                             flush=True,
                         )
                 except Exception as exc:
                     print(f"detection worker failed: {exc}", flush=True)
                 detection_future = None
                 detection_future_mode = None
+                detection_future_field = None
                 detection_pending_frame = None
             if (
                 detection_frame_index % detection_interval == 0
@@ -6860,6 +7024,7 @@ def main(argv=None):
                 last_detection_frame = frame
                 detection_pending_frame = frame.copy()
                 detection_future_mode = requested_detection_mode
+                detection_future_field = grasp_controller.field_mode.value
                 detection_future = detection_executor.submit(
                     detection_process_worker,
                     detection_pending_frame,

@@ -8,7 +8,7 @@ COLOR_RANGES = [
 ]
 MASK_SETTINGS = {"kernel_size": 5, "close_iterations": 2}
 BALL_SETTINGS = {
-    "min_area": 180,
+    "min_area": 10000,
     "min_circularity": 0.68,
     "min_radius": 8,
     "min_fill": 0.64,

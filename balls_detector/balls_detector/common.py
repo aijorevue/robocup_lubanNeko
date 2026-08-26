@@ -94,7 +94,13 @@ def detect_color_balls(hsv, color_name, color_ranges, mask_settings, ball_settin
         area = cv2.contourArea(contour)
         if area < ball_settings["min_area"]:
             continue
-        if looks_like_square(contour, min_area=ball_settings["min_area"]):
+        square_filter_min_area = ball_settings.get(
+            "square_filter_min_area", ball_settings["min_area"]
+        )
+        if (
+            area >= square_filter_min_area
+            and looks_like_square(contour, min_area=square_filter_min_area)
+        ):
             continue
         contour_circularity = circularity(contour)
         if contour_circularity < ball_settings["min_circularity"]:

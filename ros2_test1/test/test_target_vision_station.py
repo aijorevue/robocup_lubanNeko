@@ -98,7 +98,7 @@ class ChassisStationSafetyTests(unittest.TestCase):
         frame = np.zeros((600, 800, 3), dtype=np.uint8)
         # Low-light cyan-blue is the task-one failure case; it should still
         # pass the field-specific blue-ball detector and policy.
-        cv2.circle(frame, (400, 300), 20, (150, 95, 35), -1)
+        cv2.circle(frame, (400, 300), 42, (150, 95, 35), -1)
         detections = detector.detect(
             frame,
             mode=target_vision.DETECTION_MODE_DISC_BALLS,
@@ -248,6 +248,40 @@ class ChassisStationSafetyTests(unittest.TestCase):
         blue_ball = {"kind": "ball", "color": "blue", "center": (322, 241), "area_percent": 1.0}
 
         self.assertIsNone(controller._disc_catch_ball_visible([red_ball]))
+        self.assertIs(controller._disc_catch_ball_visible([blue_ball]), blue_ball)
+
+    def test_disc_blue_field_does_not_rearm_same_target_after_missed_frame(self):
+        controller, _bridge, _ = make_controller(field_mode=target_vision.FieldMode.BLUE)
+        yellow_ball = {
+            "kind": "ball",
+            "color": "yellow",
+            "center": (320, 240),
+            "area_percent": 1.0,
+        }
+        controller.disc_pulse_done = True
+        controller.disc_last_pulsed_color = "yellow"
+        controller.disc_last_pulsed_center = (320.0, 240.0)
+
+        self.assertIsNone(controller._disc_catch_ball_visible([]))
+        self.assertIsNone(controller._disc_catch_ball_visible([yellow_ball]))
+        self.assertTrue(controller.disc_pulse_done)
+        self.assertEqual(controller.disc_last_pulsed_color, "yellow")
+
+        moved_ball = dict(yellow_ball, center=(410, 240))
+        self.assertIs(controller._disc_catch_ball_visible([moved_ball]), moved_ball)
+
+    def test_disc_blue_field_allows_other_color_after_pulse(self):
+        controller, _bridge, _ = make_controller(field_mode=target_vision.FieldMode.BLUE)
+        controller.disc_pulse_done = True
+        controller.disc_last_pulsed_color = "yellow"
+        controller.disc_last_pulsed_center = (320.0, 240.0)
+        blue_ball = {
+            "kind": "ball",
+            "color": "blue",
+            "center": (325, 242),
+            "area_percent": 1.0,
+        }
+
         self.assertIs(controller._disc_catch_ball_visible([blue_ball]), blue_ball)
 
     def test_disc_close_completion_immediately_rearms_same_color(self):

@@ -13,7 +13,7 @@ HIGH = (650, 600, 350)
 LETTER_PLACE = (500, 350, 600)
 RING_PLACE = (520, 340, 120)
 HTD85_AUX_HIGH = (300, 600, 450)  # physical ID14, ID15, ID17; ID14 retracted
-PLATFORM_GRIPPER_CLOSED = 450
+PLATFORM_GRIPPER_CLOSED = 430
 PLATFORM_GRIPPER_OPEN = 600
 PLATFORM_ARM_TIME_MS = 600
 PLATFORM_AUX_TIME_MS = 200
@@ -26,6 +26,11 @@ POST_OPEN_ID2_RETREAT_TICKS_BY_KIND = {
     "letter": 30,
     "ring": 50,
 }
+NEAR_GRASP_MIN_DISTANCE_CM = 7.0
+NEAR_GRASP_MAX_DISTANCE_CM = 10.0
+NEAR_RING_ID2_RETREAT_EXTRA_TICKS = 30
+NEAR_LETTER_DESCENT_ID2_OFFSET_TICKS = 20
+NEAR_LETTER_DESCENT_ID2_MIN_TICKS = 0
 PLATFORM_GRASP_ID1_OFFSET_TICKS = 40
 CENTER_DEADBAND_PX = 45
 CENTER_ID6_STEP_TICKS = 5
@@ -276,12 +281,20 @@ class PlatformTask:
         except (ValueError, TypeError):
             self.status = "PLATFORM_PICK waiting valid measured depth 7..30cm"
             return
+        near_grasp = NEAR_GRASP_MIN_DISTANCE_CM <= depth <= NEAR_GRASP_MAX_DISTANCE_CM
+        if key[0] == "letter" and near_grasp:
+            id2 = max(
+                NEAR_LETTER_DESCENT_ID2_MIN_TICKS,
+                id2 - NEAR_LETTER_DESCENT_ID2_OFFSET_TICKS,
+            )
         self.high_ready = False
         placement = LETTER_PLACE if key[0] == "letter" else RING_PLACE
         print(f"PLATFORM_PICK TARGET kind={key[0]} label={key[1]} depth_cm={depth:.2f} "
               f"down={id1}/{id2}/{self.center_id6} model=measured_7_30cm", flush=True)
         self.finish_reason = f"PICKED_{key[0].upper()}"
         retreat_ticks = POST_OPEN_ID2_RETREAT_TICKS_BY_KIND[key[0]]
+        if key[0] == "ring" and near_grasp:
+            retreat_ticks += NEAR_RING_ID2_RETREAT_EXTRA_TICKS
         retreat_id2 = max(
             CENTER_ID2_RANGE[0],
             self.center_id2 - retreat_ticks,
