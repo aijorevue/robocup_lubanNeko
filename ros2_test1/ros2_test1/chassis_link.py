@@ -47,6 +47,7 @@ class ChassisArmLink:
         self.pending_preselects = []
         self.pending_platform_slots = []
         self.pending_stops = []
+        self.pending_holds = []
         self.pending_retracts = []
         self.pending_preps = []
         self.pending_aux_requests = []
@@ -717,6 +718,29 @@ class ChassisArmLink:
                 self._send_aux_state("ACK", sequence, "FIELD", self.field_mode.wire_name)
             return
 
+        if len(parts) >= 3 and parts[0] == "ARM" and parts[2] == "HOLD":
+            task = parts[1]
+            if task != "COLUMN_CATCH" or self.field_mode != FieldMode.BLUE:
+                self._send_task_state(
+                    task, "ERR", sequence, "REASON", "BLUE_HOLD_ONLY",
+                    "FIELD", self.field_mode.wire_name,
+                )
+                return
+            if self.active_task != task or not self._same_sequence(
+                sequence, self.active_sequence
+            ):
+                self._send_task_state(
+                    task, "ERR", sequence, "REASON", "NO_ACTIVE_TASK",
+                    "FIELD", self.field_mode.wire_name,
+                )
+                return
+            if task not in self.pending_holds:
+                self.pending_holds.append(task)
+            self.status = f"CHASSIS station {task} hold requested"
+            print(self.status, flush=True)
+            self._send_task_state(task, "HOLD_ACK", self.active_sequence)
+            return
+
         if len(parts) >= 3 and parts[0] == "ARM" and parts[2] == "STOP":
             task = parts[1]
             if self.active_task != task or not self._same_sequence(
@@ -882,9 +906,20 @@ class ChassisArmLink:
         self.pending_stops = []
         return stops
 
-    def complete_blue_column_hold(self, task, reason=""):
+    def consume_holds(self):
+        holds = self.pending_holds
+        self.pending_holds = []
+        return holds
+
+    def complete_blue_column_hold(self, task, reason="", success=True):
         if task != "COLUMN_CATCH" or self.active_task != task:
             return False
+        if not success:
+            return self._send_task_state(
+                task, "ERR", self.active_sequence,
+                "REASON", reason or "BLUE_HOLD_FAILED",
+                "FIELD", self.field_mode.wire_name,
+            )
         return self._send_task_state(
             task, "HOLD_DONE", self.active_sequence,
             "FIELD", self.field_mode.wire_name,
@@ -998,6 +1033,7 @@ class ChassisArmLink:
         self.pending_preselects.clear()
         self.pending_platform_slots.clear()
         self.pending_stops.clear()
+        self.pending_holds.clear()
         self.pending_retracts.clear()
         self.pending_white_line_queries.clear()
         self.white_line_active = False

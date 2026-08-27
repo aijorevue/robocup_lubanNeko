@@ -3622,30 +3622,43 @@ class TargetGraspController:
         if self.active_chassis_station != station:
             return f"chassis station {station} stop ignored; active={self.active_chassis_station}"
         if station == "COLUMN_CATCH" and self.field_mode == FieldMode.BLUE:
-            status = self._column_pose(
-                *COLUMN_CATCH_BLUE_HOLD_HIGH,
-                "COLUMN_CATCH blue orbit stop; hold expanded high",
-                raising=True,
-                id7=COLUMN_CATCH_GRIPPER_CLOSED_TICK,
-                id5=COLUMN_CATCH_CATCHER_HOME_TICK,
-                splitter_id4=COLUMN_CATCH_SPLITTER_TICK,
-            )
-            if self.servo_bridge.write_enabled and not self.servo_bridge.last_command_ok:
-                self.chassis_station_error_reason = "BLUE_HOLD_HIGH_FAILED"
-                return f"COLUMN_CATCH blue hold high failed: {status}"
-            self.id1, self.id2, self.id6 = COLUMN_CATCH_BLUE_HOLD_HIGH
-            self.platform_high_hold = True
-            self.chassis_station_stage = None
-            # Keep the COLUMN_CATCH transaction active until H7 later sends
-            # the dedicated BLUE RETRACT command after white-line alignment.
-            self.chassis_station_done_reason = None
-            self.status = (
-                "COLUMN_CATCH blue orbit stopped; arm held expanded "
-                f"ID1={self.id1} ID2={self.id2} ID6={self.id6}"
-            )
-            self.arm_preview.publish(self.status)
-            return f"STOPPED_HOLD_HIGH; {status}"
+            return self.hold_blue_task3_arm()
         return self._finish_chassis_station_after_retract("STOPPED_BY_CHASSIS")
+
+    def hold_blue_task3_arm(self):
+        """Hold the blue task-three arm high without generic STOP cleanup."""
+        self.platform_task.reset()
+        self.task3_ring_place_actions.clear()
+        if (
+            self.active_chassis_station != "COLUMN_CATCH"
+            or self.field_mode != FieldMode.BLUE
+        ):
+            self.chassis_station_error_reason = "BLUE_HOLD_WITHOUT_COLUMN_CATCH"
+            return "blue task-three hold ignored; no active blue COLUMN_CATCH"
+        status = self._column_pose(
+            *COLUMN_CATCH_BLUE_HOLD_HIGH,
+            "COLUMN_CATCH blue orbit boundary; hold expanded high",
+            raising=True,
+            id7=COLUMN_CATCH_GRIPPER_CLOSED_TICK,
+            id5=COLUMN_CATCH_CATCHER_HOME_TICK,
+            splitter_id4=COLUMN_CATCH_SPLITTER_TICK,
+        )
+        if self.servo_bridge.write_enabled and not self.servo_bridge.last_command_ok:
+            self.chassis_station_error_reason = "BLUE_HOLD_HIGH_FAILED"
+            return f"COLUMN_CATCH blue hold high failed: {status}"
+        self.id1, self.id2, self.id6 = COLUMN_CATCH_BLUE_HOLD_HIGH
+        self.platform_high_hold = True
+        self.chassis_station_stage = None
+        # Keep COLUMN_CATCH active until H7 sends RETRACT after white-line
+        # alignment. No generic station cleanup is allowed in this state.
+        self.chassis_station_done_reason = None
+        self.chassis_station_error_reason = None
+        self.status = (
+            "COLUMN_CATCH blue arm held expanded "
+            f"ID1={self.id1} ID2={self.id2} ID6={self.id6}"
+        )
+        self.arm_preview.publish(self.status)
+        return f"HOLD_EXPANDED_HIGH; {status}"
 
     def retract_blue_task3_arm(self):
         self.platform_high_hold = False
@@ -8267,6 +8280,25 @@ def main(argv=None):
                     # Start the station timer immediately.  The station
                     # controller itself keeps its required pose-settle stage.
                     chassis_link.restart_target_watch()
+            for hold in chassis_link.consume_holds():
+                hold_status = grasp_controller.hold_blue_task3_arm()
+                hold_success = (
+                    grasp_controller.chassis_station_error_reason is None
+                    and (
+                        not grasp_controller.servo_bridge.write_enabled
+                        or grasp_controller.servo_bridge.last_command_ok
+                    )
+                )
+                chassis_link.complete_blue_column_hold(
+                    hold,
+                    reason=hold_status,
+                    success=hold_success,
+                )
+                print(
+                    f"CHASSIS BLUE TASK3 HOLD success={'yes' if hold_success else 'no'} | "
+                    f"{hold_status}",
+                    flush=True,
+                )
             for slot_request in platform_slot_requests:
                 if slot_request.get("task") != "PLATFORM_PICK":
                     continue
