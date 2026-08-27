@@ -59,7 +59,7 @@ MODE_PROFILES = {
         "node_name": "abcd_letter_grasp_rk_direct_vision",
         "detect_every": "1",
         "preview_id4": "310",
-        "preview_id6": "415",
+        "preview_id6": "413",
         "grasp_id4_closed": "310",
         "grasp_id4_open": "450",
         "servo_angle_gap_deg": "20",

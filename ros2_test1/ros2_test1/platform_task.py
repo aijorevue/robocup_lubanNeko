@@ -9,8 +9,8 @@ import time
 
 from .grasp_calibration import calibrated_grasp_ticks
 
-HIGH = (650, 600, 415)
-INTERMEDIATE_HIGH = (650, 400, 415)
+HIGH = (650, 600, 413)
+INTERMEDIATE_HIGH = (650, 400, 413)
 PREPLACE_ID2 = 400
 LETTER_PLACE = (530, 350, 670)
 RING_PLACE = (520, 345, 171)
