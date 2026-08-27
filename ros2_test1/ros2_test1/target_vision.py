@@ -839,7 +839,7 @@ class ArmTuneFileBridge:
         if not servo_ready:
             return self._write_result(f"ERR SERVO_NOT_READY {controller.servo_bridge.status}")
         if (len(parts) - 1) % 2 != 0:
-            return self._write_result("ERR BAD_ARGS use pairs like: SET ID6 580 ID17 450")
+            return self._write_result("ERR BAD_ARGS use pairs like: SET ID6 580 ID17 405")
 
         targets = {}
         for index in range(1, len(parts), 2):
