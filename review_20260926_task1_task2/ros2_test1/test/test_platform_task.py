@@ -348,7 +348,7 @@ class TestPlatformTask(unittest.TestCase):
     def test_letter_and_both_field_ring_exact_actions(self):
         self.assertEqual(HIGH, (650, 600, 415))
         self.assertEqual(PREPLACE_ID2, 400)
-        self.assertEqual(LETTER_PLACE, (515, 350, 670))
+        self.assertEqual(LETTER_PLACE, (500, 350, 670))
         self.assertEqual(RING_PLACE, (520, 345, 171))
         self.assertEqual(POST_OPEN_ID2_RETREAT_TICKS_BY_KIND,
                          {'letter': 30, 'ring': 50})
@@ -485,11 +485,11 @@ class TestPlatformTask(unittest.TestCase):
             ('letter', 10.0, 600, 500, 570),
             ('letter', 11.0, 590, 520, 570),
             ('letter', 13.0, 570, 560, 570),
-            ('ring', 7.0, 630, 572, 520),
-            ('ring', 9.0, 610, 562, 520),
-            ('ring', 10.0, 600, 482, 520),
-            ('ring', 11.0, 590, 502, 550),
-            ('ring', 13.0, 570, 542, 550),
+            ('ring', 7.0, 630, 562, 520),
+            ('ring', 9.0, 610, 552, 520),
+            ('ring', 10.0, 600, 472, 520),
+            ('ring', 11.0, 590, 492, 550),
+            ('ring', 13.0, 570, 532, 550),
         ]
         for kind, depth, expected_descent_id1, expected_descent_id2, expected_retreat_id2 in cases:
             with self.subTest(kind=kind, depth=depth):
@@ -631,7 +631,7 @@ class TestControllerAndProtocol(unittest.TestCase):
         kwargs = {name: 1 for name, param in inspect.signature(TargetGraspController).parameters.items()
                   if param.default is inspect.Parameter.empty}
         kwargs.update(enabled=True, servo_bridge=bridge, arm_preview=preview,
-                      id1_ready=446, id2_ready=227, id7_closed=310, id7_open=450,
+                      id1_ready=446, id2_ready=227, id7_closed=320, id7_open=450,
                       id1_limits=(150, 710), id2_limits=(0, 769), angle_gap_degrees=20,
                       startup_sequence=False, one_shot=False)
         controller = TargetGraspController(**kwargs)

@@ -69,13 +69,10 @@ from .platform_task import (
     PLATFORM_CENTER_TIME_MS,
     HIGH as PLATFORM_HIGH_POSE,
     PLATFORM_ARM_TIME_MS,
-    PLATFORM_RETREAT_TIME_MS,
-    PLATFORM_RETURN_HIGH_TIME_MS,
     PLATFORM_GRIPPER_CLOSED,
     PLATFORM_GRIPPER_OPEN,
     PLATFORM_GRIPPER_TIME_MS,
     PLATFORM_LETTER_PLACE_TIME_MS,
-    PLATFORM_LETTER_SUCCESS_QUOTA,
     PLATFORM_RING_AXIS_TIME_MS,
     PLATFORM_RING_PLACE_TIME_MS,
     HTD85_AUX_HIGH,
@@ -111,58 +108,6 @@ DETECTION_MODE_PLATFORM_TARGETS = "platform_targets"
 DETECTION_MODE_COLUMN_LETTERS = "column_letters"
 DETECTION_MODE_WHITE_LINE = "white_line"
 
-# Task-three orbit acquisition is deliberately geometric first.  The moving
-# camera only needs to find a plausible white-edged square and wait until its
-# sides are approximately parallel to the image; letter classification happens
-# after H7 is paused on a fresh frame.
-COLUMN_BLOCK_MIN_AREA = 700.0
-COLUMN_BLOCK_MAX_AREA_RATIO = 0.12
-COLUMN_BLOCK_MIN_SIDE = 28.0
-COLUMN_BLOCK_MAX_SIDE_RATIO = 0.45
-COLUMN_BLOCK_MIN_RECTANGULARITY = 0.55
-COLUMN_BLOCK_MIN_SOLIDITY = 0.72
-COLUMN_BLOCK_MIN_GREEN_SUPPORT = 0.42
-COLUMN_BLOCK_MIN_GREEN_RING_SUPPORT = 0.55
-# The white candidate must look like a quadrilateral, not a circular mark.
-COLUMN_BLOCK_APPROX_EPSILON = 0.04
-COLUMN_BLOCK_MIN_APPROX_VERTICES = 4
-COLUMN_BLOCK_MAX_APPROX_VERTICES = 5
-# A letter block retains a meaningful white interior around its dark glyph.
-COLUMN_BLOCK_MIN_INNER_WHITE_RATIO = 0.12
-COLUMN_BLOCK_GREEN_HUE_RANGE = (35, 105)
-COLUMN_BLOCK_GREEN_MIN_SATURATION = 40
-COLUMN_BLOCK_GREEN_MIN_VALUE = 25
-# Keep the block away from the image boundary so clipped chassis hardware
-# cannot pause the formal orbit.
-COLUMN_BLOCK_EDGE_MARGIN_RATIO = 0.05
-# A usable letter block has a non-white glyph/interior; reject solid white
-# panels that only satisfy the outer rectangle geometry.
-COLUMN_BLOCK_MAX_INNER_WHITE_RATIO = 0.97
-# A real square has four continuous white sides and white corner joins. A
-# circular hole/reflection has white pixels only on scattered arcs.
-COLUMN_BLOCK_MIN_EDGE_WHITE_RATIO = 0.30
-COLUMN_BLOCK_MIN_CORNER_WHITE_RATIO = 0.18
-COLUMN_BLOCK_MIN_INNER_NONWHITE_RATIO = 0.15
-COLUMN_BLOCK_MAX_CIRCULARITY = 0.88
-COLUMN_BLOCK_MAX_ANGLE_DEG = 14.0
-# Keep H7 stopped long enough to classify the fresh letter inside the locked
-# white-block ROI. A selected letter then gets a separate bounded tracking
-# grace period while the arm centers; a brief detector gap must not skip it.
-COLUMN_BLOCK_CLASSIFY_TIMEOUT_S = 3.0
-COLUMN_BLOCK_TRACK_LOST_TIMEOUT_S = 3.0
-COLUMN_BLOCK_CONFIRM_FRAMES = 1
-COLUMN_BLOCK_MATCH_CENTER_PX = 55.0
-COLUMN_BLOCK_MATCH_IOU = 0.35
-# The block moves in the image while the arm recenters. Keep the original
-# block identity with bounded motion and scale instead of fixed-frame IoU.
-COLUMN_LOCKED_BLOCK_MAX_JUMP_PX = 220.0
-COLUMN_LOCKED_BLOCK_MAX_SIZE_RATIO = 2.5
-COLUMN_HANDLED_BLOCK_REARM_FRAMES = 15
-COLUMN_LOCKED_LETTER_MAX_JUMP_PX = 260.0
-COLUMN_LOCKED_LETTER_MAX_SIZE_RATIO = 2.8
-COLUMN_H7_PAUSE_TIMEOUT_S = 3.0
-COLUMN_H7_RESUME_TIMEOUT_S = 3.0
-
 BALL_DISTANCE_OFFSET_CM = -1.6072186919749336
 BALL_DISTANCE_SCALE_CM = 31.628878020276648
 GOLF_BALL_DIAMETER_MM = 42.67
@@ -197,7 +142,7 @@ TASK1_ID3_RETRACT_TIME_MS = 600
 TASK1_ID14_RETRACT_TICK = 300
 TASK1_ID14_FIELD_TICK = 700
 TASK1_ID14_YELLOW_TICK = 300
-TASK1_ID14_TIME_MS = 35
+TASK1_ID14_TIME_MS = 50
 TASK1_ID15_RETRACT_TICK = 600
 TASK1_ID15_OPEN_TICK = 730
 TASK1_AUX_TIME_MS = 100
@@ -207,13 +152,13 @@ CATCHER_RELEASE_READY_TICK = TASK1_ID15_OPEN_TICK
 POST_GRAB_ID2_RETREAT_TICK = 100
 DISC_CATCH_PREP_ID1_TICK = 650
 DISC_CATCH_PREP_ID2_TICK = 600
-DISC_CATCH_READY_ID1_TICK = 560
+DISC_CATCH_READY_ID1_TICK = 550
 DISC_CATCH_READY_ID2_TICK = 550
 DISC_CATCH_ID6_TICK = 415
 DISC_CATCH_CATCHER_READY_TICK = TASK1_ID15_OPEN_TICK
 DISC_CATCH_PREP_SPLITTER_TICK = TASK1_ID14_RETRACT_TICK
 DISC_CATCH_SPLITTER_READY_TICK = TASK1_ID14_RETRACT_TICK
-DISC_CATCH_TARGET_TIMEOUT_S = 4.0
+DISC_CATCH_TARGET_TIMEOUT_S = 5.0
 DISC_CATCH_SPLITTER_FIELD_TICK = TASK1_ID14_FIELD_TICK
 DISC_CATCH_SPLITTER_YELLOW_TICK = TASK1_ID14_YELLOW_TICK
 DISC_CATCH_SPLITTER_RESET_TICK = TASK1_ID14_RETRACT_TICK
@@ -242,7 +187,7 @@ ARM_TUNE_HTD85_AUX_LIMITS = {
     17: (0, 1000),
 }
 COLUMN_CATCH_READY_ID1_TICK = 650
-COLUMN_CATCH_READY_ID2_TICK = 570
+COLUMN_CATCH_READY_ID2_TICK = 550
 # Formal task three keeps its own high-pose calibration. Task-two alignment
 # must not change the column-catch pose implicitly.
 COLUMN_CATCH_READY_ID6_TICK = 415
@@ -257,8 +202,8 @@ COLUMN_CATCH_ID6_CENTER_RANGE = PLATFORM_CENTER_ID6_RANGE
 COLUMN_CATCH_ID2_CENTER_STEP_TICKS = PLATFORM_CENTER_ID2_STEP_TICKS
 COLUMN_CATCH_ID6_CENTER_STEP_TICKS = PLATFORM_CENTER_ID6_STEP_TICKS
 TASK3_RING_PLACE_HIGH = (650, 550, 415)
-TASK3_RING_PLACE_RETURN_HIGH = (600, 480, 415)
-TASK3_RING_PLACE_POSE = (470, 350, 171)
+TASK3_RING_PLACE_RETURN_HIGH = (650, 600, 415)
+TASK3_RING_PLACE_POSE = (480, 340, 190)
 TASK3_RING_PLACE_AXIS_TIME_MS = 500
 TASK3_RING_PLACE_ID1_TIME_MS = 700
 TASK3_RING_PLACE_HIGH_TIME_MS = 1000
@@ -266,12 +211,6 @@ TASK3_RING_PLACE_GRIPPER_OPEN_TICK = PLATFORM_GRIPPER_OPEN
 TASK3_RING_PLACE_GRIPPER_CLOSED_TICK = PLATFORM_GRIPPER_CLOSED
 TASK3_RING_PLACE_GRIPPER_TIME_MS = 200
 TASK3_RING_PLACE_SLOW_CLOSE_TIME_MS = 2000
-TASK3_RING_PLACE_RELEASE_GRIPPER_TIME_MS = 2000
-TASK3_RING_PLACE_RELEASE_HOLD_MS = 1500
-TASK3_RING_PLACE_POST_HIGH_HOLD_MS = 3000
-TASK3_RING_PLACE_CONTRACT_AXIS_TIME_MS = 500
-COLUMN_CATCH_LETTER_PLACE = (515, 350, 670)
-COLUMN_CATCH_LETTER_PLACE_TIME_MS = 500
 RING_DISTANCE_OFFSET_CM = BALL_DISTANCE_OFFSET_CM + RING_DISTANCE_EXTRA_CM
 RING_DISTANCE_SCALE_CM = (
     BALL_DISTANCE_SCALE_CM
@@ -398,18 +337,10 @@ def scale_detections(detections, scale_x, scale_y):
                 detection[key] = int(round(detection[key] * radius_scale))
         for key in ("box", "points"):
             if key in detection:
-                points = np.asarray(detection[key], dtype=np.float32)
-                # OpenCV contours are commonly shaped (N, 1, 2), while
-                # detector boxes may already be (N, 2).  Normalize only the
-                # point axis so a resized column-block contour cannot abort
-                # the worker with "index 1 ... size 1".
-                if points.size < 2 or points.size % 2:
-                    continue
-                point_shape = points.shape
-                scaled = points.reshape(-1, 2).copy()
-                scaled[:, 0] *= scale_x
-                scaled[:, 1] *= scale_y
-                detection[key] = scaled.reshape(point_shape).astype(np.int32)
+                points = np.asarray(detection[key], dtype=np.float32).copy()
+                points[:, 0] *= scale_x
+                points[:, 1] *= scale_y
+                detection[key] = points.astype(np.int32)
         if "projected_area" in detection:
             detection["projected_area"] *= scale_x * scale_y
     return detections
@@ -1322,19 +1253,6 @@ class TargetGraspController:
         self.disc_prep_high_active = False
         self.column_target_armed = True
         self.column_target_absent_frames = 0
-        self.column_pending_target = None
-        self.column_pending_frames = 0
-        self.column_locked_block = None
-        self.column_locked_distance_cm = None
-        # A white block alone must never authorize arm descent.
-        self.column_capture_authorized = False
-        self.column_handled_blocks = []
-        self.column_classify_deadline = 0.0
-        self.column_target_lost_since = None
-        self.column_pause_deadline = 0.0
-        self.column_resume_deadline = 0.0
-        self.column_timeout_recovering = False
-        self.letter_success_counts = {}
         self.platform_selected_letters = frozenset()
         self.platform_preselect_letters = set()
         self.platform_preselect_count = 2
@@ -1342,22 +1260,18 @@ class TargetGraspController:
             self._platform_pose,
             self._platform_gripper,
             self._platform_center,
-            retreat_pose=self._platform_retreat_pose,
             ring_place_id6=self._platform_ring_place_id6,
             ring_place_id2=self._platform_ring_place_id2,
             ring_place_id1=self._platform_ring_place_id1,
-            ring_place_id12=self._platform_ring_place_id12,
             ring_return_high_id1=self._platform_ring_return_high_id1,
             ring_return_high_id2=self._platform_ring_return_high_id2,
             ring_return_high_id6=self._platform_ring_return_high_id6,
             letter_place_id6=self._platform_letter_place_id6,
             letter_place_id2=self._platform_letter_place_id2,
             letter_place_id1=self._platform_letter_place_id1,
-            letter_place_id12=self._platform_letter_place_id12,
             letter_return_high_id1=self._platform_letter_return_high_id1,
             letter_return_high_id2=self._platform_letter_return_high_id2,
             letter_return_high_id6=self._platform_letter_return_high_id6,
-            letter_success_counts=self.letter_success_counts,
         )
         # Keep the arm in the task-two observation pose between slot
         # transactions.  The chassis link clears active_task after every
@@ -2504,34 +2418,6 @@ class TargetGraspController:
             raise RuntimeError("PLATFORM_POSE_CLAMPED")
         return self._arm_settle_s()
 
-    def _platform_retreat_pose(self, pose, raising):
-        """Use the restored standard arm duration for the existing ID2 retreat action."""
-        bridge = self.servo_bridge
-        previous_times = (
-            getattr(bridge, "arm_time_ms", PLATFORM_ARM_TIME_MS),
-            getattr(bridge, "aux_time_ms", PLATFORM_AUX_TIME_MS),
-            getattr(bridge, "gripper_time_ms", PLATFORM_GRIPPER_TIME_MS),
-            getattr(bridge, "splitter_time_ms", PLATFORM_AUX_TIME_MS),
-        )
-        try:
-            bridge.arm_time_ms = PLATFORM_RETREAT_TIME_MS
-            bridge.aux_time_ms = PLATFORM_AUX_TIME_MS
-            bridge.gripper_time_ms = PLATFORM_GRIPPER_TIME_MS
-            bridge.splitter_time_ms = PLATFORM_AUX_TIME_MS
-            self._send_fixed_arm_pose_staged(
-                *pose, "PLATFORM_PICK ID2 retreat", raising=raising,
-                id7=self.id7, id5=HTD85_AUX_HIGH[1],
-                splitter_id4=HTD85_AUX_HIGH[0],
-            )
-        finally:
-            (
-                bridge.arm_time_ms,
-                bridge.aux_time_ms,
-                bridge.gripper_time_ms,
-                bridge.splitter_time_ms,
-            ) = previous_times
-        return PLATFORM_RETREAT_TIME_MS / 1000.0 + 0.12
-
     def _platform_gripper(self, pulse):
         # Formal task two uses the standalone task-two gripper calibration.
         bridge = self.servo_bridge
@@ -2562,33 +2448,6 @@ class TargetGraspController:
             bridge.arm_time_ms = previous
         self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
         return PLATFORM_CENTER_TIME_MS / 1000.0
-
-    def _platform_ring_pair(self, servo_name_a, position_a, servo_name_b,
-                            position_b, motion_ms, label):
-        """Move the two placement joints in one HTD85 bus transaction."""
-
-        bridge = self.servo_bridge
-        previous = getattr(bridge, "arm_time_ms", PLATFORM_ARM_TIME_MS)
-        try:
-            bridge.arm_time_ms = int(motion_ms)
-            if bridge.write_enabled:
-                bridge.send_targets(**{
-                    servo_name_a: int(position_a),
-                    servo_name_b: int(position_b),
-                })
-                if not bridge.last_command_ok:
-                    raise RuntimeError(bridge.status)
-            setattr(self, servo_name_a, int(position_a))
-            setattr(self, servo_name_b, int(position_b))
-        finally:
-            bridge.arm_time_ms = previous
-        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
-        print(
-            f"PLATFORM_PICK {label} {servo_name_a.upper()}={int(position_a)} "
-            f"{servo_name_b.upper()}={int(position_b)} time={int(motion_ms)}ms",
-            flush=True,
-        )
-        return max(0.10, float(motion_ms) / 1000.0)
 
     def _platform_ring_single(self, servo_name, position, motion_ms, label):
         """Move one ring-placement joint with an explicit bus duration."""
@@ -2655,56 +2514,6 @@ class TargetGraspController:
         )
         return max(0.10, float(wait_ms) / 1000.0)
 
-    def _task3_ring_ordered_contract(self):
-        """Retract the final ring arm in ID6 -> ID2 -> ID1 order."""
-
-        bridge = self.servo_bridge
-        previous_arm_time = getattr(
-            bridge, "arm_time_ms", PLATFORM_ARM_TIME_MS
-        )
-        try:
-            bridge.arm_time_ms = TASK3_RING_PLACE_CONTRACT_AXIS_TIME_MS
-            for servo_name, position in (
-                ("id6", BASE_YAW_HOME_TICK),
-                ("id2", HOME_ID2_TICK),
-                ("id1", HOME_ID1_TICK),
-            ):
-                setattr(self, servo_name, int(position))
-                self.arm_preview.set_targets(
-                    self.id1, self.id2, self.id7, self.id6
-                )
-                print(
-                    "TASK3_RING_PLACE CONTRACT "
-                    f"{servo_name.upper()}={int(position)} "
-                    f"time={TASK3_RING_PLACE_CONTRACT_AXIS_TIME_MS}ms",
-                    flush=True,
-                )
-                status = bridge.send_targets(**{servo_name: int(position)})
-                self.last_command_time = time.monotonic()
-                if not bridge.last_command_ok:
-                    return f"ordered contract {servo_name} failed: {status}"
-                time.sleep(TASK3_RING_PLACE_CONTRACT_AXIS_TIME_MS / 1000.0)
-        finally:
-            bridge.arm_time_ms = previous_arm_time
-
-        self.id5 = CATCHER_HOME_TICK
-        self.splitter_id4 = SPLITTER_RETRACT_TICK
-        self._enforce_angle_gap()
-        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
-        aux_status = bridge.send_targets(
-            id3=TASK1_ID3_RETRACT_TICK,
-            id4=self.id7,
-            id5=self.id5,
-            splitter_id4=self.splitter_id4,
-        )
-        self.last_command_time = time.monotonic()
-        if not bridge.last_command_ok:
-            return f"ordered contract auxiliary retraction failed: {aux_status}"
-        return (
-            "ordered contract ID6->ID2->ID1 complete; "
-            f"aux={aux_status}"
-        )
-
     def _platform_ring_place_id6(self, id6):
         return self._platform_ring_single(
             "id6", id6, PLATFORM_RING_AXIS_TIME_MS, "RING_PLACE_ID6"
@@ -2725,12 +2534,6 @@ class TargetGraspController:
             "id1", id1, PLATFORM_LETTER_PLACE_TIME_MS, "LETTER_PLACE_ID1"
         )
 
-    def _platform_letter_place_id12(self, id1, id2):
-        return self._platform_ring_pair(
-            "id1", id1, "id2", id2, PLATFORM_LETTER_PLACE_TIME_MS,
-            "LETTER_PLACE_ID1_ID2"
-        )
-
     def _platform_ring_place_id2(self, id2):
         return self._platform_ring_single(
             "id2", id2, PLATFORM_RING_AXIS_TIME_MS, "RING_PLACE_ID2"
@@ -2742,40 +2545,34 @@ class TargetGraspController:
             "id1", id1, PLATFORM_RING_PLACE_TIME_MS, "RING_PLACE_ID1"
         )
 
-    def _platform_ring_place_id12(self, id1, id2):
-        return self._platform_ring_pair(
-            "id1", id1, "id2", id2, PLATFORM_RING_PLACE_TIME_MS,
-            "RING_PLACE_ID1_ID2"
-        )
-
     def _platform_ring_return_high_id1(self, id1):
         return self._platform_ring_single(
-            "id1", id1, PLATFORM_RETURN_HIGH_TIME_MS, "RING_RETURN_HIGH_ID1"
+            "id1", id1, PLATFORM_ARM_TIME_MS, "RING_RETURN_HIGH_ID1"
         )
 
     def _platform_ring_return_high_id2(self, id2):
         return self._platform_ring_single(
-            "id2", id2, PLATFORM_RETURN_HIGH_TIME_MS, "RING_RETURN_HIGH_ID2"
+            "id2", id2, PLATFORM_ARM_TIME_MS, "RING_RETURN_HIGH_ID2"
         )
 
     def _platform_ring_return_high_id6(self, id6):
         return self._platform_ring_single(
-            "id6", id6, PLATFORM_RETURN_HIGH_TIME_MS, "RING_RETURN_HIGH_ID6"
+            "id6", id6, PLATFORM_ARM_TIME_MS, "RING_RETURN_HIGH_ID6"
         )
 
     def _platform_letter_return_high_id1(self, id1):
         return self._platform_ring_single(
-            "id1", id1, PLATFORM_RETURN_HIGH_TIME_MS, "LETTER_RETURN_HIGH_ID1"
+            "id1", id1, PLATFORM_ARM_TIME_MS, "LETTER_RETURN_HIGH_ID1"
         )
 
     def _platform_letter_return_high_id2(self, id2):
         return self._platform_ring_single(
-            "id2", id2, PLATFORM_RETURN_HIGH_TIME_MS, "LETTER_RETURN_HIGH_ID2"
+            "id2", id2, PLATFORM_ARM_TIME_MS, "LETTER_RETURN_HIGH_ID2"
         )
 
     def _platform_letter_return_high_id6(self, id6):
         return self._platform_ring_single(
-            "id6", id6, PLATFORM_RETURN_HIGH_TIME_MS, "LETTER_RETURN_HIGH_ID6"
+            "id6", id6, PLATFORM_ARM_TIME_MS, "LETTER_RETURN_HIGH_ID6"
         )
 
     def _column_pose(
@@ -2936,9 +2733,6 @@ class TargetGraspController:
             if now < self.chassis_station_deadline:
                 return f"TASK3_RING_PLACE high settling {self.chassis_station_deadline - now:.1f}s"
             self.task3_ring_place_actions.extend([
-                ("WAIT_BEFORE_OPEN_ID17", self._task3_ring_wait,
-                 (TASK3_RING_PLACE_RELEASE_HOLD_MS,
-                  "wait before final ring release")),
                 ("OPEN_ID17", self._task3_ring_gripper,
                  (TASK3_RING_PLACE_GRIPPER_OPEN_TICK,
                   TASK3_RING_PLACE_GRIPPER_TIME_MS, "open ID17")),
@@ -2963,15 +2757,12 @@ class TargetGraspController:
                 ("ID6_HIGH", self._task3_ring_single,
                  ("id6", TASK3_RING_PLACE_RETURN_HIGH[2],
                   TASK3_RING_PLACE_HIGH_TIME_MS, "return high ID6")),
-                ("WAIT_AFTER_RETURN_HIGH", self._task3_ring_wait,
-                 (TASK3_RING_PLACE_POST_HIGH_HOLD_MS,
-                  "wait after return high before release confirmation")),
                 ("OPEN_ID17_AGAIN", self._task3_ring_gripper,
                  (TASK3_RING_PLACE_GRIPPER_OPEN_TICK,
-                  TASK3_RING_PLACE_RELEASE_GRIPPER_TIME_MS, "open ID17 again")),
+                  TASK3_RING_PLACE_GRIPPER_TIME_MS, "open ID17 again")),
                 ("CLOSE_ID17_AGAIN", self._task3_ring_gripper,
                 (TASK3_RING_PLACE_GRIPPER_CLOSED_TICK,
-                  TASK3_RING_PLACE_RELEASE_GRIPPER_TIME_MS, "close ID17 again")),
+                  TASK3_RING_PLACE_GRIPPER_TIME_MS, "close ID17 again")),
                 ("WAIT_BEFORE_CONTRACT", self._task3_ring_wait,
                  (1000, "wait after final ID17 close")),
             ])
@@ -2995,7 +2786,7 @@ class TargetGraspController:
                 )
                 self.arm_preview.publish(self.status)
                 return self.status
-            home_status = self._task3_ring_ordered_contract()
+            home_status = self.shutdown_contract()
             home_success = (
                 not self.servo_bridge.write_enabled
                 or self.servo_bridge.last_command_ok
@@ -3185,16 +2976,6 @@ class TargetGraspController:
         self.column_grab_id2 = None
         self.column_target_armed = True
         self.column_target_absent_frames = 0
-        self.column_pending_target = None
-        self.column_pending_frames = 0
-        self.column_locked_block = None
-        self.column_locked_distance_cm = None
-        self.column_capture_authorized = False
-        self.column_handled_blocks = []
-        self.column_classify_deadline = 0.0
-        self.column_target_lost_since = None
-        self.column_pause_deadline = 0.0
-        self.column_resume_deadline = 0.0
         self.chassis_station_deadline = 0.0
         self.arm_preview.set_targets(
             COLUMN_CATCH_READY_ID1_TICK,
@@ -3283,245 +3064,6 @@ class TargetGraspController:
             default=None,
         )
 
-    def _column_any_letter_visible(self, detections):
-        candidates = [
-            det for det in detections
-            if det.get("kind") == "letter"
-            and str(det.get("letter", "")).upper() in LETTERS
-            and det.get("fully_visible", True)
-        ]
-        return max(
-            candidates,
-            key=lambda det: (
-                float(det.get("confidence") or 0.0),
-                float(det.get("projected_area") or 0.0),
-            ),
-            default=None,
-        )
-
-    @staticmethod
-    def _column_bbox_iou(first, second):
-        if not first or not second or len(first) < 4 or len(second) < 4:
-            return 0.0
-        ax, ay, aw, ah = (float(value) for value in first[:4])
-        bx, by, bw, bh = (float(value) for value in second[:4])
-        ax2, ay2 = ax + max(0.0, aw), ay + max(0.0, ah)
-        bx2, by2 = bx + max(0.0, bw), by + max(0.0, bh)
-        intersection = max(0.0, min(ax2, bx2) - max(ax, bx)) * max(
-            0.0, min(ay2, by2) - max(ay, by)
-        )
-        union = max(1.0, aw * ah + bw * bh - intersection)
-        return intersection / union
-
-    @classmethod
-    def _column_blocks_match(cls, first, second):
-        if first is None or second is None:
-            return False
-        first_center = np.asarray(first.get("center", ()), dtype=np.float32)
-        second_center = np.asarray(second.get("center", ()), dtype=np.float32)
-        if first_center.shape != (2,) or second_center.shape != (2,):
-            return False
-        return (
-            float(np.linalg.norm(first_center - second_center))
-            <= COLUMN_BLOCK_MATCH_CENTER_PX
-            and cls._column_bbox_iou(first.get("bbox"), second.get("bbox"))
-            >= COLUMN_BLOCK_MATCH_IOU
-        )
-
-    @staticmethod
-    def _column_block_tracks_match(first, second):
-        """Track the locked white block while arm centering changes its view."""
-        if first is None or second is None:
-            return False
-        first_center = np.asarray(first.get("center", ()), dtype=np.float32)
-        second_center = np.asarray(second.get("center", ()), dtype=np.float32)
-        first_bbox = first.get("bbox", ())
-        second_bbox = second.get("bbox", ())
-        if (
-            first_center.shape != (2,)
-            or second_center.shape != (2,)
-            or len(first_bbox) < 4
-            or len(second_bbox) < 4
-        ):
-            return False
-        first_size = max(float(first_bbox[2]), float(first_bbox[3]), 1.0)
-        second_size = max(float(second_bbox[2]), float(second_bbox[3]), 1.0)
-        size_ratio = max(first_size, second_size) / min(first_size, second_size)
-        return (
-            float(np.linalg.norm(first_center - second_center))
-            <= COLUMN_LOCKED_BLOCK_MAX_JUMP_PX
-            and size_ratio <= COLUMN_LOCKED_BLOCK_MAX_SIZE_RATIO
-        )
-
-    @classmethod
-    def _column_letters_in_block(cls, detections, block):
-        if block is None:
-            return []
-        bbox = block.get("bbox", ())
-        if len(bbox) < 4:
-            return []
-        x, y, width, height = (float(value) for value in bbox[:4])
-        pad_x = max(12.0, width * 0.22)
-        pad_y = max(12.0, height * 0.22)
-        candidates = []
-        for det in detections:
-            if (
-                det.get("kind") != "letter"
-                or not det.get("fully_visible", True)
-                or str(det.get("letter", "")).upper() not in LETTERS
-            ):
-                continue
-            center = np.asarray(det.get("center", ()), dtype=np.float32)
-            if center.shape != (2,):
-                continue
-            if (
-                x - pad_x <= float(center[0]) <= x + width + pad_x
-                and y - pad_y <= float(center[1]) <= y + height + pad_y
-            ):
-                candidates.append(det)
-        return candidates
-
-    def _column_letter_quota_available(self, label):
-        return (
-            self.letter_success_counts.get(str(label).upper(), 0)
-            < PLATFORM_LETTER_SUCCESS_QUOTA
-        )
-
-    @classmethod
-    def _column_locked_letter_fallback(cls, detections, reference, block):
-        """Recover the locked glyph if its white border is briefly hidden."""
-        if reference is None or block is None:
-            return None
-        label = str(reference.get("letter", "")).upper()
-        reference_center = np.asarray(reference.get("center", ()), dtype=np.float32)
-        block_center = np.asarray(block.get("center", ()), dtype=np.float32)
-        if reference_center.shape != (2,):
-            return None
-        reference_bbox = reference.get("bbox", ())
-        block_bbox = block.get("bbox", ())
-        reference_size = max(
-            float(reference_bbox[2]), float(reference_bbox[3]), 1.0
-        ) if len(reference_bbox) >= 4 else None
-        block_size = max(
-            float(block_bbox[2]), float(block_bbox[3]), 1.0
-        ) if len(block_bbox) >= 4 else 120.0
-        candidates = []
-        for det in detections:
-            if (
-                det.get("kind") != "letter"
-                or not det.get("fully_visible", True)
-                or str(det.get("letter", "")).upper() != label
-            ):
-                continue
-            center = np.asarray(det.get("center", ()), dtype=np.float32)
-            if center.shape != (2,):
-                continue
-            if float(np.linalg.norm(center - reference_center)) > COLUMN_LOCKED_LETTER_MAX_JUMP_PX:
-                continue
-            if block_center.shape == (2,) and float(np.linalg.norm(center - block_center)) > max(
-                COLUMN_LOCKED_BLOCK_MAX_JUMP_PX * 2.0, block_size * 3.0
-            ):
-                continue
-            bbox = det.get("bbox", ())
-            if reference_size is not None and len(bbox) >= 4:
-                size = max(float(bbox[2]), float(bbox[3]), 1.0)
-                if max(reference_size, size) / min(reference_size, size) > COLUMN_LOCKED_LETTER_MAX_SIZE_RATIO:
-                    continue
-            candidates.append(det)
-        if not candidates:
-            return None
-        return min(
-            candidates,
-            key=lambda det: float(
-                np.linalg.norm(
-                    np.asarray(det.get("center"), dtype=np.float32) - reference_center
-                )
-            ),
-        )
-
-    def _column_block_visible(self, detections):
-        candidates = [
-            det for det in detections
-            if det.get("kind") == "column_block"
-            and det.get("fully_visible", True)
-            and bool(det.get("parallel", False))
-            and not self._column_block_has_processed_letter(detections, det)
-        ]
-        return max(
-            candidates,
-            key=lambda det: float(det.get("projected_area") or 0.0),
-            default=None,
-        )
-
-    def _column_block_has_processed_letter(self, detections, block):
-        """Return whether this visible block belongs to a completed letter."""
-        if block is None or not self.column_handled_blocks:
-            return False
-        return any(
-            self._column_block_tracks_match(
-                handled.get("block"), block
-            )
-            for handled in self.column_handled_blocks
-        )
-
-    def _column_update_handled_blocks(self, detections):
-        """Keep processed block locks while visible, then re-arm them."""
-        blocks = [
-            det for det in detections
-            if det.get("kind") == "column_block"
-            and det.get("fully_visible", True)
-            and bool(det.get("parallel", False))
-        ]
-        active = []
-        for handled in self.column_handled_blocks:
-            visible = any(
-                self._column_block_tracks_match(handled.get("block"), block)
-                for block in blocks
-            )
-            if visible:
-                handled["missing_frames"] = 0
-                active.append(handled)
-                continue
-            handled["missing_frames"] = int(
-                handled.get("missing_frames", 0)
-            ) + 1
-            if handled["missing_frames"] < COLUMN_HANDLED_BLOCK_REARM_FRAMES:
-                active.append(handled)
-            else:
-                print(
-                    f"CHASSIS STATION COLUMN_CATCH block rearmed "
-                    f"label={handled.get('label', '?')} reason=NOT_VISIBLE",
-                    flush=True,
-                )
-        self.column_handled_blocks = active
-
-    def _column_record_handled_block(self, label, block):
-        """Suppress one processed physical block without blocking new blocks."""
-        if block is None:
-            return
-        bbox = tuple(block.get("bbox", ()))
-        center = tuple(block.get("center", ()))
-        if len(bbox) < 4 or len(center) != 2:
-            return
-        if any(
-            self._column_block_tracks_match(item.get("block"), block)
-            for item in self.column_handled_blocks
-        ):
-            return
-        self.column_handled_blocks.append(
-            {
-                "label": str(label or "?").upper(),
-                "block": {"bbox": bbox, "center": center},
-                "missing_frames": 0,
-            }
-        )
-        print(
-            f"CHASSIS STATION COLUMN_CATCH block locked "
-            f"label={str(label or '?').upper()} center={center} "
-            "action=SKIP_WHILE_VISIBLE",
-            flush=True,
-        )
-
     def _finish_chassis_station_after_retract(self, reason):
         # Every completed station must leave the arm fully retracted. In
         # particular, task-one completion must not leave ID5 at the catcher
@@ -3577,14 +3119,6 @@ class TargetGraspController:
         self.platform_high_pose_sent = False
         self.column_target_armed = True
         self.column_target_absent_frames = 0
-        self.column_pending_target = None
-        self.column_pending_frames = 0
-        self.column_locked_block = None
-        self.column_locked_distance_cm = None
-        self.column_capture_authorized = False
-        self.column_target_lost_since = None
-        self.column_pause_deadline = 0.0
-        self.column_resume_deadline = 0.0
         self._reset_cycle_for_search("chassis reset; arm home")
         return success, result
 
@@ -3988,78 +3522,8 @@ class TargetGraspController:
         """Run the formal letter pause/center/grasp/resume transaction."""
 
         now = time.monotonic()
-        if detection_fresh:
-            self._column_update_handled_blocks(detections)
-        block_target = (
-            self._column_block_visible(detections) if detection_fresh else None
-        )
-        active_locked_block = self.column_locked_block
-        if detection_fresh and self.column_locked_block is not None:
-            tracked_blocks = [
-                det for det in detections
-                if det.get("kind") == "column_block"
-                and det.get("fully_visible", True)
-                and bool(det.get("parallel", False))
-                and self._column_block_tracks_match(self.column_locked_block, det)
-            ]
-            if tracked_blocks:
-                active_locked_block = min(
-                    tracked_blocks,
-                    key=lambda det: float(
-                        np.linalg.norm(
-                            np.asarray(det.get("center", ()), dtype=np.float32)
-                            - np.asarray(self.column_locked_block.get("center", ()), dtype=np.float32)
-                        )
-                    ),
-                )
-                self.column_locked_block = self._copy_target(active_locked_block)
-            else:
-                # Keep the PAUSED block ROI for transient contour loss.  This
-                # matches the standalone classifier: a dark glyph can hide or
-                # split the white border for a frame, but an unrelated
-                # full-frame letter must never become the grasp target.
-                active_locked_block = self.column_locked_block
-        # Before PAUSE, only the geometric block detector is authoritative.
-        # After PAUSE, bind classification to the block that caused PAUSE;
-        # never promote an unrelated full-frame letter into a grasp target.
-        column_letter_candidates = (
-            self._column_letters_in_block(detections, active_locked_block)
-            if detection_fresh and active_locked_block is not None
-            else []
-        )
-        if (
-            detection_fresh
-            and self.column_locked_block is not None
-            and not column_letter_candidates
-            and self.chassis_station_stage in {"column_classify", "column_centering"}
-        ):
-            recovered = self._column_locked_letter_fallback(
-                detections,
-                self.locked_target or self.last_visual_target,
-                self.column_locked_block,
-            )
-            if recovered is not None:
-                column_letter_candidates = [recovered]
-        any_letter_target = max(
-            column_letter_candidates,
-            key=lambda det: (
-                float(det.get("confidence") or 0.0),
-                float(det.get("projected_area") or 0.0),
-            ),
-            default=None,
-        )
-        selected_letter_candidates = [
-            det for det in column_letter_candidates
-            if self.target_policy.matches_column_letter(det, self.target_letters)
-            and self._column_letter_quota_available(det.get("letter", ""))
-        ]
-        letter_target = max(
-            selected_letter_candidates,
-            key=lambda det: (
-                float(det.get("confidence") or 0.0),
-                float(det.get("projected_area") or 0.0),
-            ),
-            default=None,
+        letter_target = (
+            self._column_letter_visible(detections) if detection_fresh else None
         )
 
         if self.splitter_id4 != COLUMN_CATCH_SPLITTER_TICK:
@@ -4080,57 +3544,37 @@ class TargetGraspController:
                     "COLUMN_CATCH ready settling "
                     f"{self.chassis_station_deadline - now:.1f}s"
                 )
-            # The orbit is already running. First acquire a geometric white
-            # block; letter classification is intentionally deferred until
-            # H7 is paused on a fresh frame.
+            # The orbit is already running. Keep the arm high and wait for a
+            # selected letter before asking H7 to stop.
             self.chassis_station_stage = "column_detect"
             self.column_target_armed = True
-            return "COLUMN_CATCH detecting parallel white-edged block during orbit"
+            return "COLUMN_CATCH detecting selected A/B/C/D letter during orbit"
 
         if self.chassis_station_stage == "column_detect":
-            self.state = "COLUMN_CATCH detect white-edged block"
+            self.state = "COLUMN_CATCH detect selected letter"
             if not detection_fresh:
                 return "COLUMN_CATCH waiting for fresh detection"
-            if block_target is None:
+            if letter_target is None:
                 self.column_target_absent_frames += 1
-                self.column_pending_target = None
-                self.column_pending_frames = 0
                 if self.column_target_absent_frames >= 3:
                     self.column_target_armed = True
-                return "COLUMN_CATCH orbit detect; no parallel white-edged block"
+                return "COLUMN_CATCH orbit detect; no selected letter"
             self.column_target_absent_frames = 0
             if not self.column_target_armed:
-                return "COLUMN_CATCH waiting white block to leave before rearm"
-            if self._column_blocks_match(self.column_pending_target, block_target):
-                self.column_pending_frames += 1
-            else:
-                self.column_pending_target = self._copy_target(block_target)
-                self.column_pending_frames = 1
-            if self.column_pending_frames < COLUMN_BLOCK_CONFIRM_FRAMES:
-                return (
-                    "COLUMN_CATCH candidate confirmation "
-                    f"{self.column_pending_frames}/{COLUMN_BLOCK_CONFIRM_FRAMES}"
-                )
+                return "COLUMN_CATCH waiting selected letter to leave before rearm"
             if chassis_link is None:
                 return self._column_abort("NO_FORMAL_CHASSIS_LINK")
             self.column_target_armed = False
-            self.column_pending_target = None
-            self.column_pending_frames = 0
-            self.column_locked_block = self._copy_target(block_target)
-            self.column_locked_distance_cm = None
-            self.column_capture_authorized = False
-            self.column_target_lost_since = None
-            self.locked_target = self._copy_target(block_target)
-            self.last_visual_target = self._copy_target(block_target)
+            self.locked_target = self._copy_target(letter_target)
+            self.last_visual_target = self._copy_target(letter_target)
             self.centered_frames = 0
             self.center_distance_samples = []
             self.visual_lost_frames = 0
             self.locked_plan = None
             self.chassis_station_stage = "column_pause_request"
-            self.column_pause_deadline = now + COLUMN_H7_PAUSE_TIMEOUT_S
             self.status = (
-                f"COLUMN_CATCH white block angle={block_target.get('angle', '?')} "
-                "detected; request H7 PAUSE"
+                f"COLUMN_CATCH letter {letter_target.get('letter')} detected; "
+                "request H7 PAUSE"
             )
             print(f"CHASSIS STATION {self.status}", flush=True)
 
@@ -4140,96 +3584,23 @@ class TargetGraspController:
                 return self._column_abort("NO_FORMAL_CHASSIS_LINK")
             state = chassis_link.formal_column_pause_state()
             if state == "PAUSED":
-                self.chassis_station_stage = "column_classify"
-                self.column_classify_deadline = now + COLUMN_BLOCK_CLASSIFY_TIMEOUT_S
-                self.column_pause_deadline = 0.0
-                return (
-                    "COLUMN_CATCH H7 PAUSED; classify fresh letter "
-                    f"for up to {COLUMN_BLOCK_CLASSIFY_TIMEOUT_S:.1f}s"
-                )
+                self.chassis_station_stage = "column_centering"
+                return "COLUMN_CATCH H7 PAUSED; center target"
             if state == "STOPPED":
                 return self._column_abort("H7_STOPPED_DURING_PAUSE")
-            if now >= self.column_pause_deadline:
-                return self._column_timeout_recover(
-                    "H7_PAUSE_TIMEOUT", chassis_link
-                )
             chassis_link.request_formal_column_pause()
             return f"COLUMN_CATCH waiting H7 PAUSED state={state or 'NONE'}"
 
-        if self.chassis_station_stage == "column_classify":
-            self.state = "COLUMN_CATCH classify paused block"
-            if detection_fresh and any_letter_target is not None:
-                if letter_target is None:
-                    self.status = (
-                        f"COLUMN_CATCH ignored non-target letter "
-                        f"{any_letter_target.get('letter', '?')}; resume H7"
-                    )
-                    self.chassis_station_stage = "column_resume_abort"
-                    return self.status
-                self.locked_target = self._copy_target(letter_target)
-                # Only a paused, ROI-bound, selected letter can authorize
-                # centering and the later open/retreat/descend stages.
-                self.column_capture_authorized = True
-                if letter_target.get("distance_cm") is not None:
-                    try:
-                        self.column_locked_distance_cm = float(letter_target["distance_cm"])
-                    except (TypeError, ValueError):
-                        self.column_locked_distance_cm = None
-                self.last_visual_target = self._copy_target(letter_target)
-                self.centered_frames = 0
-                self.center_distance_samples = []
-                self.visual_lost_frames = 0
-                self.column_target_lost_since = None
-                self.locked_plan = None
-                self.chassis_station_stage = "column_centering"
-                print(
-                    f"CHASSIS STATION COLUMN_CATCH target letter "
-                    f"{letter_target.get('letter')} accepted after white block pause",
-                    flush=True,
-                )
-            elif now >= self.column_classify_deadline:
-                self.status = "COLUMN_CATCH white block has no valid letter; resume H7"
-                self.chassis_station_stage = "column_resume_abort"
-                return self.status
-            else:
-                return "COLUMN_CATCH paused; waiting fresh letter classification"
-
         if self.chassis_station_stage == "column_centering":
             self.state = "COLUMN_CATCH center target"
-            if not self.column_capture_authorized:
-                self.status = (
-                    "COLUMN_CATCH blocked arm motion: no accepted letter; resume H7"
-                )
-                self.chassis_station_stage = "column_resume_abort"
-                return self.status
             if not detection_fresh or letter_target is None:
-                if self.column_target_lost_since is None:
-                    self.column_target_lost_since = now
-                lost_s = now - self.column_target_lost_since
-                if lost_s >= COLUMN_BLOCK_TRACK_LOST_TIMEOUT_S:
+                self.visual_lost_frames += 1
+                if self.visual_lost_frames > 8:
                     self.chassis_station_stage = "column_resume_abort"
-                    self.status = (
-                        "COLUMN_CATCH target lost while paused for "
-                        f"{lost_s:.1f}s; resume H7"
-                    )
+                    self.status = "COLUMN_CATCH target lost while paused; resume H7"
                     return self.status
-                return (
-                    "COLUMN_CATCH paused; waiting fresh letter for centering "
-                    f"({lost_s:.1f}/{COLUMN_BLOCK_TRACK_LOST_TIMEOUT_S:.1f}s)"
-                )
-            self.column_target_lost_since = None
-            letter_target = self._copy_target(letter_target)
-            if letter_target.get("distance_cm") is None and self.column_locked_distance_cm is not None:
-                letter_target["distance_cm"] = self.column_locked_distance_cm
-            elif letter_target.get("distance_cm") is not None:
-                try:
-                    self.column_locked_distance_cm = float(letter_target["distance_cm"])
-                except (TypeError, ValueError):
-                    pass
-            letter_target["task3_block_bbox"] = tuple(
-                self.column_locked_block.get("bbox", ())
-            ) if self.column_locked_block else ()
-            self.locked_target = letter_target
+                return "COLUMN_CATCH paused; waiting fresh letter for centering"
+            self.locked_target = self._copy_target(letter_target)
             centered, message = self._visual_center_step(
                 letter_target,
                 frame_shape,
@@ -4267,79 +3638,19 @@ class TargetGraspController:
 
         if self.chassis_station_stage == "column_resume_abort":
             self.state = "COLUMN_CATCH resume after abort"
-            self.column_capture_authorized = False
             if chassis_link is None:
                 return self._column_abort("NO_FORMAL_CHASSIS_LINK")
-            if self.column_resume_deadline <= 0.0:
-                self.column_resume_deadline = now + COLUMN_H7_RESUME_TIMEOUT_S
-            state = chassis_link.formal_column_pause_state()
-            if state == "RESUMED":
-                completed_label = str(
-                    (self.locked_target or {}).get("letter", "")
-                ).upper()
-                self._column_record_handled_block(
-                    completed_label, self.column_locked_block
-                )
+            if chassis_link.formal_column_pause_state() == "RESUMED":
                 self.locked_target = None
                 self.locked_plan = None
-                self.column_locked_block = None
-                self.column_locked_distance_cm = None
-                self.column_resume_deadline = 0.0
-                self.column_target_lost_since = None
                 self.chassis_station_stage = "column_detect"
                 self.column_target_armed = False
                 return "COLUMN_CATCH resumed after skipped target"
-            if now >= self.column_resume_deadline:
-                return self._column_timeout_recover(
-                    "H7_RESUME_TIMEOUT_AFTER_SKIP", chassis_link
-                )
             chassis_link.request_formal_column_resume()
             return "COLUMN_CATCH waiting H7 RESUMED after skipped target"
 
-        if self.chassis_station_stage == "column_timeout_resume":
-            self.state = "COLUMN_CATCH waiting H7 RESUMED after local recovery"
-            if chassis_link is None:
-                return self._column_abort("NO_FORMAL_CHASSIS_LINK")
-            state = chassis_link.formal_column_pause_state()
-            if state == "RESUMED":
-                self.column_timeout_recovering = False
-                self.column_resume_deadline = 0.0
-                self.column_target_armed = False
-                self.column_target_absent_frames = 0
-                self.column_pending_target = None
-                self.column_pending_frames = 0
-                self.column_locked_block = None
-                self.column_locked_distance_cm = None
-                self.column_capture_authorized = False
-                self.column_target_lost_since = None
-                self.locked_target = None
-                self.locked_plan = None
-                self.last_visual_target = None
-                self.chassis_station_stage = "column_detect"
-                return "COLUMN_CATCH local recovery high; H7 RESUMED; continue orbit"
-            if state == "STOPPED":
-                return self._column_abort("H7_STOPPED_AFTER_LOCAL_RECOVERY")
-            if self.column_resume_deadline <= 0.0:
-                self.column_resume_deadline = now + COLUMN_H7_RESUME_TIMEOUT_S
-            if now >= self.column_resume_deadline:
-                self.chassis_station_stage = None
-                self.state = "fault"
-                self.algorithm_stage = "fault"
-                self.chassis_station_error_reason = "H7_RESUME_TIMEOUT_AFTER_LOCAL_RECOVERY"
-                self.status = f"COLUMN_CATCH {self.chassis_station_error_reason}"
-                self.arm_preview.publish(self.status)
-                return self.status
-            chassis_link.request_formal_column_resume()
-            return f"COLUMN_CATCH waiting H7 RESUMED after local recovery state={state or 'NONE'}"
-
         if self.chassis_station_stage == "column_open":
             self.state = "COLUMN_CATCH open claw"
-            if not self.column_capture_authorized:
-                self.status = (
-                    "COLUMN_CATCH blocked open/descend: no accepted letter; resume H7"
-                )
-                self.chassis_station_stage = "column_resume_abort"
-                return self.status
             if not self.servo_bridge.write_enabled:
                 self.id7 = COLUMN_CATCH_GRIPPER_OPEN_TICK
                 self.chassis_station_stage = "column_open_wait"
@@ -4363,12 +3674,6 @@ class TargetGraspController:
 
         if self.chassis_station_stage == "column_open_retreat":
             self.state = "COLUMN_CATCH post-open ID2 retreat"
-            if not self.column_capture_authorized:
-                self.status = (
-                    "COLUMN_CATCH blocked ID2 retreat: no accepted letter; resume H7"
-                )
-                self.chassis_station_stage = "column_resume_abort"
-                return self.status
             previous_id2 = int(self.id2)
             target_id2 = max(
                 self.id2_limits[0],
@@ -4409,12 +3714,6 @@ class TargetGraspController:
 
         if self.chassis_station_stage == "column_descend":
             self.state = "COLUMN_CATCH IK descend"
-            if not self.column_capture_authorized:
-                self.status = (
-                    "COLUMN_CATCH blocked IK descend: no accepted letter; resume H7"
-                )
-                self.chassis_station_stage = "column_resume_abort"
-                return self.status
             if self.locked_plan is None:
                 return self._column_abort("NO_VALID_IK_PLAN")
             target_id1 = self._clamp(self.locked_plan["id1"], self.id1_limits)
@@ -4497,89 +3796,6 @@ class TargetGraspController:
             self.state = "COLUMN_CATCH high wait"
             if now < self.chassis_station_deadline:
                 return f"COLUMN_CATCH high settling {self.chassis_station_deadline - now:.1f}s"
-            self.chassis_station_stage = "column_place_work"
-
-        if self.chassis_station_stage == "column_place_work":
-            self.state = "COLUMN_CATCH letter place work pose"
-            status = self._column_pose(
-                COLUMN_CATCH_LETTER_PLACE[0],
-                COLUMN_CATCH_LETTER_PLACE[1],
-                COLUMN_CATCH_LETTER_PLACE[2],
-                "COLUMN_CATCH letter placement pose",
-                raising=False,
-                id7=COLUMN_CATCH_GRIPPER_CLOSED_TICK,
-                id5=COLUMN_CATCH_CATCHER_HOME_TICK,
-                splitter_id4=COLUMN_CATCH_SPLITTER_TICK,
-            )
-            if not self.servo_bridge.write_enabled:
-                self.chassis_station_stage = "column_place_work_wait"
-                self.chassis_station_deadline = now + COLUMN_CATCH_LETTER_PLACE_TIME_MS / 1000.0
-            elif self.servo_bridge.last_command_ok:
-                self.chassis_station_stage = "column_place_work_wait"
-                self.chassis_station_deadline = time.monotonic() + COLUMN_CATCH_LETTER_PLACE_TIME_MS / 1000.0
-            return f"COLUMN_CATCH letter placement pose | {status}"
-
-        if self.chassis_station_stage == "column_place_work_wait":
-            self.state = "COLUMN_CATCH letter place wait"
-            if now < self.chassis_station_deadline:
-                return f"COLUMN_CATCH letter place wait {self.chassis_station_deadline - now:.1f}s"
-            self.chassis_station_stage = "column_place_open"
-
-        if self.chassis_station_stage == "column_place_open":
-            self.state = "COLUMN_CATCH letter place open"
-            status = self._column_gripper(
-                COLUMN_CATCH_GRIPPER_OPEN_TICK,
-                "COLUMN_CATCH open ID17 to place letter",
-            )
-            if not self.servo_bridge.write_enabled or self.servo_bridge.last_command_ok:
-                self.chassis_station_stage = "column_place_open_wait"
-                self.chassis_station_deadline = time.monotonic() + self._aux_settle_s()
-            return status
-
-        if self.chassis_station_stage == "column_place_open_wait":
-            self.state = "COLUMN_CATCH letter place open wait"
-            if now < self.chassis_station_deadline:
-                return f"COLUMN_CATCH letter place open wait {self.chassis_station_deadline - now:.1f}s"
-            self.chassis_station_stage = "column_place_close"
-
-        if self.chassis_station_stage == "column_place_close":
-            self.state = "COLUMN_CATCH letter place close"
-            status = self._column_gripper(
-                COLUMN_CATCH_GRIPPER_CLOSED_TICK,
-                "COLUMN_CATCH close ID17 after letter placement",
-            )
-            if not self.servo_bridge.write_enabled or self.servo_bridge.last_command_ok:
-                self.chassis_station_stage = "column_place_close_wait"
-                self.chassis_station_deadline = time.monotonic() + self._aux_settle_s()
-            return status
-
-        if self.chassis_station_stage == "column_place_close_wait":
-            self.state = "COLUMN_CATCH letter place close wait"
-            if now < self.chassis_station_deadline:
-                return f"COLUMN_CATCH letter place close wait {self.chassis_station_deadline - now:.1f}s"
-            self.chassis_station_stage = "column_place_return_high"
-
-        if self.chassis_station_stage == "column_place_return_high":
-            self.state = "COLUMN_CATCH letter place return high"
-            status = self._column_pose(
-                COLUMN_CATCH_READY_ID1_TICK,
-                COLUMN_CATCH_READY_ID2_TICK,
-                COLUMN_CATCH_READY_ID6_TICK,
-                "COLUMN_CATCH return high after letter placement",
-                raising=True,
-                id7=COLUMN_CATCH_GRIPPER_CLOSED_TICK,
-                id5=COLUMN_CATCH_CATCHER_HOME_TICK,
-                splitter_id4=COLUMN_CATCH_SPLITTER_TICK,
-            )
-            if not self.servo_bridge.write_enabled or self.servo_bridge.last_command_ok:
-                self.chassis_station_stage = "column_place_return_high_wait"
-                self.chassis_station_deadline = time.monotonic() + self._arm_settle_s()
-            return f"COLUMN_CATCH return high after letter placement | {status}"
-
-        if self.chassis_station_stage == "column_place_return_high_wait":
-            self.state = "COLUMN_CATCH letter place high wait"
-            if now < self.chassis_station_deadline:
-                return f"COLUMN_CATCH letter place high wait {self.chassis_station_deadline - now:.1f}s"
             self.chassis_station_stage = "column_resume_request"
 
         if self.chassis_station_stage == "column_resume_request":
@@ -4588,105 +3804,22 @@ class TargetGraspController:
                 return self._column_abort("NO_FORMAL_CHASSIS_LINK")
             state = chassis_link.formal_column_pause_state()
             if state == "RESUMED":
-                completed_label = str(
-                    (self.locked_target or {}).get("letter", "")
-                ).upper()
-                completed_capture = bool(self.column_capture_authorized)
-                self._column_record_handled_block(
-                    completed_label, self.column_locked_block
-                )
-                if (
-                    completed_capture
-                    and completed_label
-                    and self._column_letter_quota_available(completed_label)
-                ):
-                    self.letter_success_counts[completed_label] = (
-                        self.letter_success_counts.get(completed_label, 0) + 1
-                    )
-                    print(
-                        "COLUMN_CATCH LETTER_SUCCESS "
-                        f"letter={completed_label} "
-                        f"count={self.letter_success_counts[completed_label]}/"
-                        f"{PLATFORM_LETTER_SUCCESS_QUOTA}",
-                        flush=True,
-                    )
                 self.locked_target = None
                 self.locked_plan = None
-                self.column_locked_block = None
-                self.column_locked_distance_cm = None
-                self.column_capture_authorized = False
-                self.column_target_lost_since = None
                 self.last_visual_target = None
                 self.center_distance_samples = []
                 self.centered_frames = 0
-                self.column_resume_deadline = 0.0
                 self.chassis_station_stage = "column_detect"
                 self.column_target_armed = False
                 return "COLUMN_CATCH grasp complete; H7 RESUMED; continue orbit"
             if state == "STOPPED":
                 return self._column_abort("H7_STOPPED_BEFORE_RESUME")
-            if self.column_resume_deadline <= 0.0:
-                self.column_resume_deadline = now + COLUMN_H7_RESUME_TIMEOUT_S
-            if now >= self.column_resume_deadline:
-                return self._column_timeout_recover(
-                    "H7_RESUME_TIMEOUT", chassis_link
-                )
             chassis_link.request_formal_column_resume()
             return f"COLUMN_CATCH waiting H7 RESUMED state={state or 'NONE'}"
 
         return "COLUMN_CATCH station idle"
 
-    def _column_timeout_recover(self, reason, chassis_link=None):
-        """Return to task-three high and resume orbit after a local timeout."""
-        high_status = self._column_pose(
-            COLUMN_CATCH_READY_ID1_TICK,
-            COLUMN_CATCH_READY_ID2_TICK,
-            COLUMN_CATCH_READY_ID6_TICK,
-            f"COLUMN_CATCH timeout recovery {reason}",
-            raising=True,
-            id7=COLUMN_CATCH_GRIPPER_CLOSED_TICK,
-            id5=COLUMN_CATCH_CATCHER_HOME_TICK,
-            splitter_id4=COLUMN_CATCH_SPLITTER_TICK,
-        )
-        home_ok = (
-            not self.servo_bridge.write_enabled
-            or self.servo_bridge.last_command_ok
-        )
-        if not home_ok:
-            self.chassis_station_stage = None
-            self.state = "fault"
-            self.algorithm_stage = "fault"
-            self.chassis_station_error_reason = f"{reason}_HIGH_FAILED"
-            self.status = f"COLUMN_CATCH {self.chassis_station_error_reason}"
-            self.arm_preview.publish(self.status)
-            return self.status
-
-        self.id1 = COLUMN_CATCH_READY_ID1_TICK
-        self.id2 = COLUMN_CATCH_READY_ID2_TICK
-        self.id6 = COLUMN_CATCH_READY_ID6_TICK
-        self.id7 = COLUMN_CATCH_GRIPPER_CLOSED_TICK
-        self.id5 = COLUMN_CATCH_CATCHER_HOME_TICK
-        self.splitter_id4 = COLUMN_CATCH_SPLITTER_TICK
-        self.column_capture_authorized = False
-        self.column_target_lost_since = None
-        self.column_locked_block = None
-        self.column_locked_distance_cm = None
-        self.locked_target = None
-        self.locked_plan = None
-        self.column_timeout_recovering = True
-        self.chassis_station_stage = "column_timeout_resume"
-        self.status = f"COLUMN_CATCH {reason}; arm high and closed; resume orbit"
-        self.arm_preview.publish(self.status)
-        if chassis_link is not None:
-            try:
-                chassis_link.request_formal_column_resume()
-            except Exception:
-                pass
-        print(f"CHASSIS STATION {self.status} | {high_status}", flush=True)
-        return self.status
-
     def _column_abort(self, reason):
-        self.column_capture_authorized = False
         self.state = "fault"
         self.algorithm_stage = "fault"
         self.status = f"COLUMN_CATCH {reason}"
@@ -6664,273 +5797,6 @@ class TargetDetector:
             self.letter_detector = ABCDDetector()
         return self.letter_detector.detect(frame)
 
-    @staticmethod
-    def _column_block_angle(box):
-        points = np.asarray(box, dtype=np.float32).reshape(4, 2)
-        edge = points[1] - points[0]
-        angle = math.degrees(math.atan2(float(edge[1]), float(edge[0])))
-        return ((angle + 45.0) % 90.0) - 45.0
-
-    def _detect_column_blocks(self, frame):
-        """Return geometric white-square candidates without classifying glyphs."""
-        height, width = frame.shape[:2]
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        green = cv2.inRange(
-            hsv,
-            np.array(
-                (
-                    COLUMN_BLOCK_GREEN_HUE_RANGE[0],
-                    COLUMN_BLOCK_GREEN_MIN_SATURATION,
-                    COLUMN_BLOCK_GREEN_MIN_VALUE,
-                ),
-                dtype=np.uint8,
-            ),
-            np.array((COLUMN_BLOCK_GREEN_HUE_RANGE[1], 255, 255), dtype=np.uint8),
-        )
-        white = cv2.inRange(
-            hsv,
-            np.array((0, 0, 190), dtype=np.uint8),
-            np.array((180, 135, 255), dtype=np.uint8),
-        )
-        white = cv2.morphologyEx(
-            white,
-            cv2.MORPH_CLOSE,
-            cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5)),
-        )
-        contours, _ = cv2.findContours(
-            white, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-        )
-        frame_area = float(max(1, width * height))
-        blocks = []
-        for contour in sorted(contours, key=cv2.contourArea, reverse=True):
-            area = float(cv2.contourArea(contour))
-            if not COLUMN_BLOCK_MIN_AREA <= area <= frame_area * COLUMN_BLOCK_MAX_AREA_RATIO:
-                continue
-            rect = cv2.minAreaRect(contour)
-            rect_w, rect_h = rect[1]
-            x, y, box_w, box_h = cv2.boundingRect(contour)
-            if min(box_w, box_h) < COLUMN_BLOCK_MIN_SIDE:
-                continue
-            if box_w / float(max(1, box_h)) < 0.55 or box_w / float(max(1, box_h)) > 1.80:
-                continue
-            if max(box_w, box_h) > min(width, height) * COLUMN_BLOCK_MAX_SIDE_RATIO:
-                continue
-            rectangularity = area / max(1.0, rect_w * rect_h)
-            if rectangularity < COLUMN_BLOCK_MIN_RECTANGULARITY:
-                continue
-            hull_area = max(
-                1.0, float(cv2.contourArea(cv2.convexHull(contour)))
-            )
-            if area / hull_area < COLUMN_BLOCK_MIN_SOLIDITY:
-                continue
-            perimeter = float(cv2.arcLength(contour, True))
-            approx_vertices = len(
-                cv2.approxPolyDP(
-                    contour,
-                    COLUMN_BLOCK_APPROX_EPSILON * perimeter,
-                    True,
-                )
-            )
-            if not (
-                COLUMN_BLOCK_MIN_APPROX_VERTICES
-                <= approx_vertices
-                <= COLUMN_BLOCK_MAX_APPROX_VERTICES
-            ):
-                continue
-            edge_margin_x = int(round(width * COLUMN_BLOCK_EDGE_MARGIN_RATIO))
-            edge_margin_y = int(round(height * COLUMN_BLOCK_EDGE_MARGIN_RATIO))
-            if (
-                x < edge_margin_x
-                or y < edge_margin_y
-                or x + box_w > width - edge_margin_x
-                or y + box_h > height - edge_margin_y
-            ):
-                continue
-            inner_margin_x = max(4, int(round(box_w * 0.20)))
-            inner_margin_y = max(4, int(round(box_h * 0.20)))
-            inner = white[
-                y + inner_margin_y:y + box_h - inner_margin_y,
-                x + inner_margin_x:x + box_w - inner_margin_x,
-            ]
-            inner_white_ratio = cv2.countNonZero(inner) / float(max(1, inner.size))
-            if not (
-                COLUMN_BLOCK_MIN_INNER_WHITE_RATIO
-                <= inner_white_ratio
-                <= COLUMN_BLOCK_MAX_INNER_WHITE_RATIO
-            ):
-                continue
-            edge_band = max(2, int(round(min(box_w, box_h) * 0.12)))
-            edge_ratios = (
-                cv2.countNonZero(white[y:y + edge_band, x:x + box_w])
-                / float(max(1, edge_band * box_w)),
-                cv2.countNonZero(
-                    white[y + box_h - edge_band:y + box_h, x:x + box_w]
-                ) / float(max(1, edge_band * box_w)),
-                cv2.countNonZero(white[y:y + box_h, x:x + edge_band])
-                / float(max(1, box_h * edge_band)),
-                cv2.countNonZero(
-                    white[y:y + box_h, x + box_w - edge_band:x + box_w]
-                ) / float(max(1, box_h * edge_band)),
-            )
-            if min(edge_ratios) < COLUMN_BLOCK_MIN_EDGE_WHITE_RATIO:
-                continue
-            corner_side = max(3, int(round(min(box_w, box_h) * 0.16)))
-            corner_ratios = (
-                cv2.countNonZero(white[y:y + corner_side, x:x + corner_side])
-                / float(max(1, corner_side * corner_side)),
-                cv2.countNonZero(
-                    white[y:y + corner_side,
-                          x + box_w - corner_side:x + box_w]
-                ) / float(max(1, corner_side * corner_side)),
-                cv2.countNonZero(
-                    white[y + box_h - corner_side:y + box_h,
-                          x:x + corner_side]
-                ) / float(max(1, corner_side * corner_side)),
-                cv2.countNonZero(
-                    white[y + box_h - corner_side:y + box_h,
-                          x + box_w - corner_side:x + box_w]
-                ) / float(max(1, corner_side * corner_side)),
-            )
-            if min(corner_ratios) < COLUMN_BLOCK_MIN_CORNER_WHITE_RATIO:
-                continue
-            if 1.0 - inner_white_ratio < COLUMN_BLOCK_MIN_INNER_NONWHITE_RATIO:
-                continue
-            if (4.0 * math.pi * area / float(max(1.0, perimeter * perimeter))) > COLUMN_BLOCK_MAX_CIRCULARITY:
-                continue
-            contour_mask = np.zeros_like(white)
-            cv2.drawContours(contour_mask, [contour], -1, 255, -1)
-            ring_kernel_size = max(7, int(round(max(box_w, box_h) * 0.16)))
-            if ring_kernel_size % 2 == 0:
-                ring_kernel_size += 1
-            expanded = cv2.dilate(
-                contour_mask,
-                cv2.getStructuringElement(
-                    cv2.MORPH_ELLIPSE,
-                    (ring_kernel_size, ring_kernel_size),
-                ),
-            )
-            green_ring = cv2.bitwise_and(
-                expanded,
-                cv2.bitwise_not(contour_mask),
-            )
-            green_ring_pixels = green_ring > 0
-            green_ring_support = cv2.countNonZero(
-                green[green_ring_pixels]
-            ) / float(max(1, int(np.count_nonzero(green_ring_pixels))))
-            if green_ring_support < COLUMN_BLOCK_MIN_GREEN_RING_SUPPORT:
-                continue
-            pad = max(10, int(round(max(box_w, box_h) * 0.18)))
-            x0, y0 = max(0, x - pad), max(0, y - pad)
-            x1, y1 = min(width, x + box_w + pad), min(height, y + box_h + pad)
-            green_support = cv2.countNonZero(green[y0:y1, x0:x1]) / float(
-                max(1, (y1 - y0) * (x1 - x0))
-            )
-            if green_support < COLUMN_BLOCK_MIN_GREEN_SUPPORT:
-                continue
-            # minAreaRect may choose either edge as the reference for a
-            # nearly square target. Keep the smallest signed edge tilt so a
-            # real -9 degree block is not reported as an 81 degree block.
-            angle = float(rect[2])
-            while angle <= -45.0:
-                angle += 90.0
-            while angle > 45.0:
-                angle -= 90.0
-            blocks.append({
-                "kind": "column_block",
-                "color": "white_edge",
-                "source": "column_white_edge_geometry",
-                "center": (int(round(rect[0][0])), int(round(rect[0][1]))),
-                "box": contour.astype(np.int32),
-                "bbox": (int(x), int(y), int(box_w), int(box_h)),
-                "projected_area": max(area, float(rect_w * rect_h)),
-                "approx_vertices": approx_vertices,
-                "inner_white_ratio": round(float(inner_white_ratio), 4),
-                "green_ring_support": round(float(green_ring_support), 4),
-                "fully_visible": x > 2 and y > 2 and x + box_w < width - 2 and y + box_h < height - 2,
-                "angle": round(float(angle), 1),
-                "parallel": abs(angle) <= COLUMN_BLOCK_MAX_ANGLE_DEG,
-            })
-        return blocks
-
-    def _infer_column_block_from_letter(self, frame, letter):
-        """Build a local white-block candidate when the glyph splits the border."""
-        if letter.get("kind") != "letter" or not letter.get("fully_visible", True):
-            return None
-        bbox = letter.get("bbox", ())
-        if len(bbox) < 4:
-            return None
-        height, width = frame.shape[:2]
-        x, y, box_width, box_height = (int(value) for value in bbox[:4])
-        if min(box_width, box_height) < COLUMN_BLOCK_MIN_SIDE:
-            return None
-        edge_x = int(width * COLUMN_BLOCK_EDGE_MARGIN_RATIO)
-        edge_y = int(height * COLUMN_BLOCK_EDGE_MARGIN_RATIO)
-        if x < edge_x or y < edge_y or x + box_width > width - edge_x or y + box_height > height - edge_y:
-            return None
-        aspect = box_width / float(max(1, box_height))
-        if not 0.65 <= aspect <= 1.55:
-            return None
-        angle = float(letter.get("angle", 90.0))
-        if abs(angle) > COLUMN_BLOCK_MAX_ANGLE_DEG:
-            return None
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        white = cv2.inRange(
-            hsv,
-            np.array((0, 0, 190), dtype=np.uint8),
-            np.array((180, 135, 255), dtype=np.uint8),
-        )
-        green = cv2.inRange(
-            hsv,
-            np.array((COLUMN_BLOCK_GREEN_HUE_RANGE[0], COLUMN_BLOCK_GREEN_MIN_SATURATION, COLUMN_BLOCK_GREEN_MIN_VALUE), dtype=np.uint8),
-            np.array((COLUMN_BLOCK_GREEN_HUE_RANGE[1], 255, 255), dtype=np.uint8),
-        )
-        patch = white[y:y + box_height, x:x + box_width]
-        if cv2.countNonZero(patch) / float(max(1, patch.size)) < 0.30:
-            return None
-        edge_band = max(2, int(round(min(box_width, box_height) * 0.12)))
-        edge_ratios = (
-            cv2.countNonZero(white[y:y + edge_band, x:x + box_width]) / float(max(1, edge_band * box_width)),
-            cv2.countNonZero(white[y + box_height - edge_band:y + box_height, x:x + box_width]) / float(max(1, edge_band * box_width)),
-            cv2.countNonZero(white[y:y + box_height, x:x + edge_band]) / float(max(1, box_height * edge_band)),
-            cv2.countNonZero(white[y:y + box_height, x + box_width - edge_band:x + box_width]) / float(max(1, box_height * edge_band)),
-        )
-        if min(edge_ratios) < 0.25:
-            return None
-        margin_x = max(4, int(round(box_width * 0.16)))
-        margin_y = max(4, int(round(box_height * 0.16)))
-        inner = white[y + margin_y:y + box_height - margin_y, x + margin_x:x + box_width - margin_x]
-        inner_ratio = cv2.countNonZero(inner) / float(max(1, inner.size))
-        if not 0.30 <= inner_ratio <= 0.98:
-            return None
-        mask = np.zeros_like(white)
-        cv2.rectangle(mask, (x, y), (x + box_width, y + box_height), 255, -1)
-        kernel = max(7, int(round(max(box_width, box_height) * 0.16)))
-        if kernel % 2 == 0:
-            kernel += 1
-        expanded = cv2.dilate(mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel, kernel)))
-        ring = cv2.bitwise_and(expanded, cv2.bitwise_not(mask))
-        ring_pixels = ring > 0
-        ring_support = cv2.countNonZero(green[ring_pixels]) / float(max(1, int(np.count_nonzero(ring_pixels))))
-        if ring_support < 0.30:
-            return None
-        box = np.asarray(letter.get("box", ()), dtype=np.int32)
-        if box.size != 8:
-            box = np.asarray(((x, y), (x + box_width, y), (x + box_width, y + box_height), (x, y + box_height)), dtype=np.int32)
-        return {
-            "kind": "column_block",
-            "color": "white_edge",
-            "source": "column_letter_box_inferred_geometry",
-            "center": tuple(map(int, letter.get("center", (x + box_width // 2, y + box_height // 2)))),
-            "box": box.reshape(4, 2),
-            "bbox": (x, y, box_width, box_height),
-            "projected_area": float(box_width * box_height),
-            "inner_white_ratio": round(float(inner_ratio), 4),
-            "green_ring_support": round(float(ring_support), 4),
-            "fully_visible": True,
-            "angle": round(angle, 1),
-            "parallel": True,
-        }
-
     def detect(
         self,
         frame,
@@ -6970,13 +5836,6 @@ class TargetDetector:
             return [*letters, *detect_platform_rings(frame)]
         elif mode == DETECTION_MODE_COLUMN_LETTERS:
             letters = self._detect_letters(frame)
-            blocks = self._detect_column_blocks(frame)
-            inferred = [
-                block for item in letters
-                for block in [self._infer_column_block_from_letter(frame, item)]
-                if block is not None
-            ]
-            return [*blocks, *inferred, *letters]
         else:
             rings = self._detect_rings(hsv)
             colored_balls = self._detect_balls(hsv, rings)

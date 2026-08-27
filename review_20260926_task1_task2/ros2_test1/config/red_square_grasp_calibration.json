@@ -1,0 +1,22 @@
+{
+  "initial": {"id1": 550, "id2": 300, "id4": 1000},
+  "servo_angle_calibration": {
+    "id1": [
+      {"tick": 460, "physical_degrees": 0, "model_degrees": 180},
+      {"tick": 80, "physical_degrees": 90, "model_degrees": 90}
+    ],
+    "id2": [
+      {"tick": 250, "physical_degrees": 90, "model_degrees": 90},
+      {"tick": 640, "physical_degrees": 180, "model_degrees": 0}
+    ]
+  },
+  "limits": {"id1": [150, 710], "id2": [252, 769], "id4": [1000, 1500]},
+  "centering": {
+    "stable_frames": 5,
+    "deadband_pixels": 28,
+    "id1_tick_per_pixel_y": 0.0,
+    "id2_tick_per_pixel_x": 0.12,
+    "command_interval_s": 1.4
+  },
+  "grasp": {"enabled": false, "id1": 550, "id2": 300, "id4": 1000}
+}

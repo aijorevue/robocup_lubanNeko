@@ -1,7 +1,8 @@
-"""Shared launch assembly for the RK direct grasp app."""
+"""Shared launch assembly for the RK direct servo grasp apps."""
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory
@@ -9,6 +10,11 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, Shutdown, TimerAction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+
+
+DIRECT_ARM_TIME_MS = os.environ.get("DIRECT_ARM_TIME_MS", "600")
+DIRECT_ZP_TIME_MS = os.environ.get("DIRECT_ZP_TIME_MS", "350")
+DIRECT_SPLITTER_TIME_MS = os.environ.get("DIRECT_SPLITTER_TIME_MS", "1500")
 
 
 DESKTOP_ENV = {
@@ -19,13 +25,9 @@ DESKTOP_ENV = {
 }
 
 COMMON_CAMERA_ARGS = [
-    "--enable-letter-grasp",
+    "--enable-red-square-grasp",
     "--enable-arm-preview",
     "--no-web",
-    "--device",
-    LaunchConfiguration("camera_device"),
-    "--secondary-device",
-    LaunchConfiguration("secondary_camera_device"),
     "--width",
     "800",
     "--height",
@@ -35,20 +37,14 @@ COMMON_CAMERA_ARGS = [
 ]
 
 COMMON_GRASP_ARGS = [
-    "--preview-id1",
-    "650",
-    "--preview-id2",
-    "600",
     "--grasp-id1-ready",
-    "650",
+    "550",
     "--grasp-id2-ready",
-    "600",
+    "300",
     "--grasp-center-deadband-px",
-    "30",
+    "20",
     "--trigger-kind",
     LaunchConfiguration("target_kind"),
-    "--target-letters",
-    LaunchConfiguration("target_letters"),
     "--trigger-color",
     LaunchConfiguration("target_color"),
 ]
@@ -56,36 +52,42 @@ COMMON_GRASP_ARGS = [
 MODE_PROFILES = {
     "rk": {
         "executable": "target_vision",
-        "node_name": "abcd_letter_grasp_rk_direct_vision",
+        "node_name": "red_square_grasp_rk_direct_vision",
         "detect_every": "1",
-        "preview_id4": "310",
-        "preview_id6": "415",
-        "grasp_id4_closed": "310",
-        "grasp_id4_open": "450",
+        "preview_id1": "550",
+        "preview_id2": "300",
+        "preview_id4": "1400",
+        "preview_id6": "600",
+        "grasp_id4_closed": "1400",
+        "grasp_id4_open": "1700",
         "servo_angle_gap_deg": "20",
-        "grasp_command_interval": "0.18",
-        "grasp_stable_frames": "4",
-        "grasp_id2_pixel_gain": "0.13",
-        "grasp_id6_pixel_gain": "0.11",
-        "grasp_id6_max_step_ticks": "18",
+        "grasp_command_interval": "0.24",
+        "grasp_stable_frames": "5",
+        "grasp_id2_pixel_gain": "0.107",
+        "grasp_id6_pixel_gain": "0.074",
+        "grasp_id6_max_step_ticks": "12",
         "grasp_id1_pixel_gain_y": "0",
-        "grasp_max_step_ticks": "28",
+        "grasp_max_step_ticks": "22",
         "post_center_retreat_mm": "52",
         "post_center_down_mm": "150",
         "timer_period": 1.0,
         "rviz_period": 1.5,
         "extra_args": [
-            "--htd85-uart",
-            "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5C82109853-if00",
-            "--htd85-baud",
-            "115200",
-            "--htd85-arm-time-ms",
-            "600",
-            "--htd85-gripper-time-ms",
-            "200",
-            "--htd85-aux-time-ms",
-            "100",
+            "--direct-servo-bus",
+            "--direct-wait-start",
+            "--direct-arm-uart",
+            "/dev/ttyS9",
+            "--direct-zp-uart",
+            "/dev/ttyS0",
+            "--direct-arm-time-ms",
+            DIRECT_ARM_TIME_MS,
+            "--direct-zp-time-ms",
+            DIRECT_ZP_TIME_MS,
+            "--direct-splitter-time-ms",
+            DIRECT_SPLITTER_TIME_MS,
             "--post-center-direct-descend",
+            "--qr-template-every",
+            "1",
             "--grasp-retrigger-cooldown",
             "1.2",
             "--detection-smoothing-alpha",
@@ -95,11 +97,63 @@ MODE_PROFILES = {
             "--fresh-detection-on-lock",
             "--grasp-id2-center-max",
             "464",
+        ],
+        "kill_before_start": True,
+    },
+    "rk_chassis": {
+        "executable": "target_vision",
+        "node_name": "red_square_chassis_rk_direct_vision",
+        "detect_every": "1",
+        "preview_id1": "400",
+        "preview_id2": "150",
+        "preview_id4": "1400",
+        "preview_id6": "600",
+        "grasp_id4_closed": "1400",
+        "grasp_id4_open": "1700",
+        "servo_angle_gap_deg": "20",
+        "grasp_command_interval": "0.24",
+        "grasp_stable_frames": "5",
+        "grasp_id2_pixel_gain": "0.107",
+        "grasp_id6_pixel_gain": "0.074",
+        "grasp_id6_max_step_ticks": "12",
+        "grasp_id1_pixel_gain_y": "0",
+        "grasp_max_step_ticks": "22",
+        "post_center_retreat_mm": "52",
+        "post_center_down_mm": "150",
+        "timer_period": 1.0,
+        "rviz_period": 1.5,
+        "extra_args": [
+            "--direct-servo-bus",
+            "--direct-wait-start",
+            "--direct-arm-uart",
+            "/dev/ttyS9",
+            "--direct-zp-uart",
+            "/dev/ttyS0",
+            "--direct-arm-time-ms",
+            DIRECT_ARM_TIME_MS,
+            "--direct-zp-time-ms",
+            DIRECT_ZP_TIME_MS,
+            "--direct-splitter-time-ms",
+            DIRECT_SPLITTER_TIME_MS,
+            "--post-center-direct-descend",
+            "--qr-template-every",
+            "1",
+            "--grasp-retrigger-cooldown",
+            "1.2",
+            "--detection-smoothing-alpha",
+            "1.0",
+            "--detection-smoothing-match-px",
+            "90",
+            "--fresh-detection-on-lock",
+            "--grasp-id2-center-max",
+            "464",
+            "--skip-grasp-startup-sequence",
+            "--chassis-home-on-start",
             "--chassis-link",
             "--chassis-uart",
-            "auto",
+            "/dev/h7_chassis",
             "--station-no-target-timeout",
-            "3.0",
+            "2.0",
         ],
         "kill_before_start": True,
     },
@@ -107,10 +161,6 @@ MODE_PROFILES = {
 
 
 def generate_grasp_launch(mode):
-    # The chassis launch file uses the explicit rk_chassis profile name;
-    # both linked and standalone modes share the RK direct-servo settings.
-    if mode == "rk_chassis":
-        mode = "rk"
     profile = MODE_PROFILES[mode]
     share_dir = Path(get_package_share_directory("ros2_test1"))
     robot_description = (share_dir / "urdf" / "arm_5.urdf").read_text()
@@ -119,22 +169,7 @@ def generate_grasp_launch(mode):
     actions = [
         DeclareLaunchArgument("execute", default_value="false"),
         DeclareLaunchArgument("target_color", default_value="red"),
-        DeclareLaunchArgument("target_kind", default_value="letter"),
-        DeclareLaunchArgument("target_letters", default_value="A,B,C,D"),
-        DeclareLaunchArgument(
-            "camera_device",
-            default_value=(
-                "/dev/v4l/by-path/"
-                "platform-fc800000.usb-usb-0:1:1.0-video-index0"
-            ),
-        ),
-        DeclareLaunchArgument(
-            "secondary_camera_device",
-            default_value=(
-                "/dev/v4l/by-path/"
-                "platform-fc880000.usb-usb-0:1.3:1.0-video-index0"
-            ),
-        ),
+        DeclareLaunchArgument("target_kind", default_value="square"),
     ]
     if profile["kill_before_start"]:
         actions.append(
@@ -193,6 +228,10 @@ def _vision_node(profile):
         "--window-height",
         "520",
         *COMMON_GRASP_ARGS,
+        "--preview-id1",
+        profile["preview_id1"],
+        "--preview-id2",
+        profile["preview_id2"],
         "--preview-id4",
         profile["preview_id4"],
         "--preview-id6",
@@ -230,7 +269,7 @@ def _vision_node(profile):
         arguments=args,
         additional_env={
             **DESKTOP_ENV,
-            "ABCD_EXECUTE": LaunchConfiguration("execute"),
+            "RED_SQUARE_EXECUTE": LaunchConfiguration("execute"),
         },
         on_exit=Shutdown(reason="target vision window closed"),
         output="screen",

@@ -267,10 +267,8 @@ TASK3_RING_PLACE_GRIPPER_CLOSED_TICK = PLATFORM_GRIPPER_CLOSED
 TASK3_RING_PLACE_GRIPPER_TIME_MS = 200
 TASK3_RING_PLACE_SLOW_CLOSE_TIME_MS = 2000
 TASK3_RING_PLACE_RELEASE_GRIPPER_TIME_MS = 2000
-TASK3_RING_PLACE_RELEASE_HOLD_MS = 1500
-TASK3_RING_PLACE_POST_HIGH_HOLD_MS = 3000
-TASK3_RING_PLACE_CONTRACT_AXIS_TIME_MS = 500
-COLUMN_CATCH_LETTER_PLACE = (515, 350, 670)
+TASK3_RING_PLACE_RELEASE_HOLD_MS = 1000
+COLUMN_CATCH_LETTER_PLACE = (500, 350, 670)
 COLUMN_CATCH_LETTER_PLACE_TIME_MS = 500
 RING_DISTANCE_OFFSET_CM = BALL_DISTANCE_OFFSET_CM + RING_DISTANCE_EXTRA_CM
 RING_DISTANCE_SCALE_CM = (
@@ -2505,7 +2503,7 @@ class TargetGraspController:
         return self._arm_settle_s()
 
     def _platform_retreat_pose(self, pose, raising):
-        """Use the restored standard arm duration for the existing ID2 retreat action."""
+        """Use the task-two 100 ms duration for the existing ID2 retreat action."""
         bridge = self.servo_bridge
         previous_times = (
             getattr(bridge, "arm_time_ms", PLATFORM_ARM_TIME_MS),
@@ -2654,56 +2652,6 @@ class TargetGraspController:
             flush=True,
         )
         return max(0.10, float(wait_ms) / 1000.0)
-
-    def _task3_ring_ordered_contract(self):
-        """Retract the final ring arm in ID6 -> ID2 -> ID1 order."""
-
-        bridge = self.servo_bridge
-        previous_arm_time = getattr(
-            bridge, "arm_time_ms", PLATFORM_ARM_TIME_MS
-        )
-        try:
-            bridge.arm_time_ms = TASK3_RING_PLACE_CONTRACT_AXIS_TIME_MS
-            for servo_name, position in (
-                ("id6", BASE_YAW_HOME_TICK),
-                ("id2", HOME_ID2_TICK),
-                ("id1", HOME_ID1_TICK),
-            ):
-                setattr(self, servo_name, int(position))
-                self.arm_preview.set_targets(
-                    self.id1, self.id2, self.id7, self.id6
-                )
-                print(
-                    "TASK3_RING_PLACE CONTRACT "
-                    f"{servo_name.upper()}={int(position)} "
-                    f"time={TASK3_RING_PLACE_CONTRACT_AXIS_TIME_MS}ms",
-                    flush=True,
-                )
-                status = bridge.send_targets(**{servo_name: int(position)})
-                self.last_command_time = time.monotonic()
-                if not bridge.last_command_ok:
-                    return f"ordered contract {servo_name} failed: {status}"
-                time.sleep(TASK3_RING_PLACE_CONTRACT_AXIS_TIME_MS / 1000.0)
-        finally:
-            bridge.arm_time_ms = previous_arm_time
-
-        self.id5 = CATCHER_HOME_TICK
-        self.splitter_id4 = SPLITTER_RETRACT_TICK
-        self._enforce_angle_gap()
-        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
-        aux_status = bridge.send_targets(
-            id3=TASK1_ID3_RETRACT_TICK,
-            id4=self.id7,
-            id5=self.id5,
-            splitter_id4=self.splitter_id4,
-        )
-        self.last_command_time = time.monotonic()
-        if not bridge.last_command_ok:
-            return f"ordered contract auxiliary retraction failed: {aux_status}"
-        return (
-            "ordered contract ID6->ID2->ID1 complete; "
-            f"aux={aux_status}"
-        )
 
     def _platform_ring_place_id6(self, id6):
         return self._platform_ring_single(
@@ -2963,9 +2911,6 @@ class TargetGraspController:
                 ("ID6_HIGH", self._task3_ring_single,
                  ("id6", TASK3_RING_PLACE_RETURN_HIGH[2],
                   TASK3_RING_PLACE_HIGH_TIME_MS, "return high ID6")),
-                ("WAIT_AFTER_RETURN_HIGH", self._task3_ring_wait,
-                 (TASK3_RING_PLACE_POST_HIGH_HOLD_MS,
-                  "wait after return high before release confirmation")),
                 ("OPEN_ID17_AGAIN", self._task3_ring_gripper,
                  (TASK3_RING_PLACE_GRIPPER_OPEN_TICK,
                   TASK3_RING_PLACE_RELEASE_GRIPPER_TIME_MS, "open ID17 again")),
@@ -2995,7 +2940,7 @@ class TargetGraspController:
                 )
                 self.arm_preview.publish(self.status)
                 return self.status
-            home_status = self._task3_ring_ordered_contract()
+            home_status = self.shutdown_contract()
             home_success = (
                 not self.servo_bridge.write_enabled
                 or self.servo_bridge.last_command_ok

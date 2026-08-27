@@ -59,7 +59,7 @@ def make_controller(bridge=None, field_mode=target_vision.FieldMode.RED):
         preview,
         550,
         300,
-        310,
+        320,
         450,
         35,
         3,
@@ -417,7 +417,7 @@ class ChassisStationSafetyTests(unittest.TestCase):
         self.assertEqual(controller.splitter_id4, target_vision.DISC_CATCH_SPLITTER_READY_TICK)
         self.assertEqual(bridge.sent[-2]["id2"], 550)
         self.assertNotIn("id1", bridge.sent[-2])
-        self.assertEqual(bridge.sent[-2]["id4"], 310)
+        self.assertEqual(bridge.sent[-2]["id4"], 320)
         self.assertEqual(
             bridge.sent[-2]["id5"],
             target_vision.DISC_CATCH_CATCHER_READY_TICK,
@@ -476,11 +476,11 @@ class ChassisStationSafetyTests(unittest.TestCase):
         )
         self.assertEqual(controller.id5, target_vision.TASK1_ID15_RETRACT_TICK)
         self.assertEqual(controller.splitter_id4, target_vision.SPLITTER_RETRACT_TICK)
-        self.assertEqual(controller.id7, 310)
+        self.assertEqual(controller.id7, 320)
         self.assertEqual(bridge.sent[-2], {
             "id1": 650,
             "id6": 415,
-            "id4": 310,
+            "id4": 320,
             "id5": target_vision.TASK1_ID15_RETRACT_TICK,
             "splitter_id4": target_vision.SPLITTER_RETRACT_TICK,
         })
@@ -492,9 +492,6 @@ class ChassisStationSafetyTests(unittest.TestCase):
         self.assertEqual(target_vision.TASK3_RING_PLACE_GRIPPER_TIME_MS, 200)
         self.assertEqual(target_vision.TASK3_RING_PLACE_SLOW_CLOSE_TIME_MS, 2000)
         self.assertEqual(target_vision.TASK3_RING_PLACE_RELEASE_GRIPPER_TIME_MS, 2000)
-        self.assertEqual(target_vision.TASK3_RING_PLACE_RELEASE_HOLD_MS, 1500)
-        self.assertEqual(target_vision.TASK3_RING_PLACE_POST_HIGH_HOLD_MS, 3000)
-        self.assertEqual(target_vision.TASK3_RING_PLACE_CONTRACT_AXIS_TIME_MS, 500)
         controller, bridge, _ = make_controller()
         with mock.patch.object(target_vision.time, "monotonic", return_value=1000.0), mock.patch.object(
             target_vision.time, "sleep"
@@ -507,13 +504,14 @@ class ChassisStationSafetyTests(unittest.TestCase):
                 )
 
         self.assertEqual(controller.consume_chassis_station_done(), "TASK3_RING_PLACE_DONE")
-        self.assertEqual(controller.id7, 310)
-        self.assertEqual(bridge.sent[-1]["id4"], 310)
-        self.assertEqual(bridge.sent[-4], {"id6": target_vision.BASE_YAW_HOME_TICK})
-        self.assertEqual(bridge.sent[-3], {"id2": target_vision.HOME_ID2_TICK})
-        self.assertEqual(bridge.sent[-2], {"id1": target_vision.HOME_ID1_TICK})
-        self.assertEqual(bridge.sent[-1]["id3"], target_vision.TASK1_ID3_RETRACT_TICK)
-        self.assertEqual(bridge.sent[-1]["id4"], 310)
+        self.assertEqual(controller.id7, 320)
+        self.assertEqual(bridge.sent[-1]["id4"], 320)
+        self.assertEqual(bridge.sent[-1]["id1"], target_vision.HOME_ID1_TICK)
+        self.assertEqual(bridge.sent[-1]["id6"], target_vision.BASE_YAW_HOME_TICK)
+        self.assertEqual(bridge.sent[-2], {
+            "id2": target_vision.HOME_ID2_TICK,
+            "id6": target_vision.BASE_YAW_HOME_TICK,
+        })
         self.assertEqual(
             (controller.id1, controller.id2, controller.id6),
             (
@@ -537,7 +535,6 @@ class ChassisStationSafetyTests(unittest.TestCase):
         actions = {name: args for name, _handler, args in controller.task3_ring_place_actions}
         self.assertEqual(actions["OPEN_ID17"][1], 200)
         self.assertEqual(actions["SLOW_CLOSE_ID17"][1], 2000)
-        self.assertEqual(actions["WAIT_AFTER_RETURN_HIGH"][0], 3000)
         self.assertEqual(actions["OPEN_ID17_AGAIN"][1], 2000)
         self.assertEqual(actions["CLOSE_ID17_AGAIN"][1], 2000)
 
@@ -633,7 +630,7 @@ class ChassisStationSafetyTests(unittest.TestCase):
             "STOPPED_BY_CHASSIS",
         )
         self.assertIsNone(controller.active_chassis_station)
-        self.assertEqual(bridge.sent[-1]["id4"], 310)
+        self.assertEqual(bridge.sent[-1]["id4"], 320)
         self.assertEqual(bridge.sent[-1]["splitter_id4"], target_vision.SPLITTER_RETRACT_TICK)
 
 
