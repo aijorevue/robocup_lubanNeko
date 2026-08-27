@@ -24,6 +24,7 @@ class WhiteLineAlignmentDetector:
         self._missed_frames = 0
         self._line_edge_history = []
         self._task2_edge_history = []
+        self._task3_edge_history = []
 
     def reset_tracking(self):
         """Discard stale geometry when a new white-line phase begins."""
@@ -31,6 +32,7 @@ class WhiteLineAlignmentDetector:
         self._missed_frames = 0
         self._line_edge_history = []
         self._task2_edge_history = []
+        self._task3_edge_history = []
 
     @staticmethod
     def _fitted_line(contour, frame_width, frame_height):
@@ -668,10 +670,24 @@ class WhiteLineAlignmentDetector:
             cv2.getStructuringElement(cv2.MORPH_RECT, (5, 3)),
         )
 
-        candidates = []
+        # The real strip enters from the left, while the wood box occupies
+        # the upper-left part of the frame and can touch the strip in the
+        # threshold mask. Prefer a right-side strip segment where the box is
+        # absent. This path is task-three-only and keeps the full mask as a
+        # fallback for views where the segment is not visible yet.
+        right_window_x = int(width * 0.28)
+        preferred_mask = mask.copy()
+        preferred_mask[:, :right_window_x] = 0
         contours, _ = cv2.findContours(
-            mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            preferred_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
+        using_preferred_window = bool(contours)
+        if not contours:
+            contours, _ = cv2.findContours(
+                mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
+
+        candidates = []
         for contour in contours:
             x, y, box_width, box_height = cv2.boundingRect(contour)
             area = float(cv2.contourArea(contour))
@@ -814,3 +830,405 @@ class WhiteLineAlignmentDetector:
         self._missed_frames = 0
         self._last_measurement = measurement
         return measurement
+
+    def detect_task3(self, frame):
+        """Detect the BLUE task-three strip with a recoverable fallback.
+
+        Task three begins farther from the strip than task two. Perspective,
+        exposure, and partial frame entry can therefore make the strict
+        task-two band limits reject a real strip. Keep the task-two detector
+        as the first choice, then use a task-three-only relaxed candidate gate
+        that still requires a long, thin, continuous bright band and a
+        measurable right boundary.
+        """
+        strict = self.detect_task2(frame)
+        if strict is not None and not strict.get("held", False):
+            # The strict edge fitter intentionally drops short support runs.
+            # That is useful for task two, but at the farther task-three view
+            # it can turn the middle of a real strip into a false right edge.
+            # Re-run the task-three fallback when RX ends well before the
+            # accepted component's actual right side.
+            bounds = strict.get("bounds")
+            strict_right = strict.get("right_edge_x")
+            if bounds is not None and strict_right is not None:
+                bounds_x, _, bounds_width, _ = bounds
+                if float(strict_right) >= float(
+                    bounds_x + max(12.0, bounds_width * 0.80)
+                ):
+                    strict = dict(strict)
+                    strict["right_edge_x"] = self._task3_refine_right_boundary(
+                        frame, strict
+                    )
+                    return self._task3_stabilize(strict)
+        self._task2_edge_history = []
+        if frame is None or frame.size == 0:
+            return None
+
+        height, width = frame.shape[:2]
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        gray_eq = clahe.apply(gray)
+        value_eq = clahe.apply(hsv[:, :, 2])
+        x0 = int(width * self.roi_x[0])
+        x1 = int(width * self.roi_x[1])
+        y0 = int(height * 0.18)
+        y1 = int(height * 0.94)
+        roi_mask = np.zeros((height, width), dtype=np.uint8)
+        roi_mask[y0:y1, x0:x1] = 255
+        roi_value = value_eq[y0:y1, x0:x1]
+        roi_gray = gray_eq[y0:y1, x0:x1]
+        adaptive_value = max(145, int(np.percentile(roi_value, 67)))
+        adaptive_gray = max(145, int(np.percentile(roi_gray, 69)))
+        white_mask = cv2.inRange(
+            hsv,
+            np.array((0, 0, adaptive_value), dtype=np.uint8),
+            np.array((179, min(135, self.saturation_max + 40), 255), dtype=np.uint8),
+        )
+        gray_mask = cv2.inRange(gray_eq, adaptive_gray, 255)
+        mask = cv2.bitwise_and(
+            cv2.bitwise_or(white_mask, gray_mask), roi_mask
+        )
+        # The real strip can touch the lower edge of the overhead box in the
+        # image. Any vertical close bridges those separate objects and turns
+        # the strip into a large box contour. Keep this close horizontal-only;
+        # the later horizontal close handles exposure gaps along the strip.
+        mask = cv2.morphologyEx(
+            mask,
+            cv2.MORPH_CLOSE,
+            cv2.getStructuringElement(cv2.MORPH_RECT, (13, 1)),
+        )
+        mask = cv2.morphologyEx(
+            mask,
+            cv2.MORPH_OPEN,
+            cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)),
+        )
+        # At the farther task-three distance the strip can be split by small
+        # exposure gaps. Bridge only along its long axis so separate vertical
+        # bright objects are not merged into the candidate.
+        mask = cv2.morphologyEx(
+            mask,
+            cv2.MORPH_CLOSE,
+            cv2.getStructuringElement(cv2.MORPH_RECT, (21, 3)),
+        )
+
+        # The real strip enters from the left, while the wood box occupies
+        # the upper-left part of the frame and can touch the strip in the
+        # threshold mask. Prefer a right-side strip segment where the box is
+        # absent. This path is task-three-only and keeps the full mask as a
+        # fallback for views where the segment is not visible yet.
+        right_window_x = int(width * 0.28)
+        preferred_mask = mask.copy()
+        preferred_mask[:, :right_window_x] = 0
+        contours, _ = cv2.findContours(
+            preferred_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        using_preferred_window = bool(contours)
+        if not contours:
+            contours, _ = cv2.findContours(
+                mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
+
+        candidates = []
+        for contour in contours:
+            x, y, box_width, box_height = cv2.boundingRect(contour)
+            area = float(cv2.contourArea(contour))
+            rect = cv2.minAreaRect(contour)
+            length = float(max(rect[1]))
+            thickness = float(min(rect[1]))
+            min_width_ratio = 0.16 if using_preferred_window else 0.30
+            if box_width < width * min_width_ratio or box_width > width * 0.98:
+                continue
+            if box_height > height * (0.12 if using_preferred_window else 0.14):
+                continue
+            min_area_ratio = 0.00025 if using_preferred_window else 0.0006
+            if area < width * height * min_area_ratio:
+                continue
+            if thickness < height * 0.003 or thickness > height * 0.105:
+                continue
+            if length / max(1.0, thickness) < 3.5:
+                continue
+
+            component = np.zeros((box_height, box_width), dtype=np.uint8)
+            shifted = contour.copy()
+            shifted[:, :, 0] -= x
+            shifted[:, :, 1] -= y
+            cv2.drawContours(component, [shifted], -1, 255, cv2.FILLED)
+            horizontal_coverage = float(
+                np.count_nonzero(np.any(component > 0, axis=0)) /
+                max(1.0, box_width)
+            )
+            fill_ratio = float(
+                np.count_nonzero(component) /
+                max(1.0, box_width * box_height)
+            )
+            max_fill_ratio = 0.94 if using_preferred_window else 0.86
+            if horizontal_coverage < 0.50 or fill_ratio > max_fill_ratio:
+                continue
+
+            edge_geometry = self._fit_task2_band_edges(
+                contour, (x, y, box_width, box_height), width, height
+            )
+            if edge_geometry is None:
+                angle_deg, y_at_center = self._fitted_line(
+                    contour, width, height
+                )
+                right_edge_x = float(x + box_width - 1)
+            else:
+                angle_deg = edge_geometry["angle_deg"]
+                y_at_center = edge_geometry["y_at_center"]
+                right_edge_x = self._task3_right_boundary_x(
+                    component, x
+                )
+            if (
+                y_at_center is None
+                or not height * 0.20 <= y_at_center <= height * (0.68 if using_preferred_window else 0.90)
+                or abs(angle_deg) > 32.0
+            ):
+                continue
+            contrast = self._local_contrast(
+                gray, x, y, box_width, box_height
+            )
+            if contrast < 2.0:
+                continue
+            if right_edge_x < x + max(8.0, box_width * 0.65):
+                continue
+            score = (
+                3.0 * min(1.0, box_width / max(1.0, width))
+                + 2.0 * min(1.0, length / max(1.0, 7.0 * thickness))
+                + 2.0 * horizontal_coverage
+                + 1.5 * float(np.clip((contrast - 2.0) / 45.0, 0.0, 1.0))
+                + 0.8 * float(np.clip(y_at_center / height, 0.0, 1.0))
+            )
+            if self._task3_edge_history:
+                previous_right = float(self._task3_edge_history[-1][3])
+                edge_delta = abs(right_edge_x - previous_right)
+                score += 1.8 * max(
+                    0.0,
+                    1.0 - min(1.0, edge_delta / max(30.0, width * 0.22)),
+                )
+            candidates.append(
+                (score, contour, rect, (x, y, box_width, box_height),
+                 area, edge_geometry, right_edge_x)
+            )
+
+        if not candidates:
+            self._task3_edge_history = []
+            return None
+
+        _, contour, rect, bounds, area, edge_geometry, right_edge_x = max(
+            candidates, key=lambda candidate: candidate[0]
+        )
+        moments = cv2.moments(contour)
+        if moments["m00"] <= 0.0:
+            return None
+        center_x = float(moments["m10"] / moments["m00"])
+        center_y = float(moments["m01"] / moments["m00"])
+        length = float(max(rect[1]))
+        thickness = float(min(rect[1]))
+        if edge_geometry is None:
+            angle_deg, y_at_center = self._fitted_line(
+                contour, width, height
+            )
+        else:
+            angle_deg = float(edge_geometry["angle_deg"])
+            y_at_center = float(edge_geometry["y_at_center"])
+        if y_at_center is None:
+            return None
+
+        measurement = {
+            "center_x": center_x,
+            "center_y": center_y,
+            "angle_deg": angle_deg,
+            "y_at_center": y_at_center,
+            "length": length,
+            "thickness": thickness,
+            "area": area,
+            "bounds": bounds,
+            "frame_width": width,
+            "frame_height": height,
+            "held": False,
+            "center_line": (
+                edge_geometry["center_line"]
+                if edge_geometry is not None
+                else ((float(bounds[0]), y_at_center),
+                      (float(bounds[0] + bounds[2] - 1), y_at_center))
+            ),
+            "edge_support": (
+                edge_geometry["edge_support"]
+                if edge_geometry is not None else 0
+            ),
+            "right_edge_x": right_edge_x,
+        }
+        return self._task3_stabilize(measurement)
+
+    def _task3_stabilize(self, measurement):
+        """Apply task-three-only temporal stability to a fresh measurement."""
+        self._task3_edge_history.append(
+            (
+                float(measurement["y_at_center"]),
+                float(measurement["angle_deg"]),
+                float(measurement["thickness"]),
+                float(measurement["right_edge_x"]),
+            )
+        )
+        self._task3_edge_history = self._task3_edge_history[-3:]
+        y_at_center = float(
+            np.median([item[0] for item in self._task3_edge_history])
+        )
+        angle_deg = float(
+            np.median([item[1] for item in self._task3_edge_history])
+        )
+        thickness = float(
+            np.median([item[2] for item in self._task3_edge_history])
+        )
+        right_edge_x = float(
+            np.median([item[3] for item in self._task3_edge_history])
+        )
+        result = dict(measurement)
+        result.update(
+            {
+                "y_at_center": y_at_center,
+                "angle_deg": angle_deg,
+                "thickness": thickness,
+                "right_edge_x": right_edge_x,
+                "held": False,
+            }
+        )
+        bounds = result.get("bounds")
+        if bounds is not None:
+            x, _, box_width, _ = bounds
+            slope = float(np.tan(np.radians(angle_deg)))
+            center_x = result["frame_width"] * 0.5
+            result["center_line"] = (
+                (float(x), y_at_center + slope * (float(x) - center_x)),
+                (
+                    float(x + box_width - 1),
+                    y_at_center + slope * (float(x + box_width - 1) - center_x),
+                ),
+            )
+        self._missed_frames = 0
+        self._last_measurement = result
+        return result
+
+    @staticmethod
+    def _task3_refine_right_boundary(frame, measurement):
+        """Measure the terminal white support inside the accepted strip box."""
+        bounds = measurement.get("bounds")
+        if bounds is None:
+            return float(measurement.get("right_edge_x", 0.0))
+        x, y, box_width, box_height = [int(round(value)) for value in bounds]
+        height, width = frame.shape[:2]
+        x0 = max(0, x)
+        x1 = min(width, x + box_width)
+        y0 = max(0, y)
+        y1 = min(height, y + box_height)
+        if x1 <= x0 or y1 <= y0:
+            return float(measurement.get("right_edge_x", x))
+
+        hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
+        value = hsv[:, :, 2]
+        saturation = hsv[:, :, 1]
+        bright = ((value >= 125) & (saturation <= 145)).astype(np.uint8)
+        bright = cv2.morphologyEx(
+            bright * 255,
+            cv2.MORPH_CLOSE,
+            cv2.getStructuringElement(
+                cv2.MORPH_RECT, (max(5, min(25, box_width // 8)), 3)
+            ),
+        )
+        angle = float(np.radians(measurement.get("angle_deg", 0.0)))
+        slope = float(np.tan(angle))
+        half_band = max(3, min(18, int(round(measurement.get("thickness", 8.0) * 0.9))))
+        support = np.zeros(x1 - x0, dtype=np.int32)
+        center_x = width * 0.5
+        for local_x in range(x1 - x0):
+            absolute_x = x0 + local_x
+            center_y = float(measurement["y_at_center"]) + slope * (
+                absolute_x - center_x
+            )
+            center_y -= y0
+            band_y0 = max(0, int(round(center_y - half_band)))
+            band_y1 = min(bright.shape[0], int(round(center_y + half_band + 1)))
+            if band_y1 > band_y0:
+                support[local_x] = int(np.count_nonzero(bright[band_y0:band_y1, local_x]))
+
+        nonzero = support[support > 0]
+        if nonzero.size == 0:
+            return float(measurement.get("right_edge_x", x))
+        valid = support >= max(2, int(np.median(nonzero) * 0.30))
+        valid_image = (valid.astype(np.uint8) * 255).reshape(1, -1)
+        valid_image = cv2.morphologyEx(
+            valid_image,
+            cv2.MORPH_CLOSE,
+            cv2.getStructuringElement(cv2.MORPH_RECT, (max(5, min(17, box_width // 10)), 1)),
+        )
+        valid = valid_image[0] > 0
+        valid_indices = np.flatnonzero(valid)
+        if valid_indices.size == 0:
+            return float(measurement.get("right_edge_x", x))
+
+        terminal_end = int(valid_indices[-1])
+        terminal_start = terminal_end
+        while terminal_start > 0 and valid[terminal_start - 1]:
+            terminal_start -= 1
+        minimum_run = max(8, int((x1 - x0) * 0.03))
+        if terminal_end - terminal_start + 1 < minimum_run:
+            runs = []
+            start = int(valid_indices[0])
+            previous = start
+            for current in valid_indices[1:]:
+                current = int(current)
+                if current - previous > 3:
+                    runs.append((start, previous))
+                    start = current
+                previous = current
+            runs.append((start, previous))
+            _, terminal_end = max(
+                runs,
+                key=lambda run: (run[1] - run[0] + 1, run[1]),
+            )
+        return float(x0 + terminal_end)
+
+    @staticmethod
+    def _task3_right_boundary_x(component, offset_x):
+        """Return the last sustained white-band column, not a sub-run end."""
+        support = np.count_nonzero(component, axis=0)
+        nonzero = support[support > 0]
+        if nonzero.size == 0:
+            return float(offset_x)
+        threshold = max(2.0, float(np.median(nonzero)) * 0.35)
+        valid = support >= threshold
+        # Walk from the right and tolerate small exposure gaps. A single
+        # bright pixel or an isolated middle run cannot become the boundary.
+        last = int(len(valid) - 1)
+        while last >= 0 and not valid[last]:
+            last -= 1
+        if last < 0:
+            return float(offset_x)
+        # Keep the terminal run only when it has enough width to represent
+        # the actual strip edge. If the rightmost pixels are a short bright
+        # fragment, fall back to the end of the longest sustained run.
+        runs = []
+        run_start = last
+        gap = 0
+        for index in range(last - 1, -1, -1):
+            if valid[index]:
+                if gap > 3:
+                    runs.append((run_start, last))
+                    run_start = index
+                else:
+                    run_start = index
+                gap = 0
+            else:
+                gap += 1
+        runs.append((run_start, last))
+        minimum_run = max(8, int(len(valid) * 0.03))
+        terminal_start, terminal_end = runs[0]
+        if terminal_end - terminal_start + 1 >= minimum_run:
+            return float(offset_x + terminal_end)
+        best_start, best_end = max(
+            runs,
+            key=lambda run: (run[1] - run[0] + 1, run[1]),
+        )
+        return float(offset_x + best_end)

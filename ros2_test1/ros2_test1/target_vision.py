@@ -8189,7 +8189,7 @@ def main(argv=None):
         if task2_phase:
             line_measurement = task2_white_line_detector.detect_task2(white_line_frame)
         elif task3_blue_phase:
-            line_measurement = task3_blue_white_line_detector.detect_task2(white_line_frame)
+            line_measurement = task3_blue_white_line_detector.detect_task3(white_line_frame)
         else:
             line_measurement = white_line_detector.detect(white_line_frame)
         if line_measurement is None and pending_white_line_queries:
