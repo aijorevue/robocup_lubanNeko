@@ -86,6 +86,32 @@ class WhiteLineAlignmentDetector:
         tops = np.asarray(tops, dtype=np.float64)
         bottoms = np.asarray(bottoms, dtype=np.float64)
 
+        # The right edge is the end of the continuous white strip. Ignore
+        # isolated bright marks attached or adjacent to the strip end.
+        support = bottoms - tops + 1.0
+        support_threshold = max(3.0, float(np.median(support)) * 0.45)
+        valid = support >= support_threshold
+        valid_indices = np.flatnonzero(valid)
+        if len(valid_indices) < 30:
+            return None
+        breaks = np.flatnonzero(np.diff(valid_indices) > 3)
+        starts = np.r_[0, breaks + 1]
+        ends = np.r_[breaks, len(valid_indices) - 1]
+        run = max(
+            range(len(starts)),
+            key=lambda index: (
+                ends[index] - starts[index] + 1,
+                ends[index],
+            ),
+        )
+        keep_start = int(starts[run])
+        keep_end = int(ends[run]) + 1
+        xs = xs[keep_start:keep_end]
+        tops = tops[keep_start:keep_end]
+        bottoms = bottoms[keep_start:keep_end]
+        if len(xs) < 30:
+            return None
+
         def robust_fit(values):
             keep = np.ones(values.shape, dtype=bool)
             for _ in range(3):
@@ -120,8 +146,8 @@ class WhiteLineAlignmentDetector:
         thickness = float(np.median(bottoms - tops))
         if thickness <= 0.0 or bottom_center <= top_center:
             return None
-        x_left = float(x)
-        x_right = float(x + box_width - 1)
+        x_left = float(xs[0])
+        x_right = float(xs[-1])
         return {
             "angle_deg": float(np.degrees(np.arctan(center_slope))),
             "y_at_center": float(y_at_center),
@@ -147,6 +173,8 @@ class WhiteLineAlignmentDetector:
             "edge_support": int(
                 min(np.count_nonzero(top_keep), np.count_nonzero(bottom_keep))
             ),
+            "left_edge_x": x_left,
+            "right_edge_x": x_right,
         }
 
     @staticmethod
@@ -780,6 +808,8 @@ class WhiteLineAlignmentDetector:
             "center_line": edge_geometry["center_line"],
             "edge_polygon": edge_geometry["edge_polygon"],
             "edge_support": edge_geometry["edge_support"],
+            "left_edge_x": edge_geometry["left_edge_x"],
+            "right_edge_x": edge_geometry["right_edge_x"],
         }
         self._missed_frames = 0
         self._last_measurement = measurement

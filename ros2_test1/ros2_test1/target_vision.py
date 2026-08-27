@@ -2410,7 +2410,9 @@ class TargetGraspController:
             and self.chassis_station_stage is None
             and self.locked_target is None
             and self.algorithm_stage == "centering"
-            and not self.platform_task.target_seen
+            # A first sighting starts the three-frame vote, but the station
+            # remains in the bounded search path until target_key is locked.
+            and self.platform_task.target_key is None
         )
 
     def begin_chassis_station(self, station):

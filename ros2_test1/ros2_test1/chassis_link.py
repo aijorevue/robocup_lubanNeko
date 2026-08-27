@@ -895,7 +895,7 @@ class ChassisArmLink:
             return self.send_line(
                 f"RK,VISION,WHITE_LINE,NOT_FOUND,SEQ,{int(sequence)}"
             )
-        return self.send_line(
+        result = (
             "RK,VISION,WHITE_LINE,FOUND,"
             f"SEQ,{int(sequence)},"
             f"Y10,{int(round(measurement['y_at_center'] * 10.0))},"
@@ -903,6 +903,9 @@ class ChassisArmLink:
             f"W,{int(measurement['frame_width'])},"
             f"H,{int(measurement['frame_height'])}"
         )
+        if self.white_line_phase == "TASK2_AFTER_SECONDARY_SHIFT":
+            result += f",RX,{int(round(measurement.get('right_edge_x', -1.0)))}"
+        return self.send_line(result)
 
     def consume_reset_request(self):
         if not self.reset_pending or self.reset_in_progress:

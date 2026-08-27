@@ -582,6 +582,45 @@ class TestPlatformTask(unittest.TestCase):
         self.assertFalse(f.writes)
         f.now = f.task.timeout; f.task.tick(); f.finish()
         self.assertEqual(f.writes, [('pose', HIGH, True)])
+        self.assertEqual(f.task.done, 'SKIPPED:MAIN_TARGET_OR_DEPTH_TIMEOUT')
+
+    def test_unstable_single_frame_candidate_still_times_out_and_completes_slot(self):
+        f = Fixture(); f.ready(); f.writes.clear(); f.task.begin_slot('blue')
+        for _ in range(8):
+            f.task.tick([], (600, 800, 3), fresh=True)
+        f.task.tick([letter('C')], (600, 800, 3), fresh=True)
+        self.assertTrue(f.task.target_seen)
+        self.assertIsNone(f.task.target_key)
+        f.now = f.task.timeout
+        f.task.tick([], (600, 800, 3), fresh=True)
+        f.finish()
+        self.assertEqual(f.writes, [('pose', HIGH, True)])
+        self.assertEqual(f.task.done, 'SKIPPED:MAIN_TARGET_OR_DEPTH_TIMEOUT')
+        self.assertEqual(f.task.stage, 'platform_high_hold')
+
+    def test_two_votes_do_not_lock_but_third_vote_does(self):
+        f = Fixture(); f.ready(); f.writes.clear(); f.task.begin_slot('blue')
+        for _ in range(8):
+            f.task.tick([], (600, 800, 3), fresh=True)
+        for _ in range(2):
+            f.task.tick([letter('C')], (600, 800, 3), fresh=True)
+        self.assertTrue(f.task.target_seen)
+        self.assertIsNone(f.task.target_key)
+        self.assertFalse(f.writes)
+        f.task.tick([letter('C')], (600, 800, 3), fresh=True)
+        self.assertEqual(f.task.target_key, ('letter', 'C'))
+        self.assertEqual(f.task.stage, 'platform_actions')
+
+    def test_two_votes_still_time_out(self):
+        f = Fixture(); f.ready(); f.writes.clear(); f.task.begin_slot('blue')
+        for _ in range(8):
+            f.task.tick([], (600, 800, 3), fresh=True)
+        for _ in range(2):
+            f.task.tick([letter('C')], (600, 800, 3), fresh=True)
+        f.now = f.task.timeout
+        f.task.tick([], (600, 800, 3), fresh=True)
+        f.finish()
+        self.assertEqual(f.task.done, 'SKIPPED:MAIN_TARGET_OR_DEPTH_TIMEOUT')
 
     def test_small_center_correction_and_then_calibrated_depth(self):
         f = Fixture(); f.ready(); f.writes.clear(); f.task.begin_slot('red')
@@ -699,6 +738,37 @@ class TestControllerAndProtocol(unittest.TestCase):
         self.assertFalse(link.consume_platform_slots())
         self.assertIn('DONE,SEQ,42', lines[-1])
         self.assertIn('SLOT,1', lines[-1])
+
+    def test_timed_out_platform_slot_sends_done_clears_active_and_replays(self):
+        link = ChassisArmLink(False, 'unused', 115200, 5)
+        lines = []
+        link.send_line = lambda line: lines.append(line) or True
+        link.ready_to_run = True
+        request = 'ARM,PLATFORM_PICK,START,SEQ,63,FIELD,BLUE,SLOT,2'
+        link._handle_line(request)
+        self.assertEqual(link.consume_platform_slots()[0]['slot'], 2)
+
+        f = Fixture(); f.ready(); f.writes.clear(); f.task.begin_slot('blue')
+        f.task.tick([letter('C')], (600, 800, 3), fresh=True)
+        f.now = f.task.timeout
+        f.task.tick([], (600, 800, 3), fresh=True)
+        f.finish()
+        self.assertTrue(link.finish_active(f.task.done))
+        self.assertIsNone(link.active_task)
+        self.assertIsNone(link.active_sequence)
+        self.assertIn('DONE,SEQ,63', lines[-1])
+        self.assertIn('SKIPPED:MAIN_TARGET_OR_DEPTH_TIMEOUT', lines[-1])
+        self.assertIn('SLOT,2', lines[-1])
+
+        link._handle_line(request)
+        self.assertFalse(link.consume_platform_slots())
+        self.assertIn('DONE,SEQ,63', lines[-1])
+
+        next_request = 'ARM,PLATFORM_PICK,START,SEQ,64,FIELD,BLUE,SLOT,3'
+        link._handle_line(next_request)
+        self.assertEqual(link.active_sequence, 64)
+        self.assertEqual(link.consume_platform_slots()[0]['slot'], 3)
+        self.assertIn('ACK,SEQ,64', lines[-1])
 
     def test_real_ring_detector_output_reaches_grasp_for_both_fields(self):
         detector = TargetDetector()

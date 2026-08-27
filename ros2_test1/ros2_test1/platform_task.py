@@ -59,9 +59,8 @@ CENTER_ID6_STEP_TICKS = 5
 CENTER_ID2_STEP_TICKS = 7
 CENTER_ID2_RANGE = (450, 700)
 CENTER_ID6_RANGE = (0, 700)
-# Only the target-observation phase is bounded.  Once a valid selected
-# letter/own-field ring has been seen, the grasp transaction is allowed to
-# finish without the no-target watchdog interrupting it.
+# Only the target-observation phase is bounded. A first valid sighting sets
+# target_seen, but the deadline stays active until a three-frame target lock.
 PLATFORM_NO_TARGET_TIMEOUT_S = 3.0
 # After a centering move, allow one second to reacquire the same target and
 # a valid depth before ending this slot and returning to the high pose.
@@ -350,10 +349,12 @@ class PlatformTask:
         key = self._key(target)
         point = tuple(target["center"])
         if not self.target_seen:
+            # Seeing a valid candidate starts the stability vote, but does
+            # not lock the target or release the station timeout yet.
             self.target_seen = True
             self.status = (
                 "PLATFORM_PICK target observed; "
-                "grasp transaction has no deadline"
+                "waiting for 3-frame stability vote"
             )
         self.votes.append((key, point))
         if sum(v is not None and v[0] == key and math.dist(v[1], point) <= 140
@@ -362,6 +363,10 @@ class PlatformTask:
         if not self._allowed(target):
             self.skip("TARGET_NOT_SELECTED")
             return
+        self.status = (
+            "PLATFORM_PICK target locked; "
+            "grasp transaction has no deadline"
+        )
         self.target_key, self.target_center = key, point
         dx, dy = point[0] - width / 2, point[1] - height / 2
         center_deadband = (
@@ -552,7 +557,10 @@ class PlatformTask:
             self.done = "PRESELECT_DONE:" + ":".join(self.selected)
             self.status = "PLATFORM_PICK ARM_HIGH_READY; release H7 approach"
         elif self.stage == "platform_detect":
-            if not self.target_seen and now >= self.timeout:
+            # A single candidate frame is only a sighting, not a locked
+            # target. Keep the station search bounded until the 3-frame vote
+            # confirms a target and assigns target_key.
+            if self.target_key is None and now >= self.timeout:
                 self.skip("MAIN_TARGET_OR_DEPTH_TIMEOUT")
             elif (
                 self.target_seen
