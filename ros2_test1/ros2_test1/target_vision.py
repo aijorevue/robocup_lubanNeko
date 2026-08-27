@@ -296,17 +296,19 @@ COLUMN_CATCH_LETTER_PLACE = (530, 350, 670)
 COLUMN_CATCH_LETTER_PLACE_TIME_MS = 500
 # Formal BLUE task-three only: one fixed recovery grab before releasing the
 # post-orbit H7 hold when the selected letter pair still has a quota gap.
-TASK3_SUPPLEMENT_OPEN_HOLD_MS = 1000
+TASK3_SUPPLEMENT_OPEN_HOLD_MS = 500
 TASK3_SUPPLEMENT_DESCEND_ID1_TICK = 580
 TASK3_SUPPLEMENT_DESCEND_TIME_MS = 800
 TASK3_SUPPLEMENT_GRIPPER_TIME_MS = 200
 TASK3_SUPPLEMENT_AXIS_TIME_MS = 500
+TASK3_SUPPLEMENT_RETURN_HIGH_TIME_MS = 200
+TASK3_SUPPLEMENT_PLACE_TIME_MS = 300
 TASK3_SUPPLEMENT_HIGH = (
     COLUMN_CATCH_READY_ID1_TICK,
     COLUMN_CATCH_READY_ID2_TICK,
     COLUMN_CATCH_READY_ID6_TICK,
 )
-TASK3_SUPPLEMENT_PLACE = COLUMN_CATCH_LETTER_PLACE
+TASK3_SUPPLEMENT_PLACE = (530, 350, 650)
 RING_DISTANCE_OFFSET_CM = BALL_DISTANCE_OFFSET_CM + RING_DISTANCE_EXTRA_CM
 RING_DISTANCE_SCALE_CM = (
     BALL_DISTANCE_SCALE_CM
@@ -4007,37 +4009,37 @@ class TargetGraspController:
                 (
                     "RETURN_HIGH_ID1",
                     self._task3_supplement_command,
-                    ("return regular high ID1", TASK3_SUPPLEMENT_AXIS_TIME_MS),
+                    ("return regular high ID1", TASK3_SUPPLEMENT_RETURN_HIGH_TIME_MS),
                     {"id1": TASK3_SUPPLEMENT_HIGH[0]},
                 ),
                 (
                     "RETURN_HIGH_ID2",
                     self._task3_supplement_command,
-                    ("return regular high ID2", TASK3_SUPPLEMENT_AXIS_TIME_MS),
+                    ("return regular high ID2", TASK3_SUPPLEMENT_RETURN_HIGH_TIME_MS),
                     {"id2": TASK3_SUPPLEMENT_HIGH[1]},
                 ),
                 (
                     "RETURN_HIGH_ID6",
                     self._task3_supplement_command,
-                    ("return regular high ID6", TASK3_SUPPLEMENT_AXIS_TIME_MS),
+                    ("return regular high ID6", TASK3_SUPPLEMENT_RETURN_HIGH_TIME_MS),
                     {"id6": TASK3_SUPPLEMENT_HIGH[2]},
                 ),
                 (
                     "PLACE_WORK_ID6",
                     self._task3_supplement_command,
-                    ("place block ID6", TASK3_SUPPLEMENT_AXIS_TIME_MS),
+                    ("place block ID6", TASK3_SUPPLEMENT_PLACE_TIME_MS),
                     {"id6": TASK3_SUPPLEMENT_PLACE[2]},
                 ),
                 (
                     "PLACE_WORK_ID2",
                     self._task3_supplement_command,
-                    ("place block ID2", TASK3_SUPPLEMENT_AXIS_TIME_MS),
+                    ("place block ID2", TASK3_SUPPLEMENT_PLACE_TIME_MS),
                     {"id2": TASK3_SUPPLEMENT_PLACE[1]},
                 ),
                 (
                     "PLACE_WORK_ID1",
                     self._task3_supplement_command,
-                    ("place block ID1", TASK3_SUPPLEMENT_AXIS_TIME_MS),
+                    ("place block ID1", TASK3_SUPPLEMENT_PLACE_TIME_MS),
                     {"id1": TASK3_SUPPLEMENT_PLACE[0]},
                 ),
                 (
