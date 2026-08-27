@@ -48,6 +48,7 @@ class ChassisArmLink:
         self.pending_platform_slots = []
         self.pending_stops = []
         self.pending_holds = []
+        self.pending_hold_failures = []
         self.pending_retracts = []
         self.pending_preps = []
         self.pending_aux_requests = []
@@ -371,10 +372,16 @@ class ChassisArmLink:
                 self.active_task == "COLUMN_CATCH"
                 and response_sequence == self.active_sequence
                 and response_field == self.field_mode
-                and status in {"ACK", "PAUSED", "RESUMED", "STOPPED"}
+                and status in {
+                    "ACK", "PAUSED", "RESUMED", "STOPPED", "HOLD_FAIL",
+                }
             ):
                 if status == "STOPPED":
                     self.formal_column_control_state = "STOPPED"
+                elif status == "HOLD_FAIL":
+                    self.formal_column_control_state = "HOLD_FAILED"
+                    if "COLUMN_CATCH" not in self.pending_hold_failures:
+                        self.pending_hold_failures.append("COLUMN_CATCH")
                 elif status == "PAUSED":
                     self.formal_column_control_state = "PAUSED"
                 elif status == "RESUMED":
@@ -911,19 +918,24 @@ class ChassisArmLink:
         self.pending_holds = []
         return holds
 
+    def consume_hold_failures(self):
+        failures = self.pending_hold_failures
+        self.pending_hold_failures = []
+        return failures
+
     def complete_blue_column_hold(self, task, reason="", success=True):
         if task != "COLUMN_CATCH" or self.active_task != task:
             return False
         if not success:
             return self._send_task_state(
                 task, "ERR", self.active_sequence,
-                "REASON", reason or "BLUE_HOLD_FAILED",
                 "FIELD", self.field_mode.wire_name,
             )
+        # Keep this response short. H7 parses it with a bounded line buffer;
+        # verbose servo details can make it drop the terminal HOLD_DONE frame.
         return self._send_task_state(
             task, "HOLD_DONE", self.active_sequence,
             "FIELD", self.field_mode.wire_name,
-            "REASON", reason or "ARM_STOP_DONE",
         )
 
     def consume_retracts(self):
@@ -1034,6 +1046,7 @@ class ChassisArmLink:
         self.pending_platform_slots.clear()
         self.pending_stops.clear()
         self.pending_holds.clear()
+        self.pending_hold_failures.clear()
         self.pending_retracts.clear()
         self.pending_white_line_queries.clear()
         self.white_line_active = False

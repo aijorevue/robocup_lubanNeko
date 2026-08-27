@@ -3648,6 +3648,7 @@ class TargetGraspController:
             return f"COLUMN_CATCH blue hold high failed: {status}"
         self.id1, self.id2, self.id6 = COLUMN_CATCH_BLUE_HOLD_HIGH
         self.platform_high_hold = True
+        self.platform_high_pose_sent = True
         self.chassis_station_stage = None
         # Keep COLUMN_CATCH active until H7 sends RETRACT after white-line
         # alignment. No generic station cleanup is allowed in this state.
@@ -3669,6 +3670,63 @@ class TargetGraspController:
         self.chassis_station_done_reason = None
         self.chassis_station_error_reason = None if success else "BLUE_RETRACT_FAILED"
         return success, status
+
+    def freeze_blue_task3_arm(self, reason="H7_HOLD_FAILED"):
+        """Keep BLUE task-three arm high while H7 reports a hold failure."""
+        if (
+            self.active_chassis_station != "COLUMN_CATCH"
+            or self.field_mode != FieldMode.BLUE
+        ):
+            return f"blue task-three freeze ignored; active={self.active_chassis_station}"
+        self.platform_task.reset()
+        self.task3_ring_place_actions.clear()
+        status = self._column_pose(
+            *COLUMN_CATCH_BLUE_HOLD_HIGH,
+            f"COLUMN_CATCH blue hold failure; freeze high ({reason})",
+            raising=True,
+            id7=COLUMN_CATCH_GRIPPER_CLOSED_TICK,
+            id5=COLUMN_CATCH_CATCHER_HOME_TICK,
+            splitter_id4=COLUMN_CATCH_SPLITTER_TICK,
+        )
+        self.id1, self.id2, self.id6 = COLUMN_CATCH_BLUE_HOLD_HIGH
+        self.platform_high_hold = True
+        self.platform_high_pose_sent = True
+        self.chassis_station_stage = None
+        self.chassis_station_done_reason = None
+        self.chassis_station_error_reason = reason
+        self.locked_target = None
+        self.locked_plan = None
+        self.column_target_armed = False
+        self.column_capture_authorized = False
+        self.status = (
+            "COLUMN_CATCH blue arm frozen expanded after H7 hold failure "
+            f"ID1={self.id1} ID2={self.id2} ID6={self.id6}"
+        )
+        self.arm_preview.publish(self.status)
+        return f"FROZEN_EXPANDED_HIGH; {status}"
+
+    def _hold_platform_high_pose(self):
+        """Keep the already-issued BLUE task-three high pose unchanged.
+
+        The H7 route remains in COLUMN_CATCH while it travels to the white
+        line. This branch must not run the generic target-search fallback,
+        because that fallback intentionally changes the arm pose.
+        """
+        self.id1, self.id2, self.id6 = COLUMN_CATCH_BLUE_HOLD_HIGH
+        self.id7 = COLUMN_CATCH_GRIPPER_CLOSED_TICK
+        self.id5 = COLUMN_CATCH_CATCHER_HOME_TICK
+        self.splitter_id4 = COLUMN_CATCH_SPLITTER_TICK
+        if not self.platform_high_pose_sent:
+            self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+            self.arm_preview.publish(
+                "COLUMN_CATCH blue arm hold high "
+                f"ID1={self.id1} ID2={self.id2} ID6={self.id6}"
+            )
+            self.platform_high_pose_sent = True
+        return (
+            "COLUMN_CATCH blue arm held expanded "
+            f"ID1={self.id1} ID2={self.id2} ID6={self.id6}"
+        )
 
     def abort_chassis_station(self, reason):
         """Best-effort home before reporting a station control failure to H7."""
@@ -6190,10 +6248,12 @@ class TargetGraspController:
             return self.status
         if self.one_shot:
             return self._update_one_shot(target, frame_shape)
-        if self.platform_high_hold and self.active_chassis_station is None:
-            # H7 clears its active station after each slot while it travels to
-            # the next one.  Do not fall through to the generic idle branch,
-            # which slowly returns ID1/ID2 to the low standby pose.
+        if self.platform_high_hold and self.active_chassis_station in {
+            None, "COLUMN_CATCH",
+        }:
+            # BLUE COLUMN_CATCH stays active until H7 requests RETRACT after
+            # white-line alignment. Never fall through to generic search,
+            # which can slowly change ID1/ID2 away from the high pose.
             return self._hold_platform_high_pose()
         if (
             self.active_chassis_station == "PLATFORM_PICK"
@@ -8297,6 +8357,13 @@ def main(argv=None):
                 print(
                     f"CHASSIS BLUE TASK3 HOLD success={'yes' if hold_success else 'no'} | "
                     f"{hold_status}",
+                    flush=True,
+                )
+            for hold_failure in chassis_link.consume_hold_failures():
+                failure_status = grasp_controller.freeze_blue_task3_arm()
+                print(
+                    "CHASSIS BLUE TASK3 HOLD FAILURE frozen high | "
+                    f"{failure_status}",
                     flush=True,
                 )
             for slot_request in platform_slot_requests:
