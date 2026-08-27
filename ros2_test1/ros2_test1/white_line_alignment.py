@@ -831,6 +831,161 @@ class WhiteLineAlignmentDetector:
         self._last_measurement = measurement
         return measurement
 
+    @staticmethod
+    def _task3_scanline_fallback(frame):
+        """Extract a partial horizontal strip without merging the upper box.
+
+        At close range the threshold mask can connect the strip to the wooden
+        box above it.  Contour geometry then describes the box instead of the
+        strip and the normal task-three gate rejects both.  Scan individual
+        rows, select the terminal horizontal run, and fit the centerline only
+        inside that thin band.  This is intentionally task-three-only.
+        """
+        if frame is None or frame.size == 0:
+            return None
+
+        height, width = frame.shape[:2]
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        gray_eq = clahe.apply(gray)
+        value_eq = clahe.apply(hsv[:, :, 2])
+        x0 = max(0, int(width * 0.02))
+        x1 = min(width, int(width * 0.98))
+        y0 = max(int(height * 0.20), int(height * 0.15))
+        y1 = min(height, int(height * 0.72))
+        if x1 <= x0 or y1 <= y0:
+            return None
+
+        roi_value = value_eq[y0:y1, x0:x1]
+        roi_gray = gray_eq[y0:y1, x0:x1]
+        adaptive_value = max(135, int(np.percentile(roi_value, 60)))
+        adaptive_gray = max(135, int(np.percentile(roi_gray, 62)))
+        bright = cv2.inRange(
+            hsv,
+            np.array((0, 0, adaptive_value), dtype=np.uint8),
+            np.array((179, 150, 255), dtype=np.uint8),
+        )
+        gray_mask = cv2.inRange(gray_eq, adaptive_gray, 255)
+        mask = cv2.bitwise_or(bright, gray_mask)
+        roi_mask = np.zeros((height, width), dtype=np.uint8)
+        roi_mask[y0:y1, x0:x1] = 255
+        mask = cv2.bitwise_and(mask, roi_mask)
+
+        row_runs = []
+        close_kernel = np.ones((1, max(9, min(17, width // 45))), np.uint8)
+        for row_y in range(y0, y1):
+            row = cv2.morphologyEx(
+                mask[row_y:row_y + 1], cv2.MORPH_CLOSE, close_kernel
+            )[0] > 0
+            indices = np.flatnonzero(row)
+            if indices.size == 0:
+                continue
+            runs = []
+            start = previous = int(indices[0])
+            for index in indices[1:]:
+                index = int(index)
+                if index - previous > 3:
+                    runs.append((start, previous))
+                    start = index
+                previous = index
+            runs.append((start, previous))
+            run_start, run_end = max(
+                runs, key=lambda run: run[1] - run[0] + 1
+            )
+            run_width = run_end - run_start + 1
+            if run_width >= max(80, int(width * 0.12)):
+                row_runs.append((row_y, run_width, run_start, run_end))
+
+        if not row_runs:
+            return None
+
+        # The strip's terminal edge is stable over several adjacent rows.
+        # Selecting that plateau rejects the upper box's broad but slanted
+        # bright area even when both regions touch in the binary mask.
+        maximum_end = max(item[3] for item in row_runs)
+        edge_tolerance = max(12, int(width * 0.03))
+        terminal_rows = [
+            item for item in row_runs
+            if item[3] >= maximum_end - edge_tolerance
+        ]
+        groups = []
+        for item in terminal_rows:
+            if not groups or item[0] - groups[-1][-1][0] > 2:
+                groups.append([item])
+            else:
+                groups[-1].append(item)
+        groups = [
+            group for group in groups
+            if group[-1][0] - group[0][0] + 1 <= max(24, int(height * 0.14))
+        ]
+        if not groups:
+            return None
+        group = max(
+            groups,
+            key=lambda candidate: (
+                max(item[1] for item in candidate),
+                sum(item[1] for item in candidate),
+            ),
+        )
+        if max(item[1] for item in group) < width * 0.18:
+            return None
+
+        band_top = max(y0, group[0][0] - 3)
+        band_bottom = min(y1 - 1, group[-1][0] + 3)
+        right_edge_x = float(np.median([item[3] for item in group]))
+        left_edge_x = float(np.median([item[2] for item in group]))
+        if right_edge_x - left_edge_x < width * 0.15:
+            return None
+
+        # Fit the center of the bright band column by column.  Restricting the
+        # fit to the selected terminal band prevents the overhead structure
+        # from biasing the angle and Y measurement.
+        fit_x0 = max(x0, int(width * 0.28), int(left_edge_x))
+        fit_x1 = min(x1 - 1, int(round(right_edge_x)))
+        points = []
+        for column_x in range(fit_x0, fit_x1 + 1):
+            column = mask[band_top:band_bottom + 1, column_x]
+            ys = np.flatnonzero(column)
+            if ys.size:
+                points.append((column_x, band_top + float(np.median(ys))))
+        if len(points) < max(20, int(width * 0.08)):
+            return None
+
+        coordinates = np.asarray(points, dtype=np.float32)
+        slope, intercept = np.polyfit(coordinates[:, 0], coordinates[:, 1], 1)
+        angle_deg = float(np.degrees(np.arctan(float(slope))))
+        y_at_center = float(intercept + slope * (width * 0.5))
+        if not height * 0.20 <= y_at_center <= height * 0.72:
+            return None
+        if abs(angle_deg) > 25.0:
+            return None
+
+        center_line = (
+            (float(fit_x0), float(intercept + slope * fit_x0)),
+            (float(fit_x1), float(intercept + slope * fit_x1)),
+        )
+        return {
+            "center_x": float((fit_x0 + fit_x1) * 0.5),
+            "center_y": y_at_center,
+            "angle_deg": angle_deg,
+            "y_at_center": y_at_center,
+            "length": float(fit_x1 - fit_x0 + 1),
+            "thickness": float(band_bottom - band_top + 1),
+            "area": float(np.count_nonzero(mask[band_top:band_bottom + 1])),
+            "bounds": (
+                int(round(left_edge_x)), band_top,
+                int(round(right_edge_x - left_edge_x + 1)),
+                band_bottom - band_top + 1,
+            ),
+            "frame_width": width,
+            "frame_height": height,
+            "held": False,
+            "center_line": center_line,
+            "edge_support": len(points),
+            "right_edge_x": right_edge_x,
+        }
+
     def detect_task3(self, frame):
         """Detect the BLUE task-three strip with a recoverable fallback.
 
@@ -1013,6 +1168,9 @@ class WhiteLineAlignmentDetector:
             )
 
         if not candidates:
+            scanline = self._task3_scanline_fallback(frame)
+            if scanline is not None:
+                return self._task3_stabilize(scanline)
             self._task3_edge_history = []
             return None
 

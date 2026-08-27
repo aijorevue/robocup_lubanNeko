@@ -349,7 +349,7 @@ class TestPlatformTask(unittest.TestCase):
         self.assertEqual(HIGH, (650, 600, 415))
         self.assertEqual(PREPLACE_ID2, 400)
         self.assertEqual(LETTER_PLACE, (530, 350, 670))
-        self.assertEqual(RING_PLACE, (520, 345, 171))
+        self.assertEqual(RING_PLACE, (545, 350, 171))
         self.assertEqual(POST_OPEN_ID2_RETREAT_TICKS_BY_KIND,
                          {'letter': 30, 'ring': 50})
         for kind, field, placement in [('letter', 'red', LETTER_PLACE),

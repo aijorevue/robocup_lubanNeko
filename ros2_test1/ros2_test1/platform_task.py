@@ -9,11 +9,11 @@ import time
 
 from .grasp_calibration import calibrated_grasp_ticks
 
-HIGH = (650, 600, 413)
-INTERMEDIATE_HIGH = (650, 400, 413)
+HIGH = (650, 600, 415)
+INTERMEDIATE_HIGH = (650, 400, 415)
 PREPLACE_ID2 = 400
 LETTER_PLACE = (530, 350, 670)
-RING_PLACE = (520, 345, 171)
+RING_PLACE = (545, 350, 171)
 HTD85_AUX_HIGH = (300, 600, 265)  # physical ID14, ID15, ID17; ID14 retracted
 PLATFORM_GRIPPER_CLOSED = 265
 PLATFORM_GRIPPER_OPEN = 405
@@ -54,13 +54,14 @@ FORMAL_RING_LONG_RANGE_ID2_INCREASE_TICKS = 30
 FORMAL_LONG_RANGE_FINAL_ID2_INCREASE_TICKS = 15
 PLATFORM_GRASP_ID1_OFFSET_TICKS = 40
 CENTER_DEADBAND_PX = 45
-RING_CENTER_DEADBAND_PX = 10
+RING_CENTER_DEADBAND_PX = 30
 CENTER_ID6_STEP_TICKS = 5
 CENTER_ID2_STEP_TICKS = 7
 CENTER_ID2_RANGE = (450, 700)
 CENTER_ID6_RANGE = (0, 700)
-# Only the target-observation phase is bounded. A first valid sighting sets
-# target_seen, but the deadline stays active until a three-frame target lock.
+# Only the target-observation phase is bounded.  Once a valid selected
+# letter/own-field ring has been seen, the grasp transaction is allowed to
+# finish without the no-target watchdog interrupting it.
 PLATFORM_NO_TARGET_TIMEOUT_S = 3.0
 # After a centering move, allow one second to reacquire the same target and
 # a valid depth before ending this slot and returning to the high pose.
@@ -68,7 +69,7 @@ PLATFORM_CENTER_REACQUIRE_TIMEOUT_S = 1.0
 # Once a stable, centered target is visible, do not wait indefinitely for its
 # depth measurement. A continuous invalid-depth window skips this station.
 PLATFORM_DEPTH_INVALID_TIMEOUT_S = 4.0
-TARGET_WINDOW_SIZE_PX = 500
+TARGET_WINDOW_SIZE_PX = 400
 TARGET_WINDOW_MIN_AREA_FRACTION = 0.80
 SECONDARY_PAIR_REQUIRED_FRAMES = 3
 SECONDARY_PRESELECT_TIMEOUT_S = 25.0
@@ -76,7 +77,7 @@ SECONDARY_PRESELECT_FALLBACK_WINDOW_S = 2.0
 
 
 def _target_in_center_window(target, frame_shape):
-    """Require at least 80% of a target bbox inside the centered 500x500 window."""
+    """Require at least 80% of a target bbox inside the centered 400x400 window."""
     bbox = target.get("bbox")
     if bbox is None or len(bbox) != 4:
         return False
@@ -349,12 +350,10 @@ class PlatformTask:
         key = self._key(target)
         point = tuple(target["center"])
         if not self.target_seen:
-            # Seeing a valid candidate starts the stability vote, but does
-            # not lock the target or release the station timeout yet.
             self.target_seen = True
             self.status = (
                 "PLATFORM_PICK target observed; "
-                "waiting for 3-frame stability vote"
+                "grasp transaction has no deadline"
             )
         self.votes.append((key, point))
         if sum(v is not None and v[0] == key and math.dist(v[1], point) <= 140
@@ -363,10 +362,6 @@ class PlatformTask:
         if not self._allowed(target):
             self.skip("TARGET_NOT_SELECTED")
             return
-        self.status = (
-            "PLATFORM_PICK target locked; "
-            "grasp transaction has no deadline"
-        )
         self.target_key, self.target_center = key, point
         dx, dy = point[0] - width / 2, point[1] - height / 2
         center_deadband = (
@@ -557,10 +552,7 @@ class PlatformTask:
             self.done = "PRESELECT_DONE:" + ":".join(self.selected)
             self.status = "PLATFORM_PICK ARM_HIGH_READY; release H7 approach"
         elif self.stage == "platform_detect":
-            # A single candidate frame is only a sighting, not a locked
-            # target. Keep the station search bounded until the 3-frame vote
-            # confirms a target and assigns target_key.
-            if self.target_key is None and now >= self.timeout:
+            if not self.target_seen and now >= self.timeout:
                 self.skip("MAIN_TARGET_OR_DEPTH_TIMEOUT")
             elif (
                 self.target_seen

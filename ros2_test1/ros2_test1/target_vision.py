@@ -275,6 +275,7 @@ TASK3_RING_PLACE_GRIPPER_CLOSED_TICK = PLATFORM_GRIPPER_CLOSED
 TASK3_RING_PLACE_GRIPPER_TIME_MS = 200
 TASK3_RING_PLACE_SLOW_CLOSE_TIME_MS = 2000
 TASK3_RING_PLACE_RELEASE_GRIPPER_TIME_MS = 1000
+TASK3_RING_PLACE_RELEASE_HIGH_TIME_MS = 500
 TASK3_RING_PLACE_RELEASE_HOLD_MS = 1500
 TASK3_RING_PLACE_RELEASE_ID1_TICK = 580
 TASK3_RING_PLACE_RELEASE_ID2_TICK = 467
@@ -283,6 +284,19 @@ TASK3_RING_PLACE_RELEASE_ID1_HOLD_MS = 1000
 TASK3_RING_PLACE_CONTRACT_AXIS_TIME_MS = 500
 COLUMN_CATCH_LETTER_PLACE = (530, 350, 670)
 COLUMN_CATCH_LETTER_PLACE_TIME_MS = 500
+# Formal BLUE task-three only: one fixed recovery grab before releasing the
+# post-orbit H7 hold when the selected letter pair still has a quota gap.
+TASK3_SUPPLEMENT_OPEN_HOLD_MS = 1000
+TASK3_SUPPLEMENT_DESCEND_ID1_TICK = 580
+TASK3_SUPPLEMENT_DESCEND_TIME_MS = 800
+TASK3_SUPPLEMENT_GRIPPER_TIME_MS = 200
+TASK3_SUPPLEMENT_AXIS_TIME_MS = 500
+TASK3_SUPPLEMENT_HIGH = (
+    COLUMN_CATCH_READY_ID1_TICK,
+    COLUMN_CATCH_READY_ID2_TICK,
+    COLUMN_CATCH_READY_ID6_TICK,
+)
+TASK3_SUPPLEMENT_PLACE = COLUMN_CATCH_LETTER_PLACE
 RING_DISTANCE_OFFSET_CM = BALL_DISTANCE_OFFSET_CM + RING_DISTANCE_EXTRA_CM
 RING_DISTANCE_SCALE_CM = (
     BALL_DISTANCE_SCALE_CM
@@ -1344,6 +1358,11 @@ class TargetGraspController:
         self.chassis_station_deadline = 0.0
         self.chassis_station_no_target_deadline = 0.0
         self.task3_ring_place_actions = deque()
+        self.task3_supplement_actions = deque()
+        self.task3_supplement_label = None
+        self.task3_supplement_active = False
+        self.task3_supplement_done = False
+        self.task3_supplement_hold_completed = False
         self.disc_pulse_done = False
         self.disc_last_pulsed_color = None
         self.disc_last_pulsed_center = None
@@ -2696,6 +2715,36 @@ class TargetGraspController:
         )
         return max(0.10, float(motion_ms) / 1000.0)
 
+    def _task3_ring_release_high(self, motion_ms, label):
+        """Return all task-three end-ring joints to the station high pose."""
+
+        bridge = self.servo_bridge
+        previous = getattr(bridge, "arm_time_ms", PLATFORM_ARM_TIME_MS)
+        id1, id2, id6 = TASK3_RING_PLACE_HIGH
+        try:
+            bridge.arm_time_ms = int(motion_ms)
+            if bridge.write_enabled:
+                bridge.send_targets(
+                    id1=int(id1),
+                    id2=int(id2),
+                    id6=int(id6),
+                    id4=int(self.id7),
+                )
+                if not bridge.last_command_ok:
+                    raise RuntimeError(bridge.status)
+            self.id1 = int(id1)
+            self.id2 = int(id2)
+            self.id6 = int(id6)
+        finally:
+            bridge.arm_time_ms = previous
+        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+        print(
+            f"TASK3_RING_PLACE {label} ID1={self.id1} ID2={self.id2} "
+            f"ID6={self.id6} time={int(motion_ms)}ms",
+            flush=True,
+        )
+        return max(0.10, float(motion_ms) / 1000.0)
+
     def _task3_ring_gripper(self, position, motion_ms, label):
         """Move task-three ID17 with an explicit duration."""
 
@@ -3034,8 +3083,11 @@ class TargetGraspController:
                  (TASK3_RING_PLACE_RELEASE_ID1_HOLD_MS,
                   "wait after ID1 release-confirm position")),
                 ("OPEN_ID17_AGAIN", self._task3_ring_gripper,
-                 (TASK3_RING_PLACE_GRIPPER_OPEN_TICK,
+                (TASK3_RING_PLACE_GRIPPER_OPEN_TICK,
                   TASK3_RING_PLACE_RELEASE_GRIPPER_TIME_MS, "open ID17 again")),
+                ("RETURN_HIGH_BEFORE_CLOSE", self._task3_ring_release_high,
+                 (TASK3_RING_PLACE_RELEASE_HIGH_TIME_MS,
+                  "return high before final close")),
                 ("CLOSE_ID17_AGAIN", self._task3_ring_gripper,
                 (TASK3_RING_PLACE_GRIPPER_CLOSED_TICK,
                   TASK3_RING_PLACE_RELEASE_GRIPPER_TIME_MS, "close ID17 again")),
@@ -3245,6 +3297,11 @@ class TargetGraspController:
         return self.status
 
     def _begin_column_catch_station(self):
+        self.task3_supplement_actions.clear()
+        self.task3_supplement_label = None
+        self.task3_supplement_active = False
+        self.task3_supplement_done = False
+        self.task3_supplement_hold_completed = False
         self.id7 = COLUMN_CATCH_GRIPPER_CLOSED_TICK
         self.id5 = COLUMN_CATCH_CATCHER_HOME_TICK
         self.splitter_id4 = COLUMN_CATCH_SPLITTER_TICK
@@ -3703,14 +3760,21 @@ class TargetGraspController:
 
     def hold_blue_task3_arm(self):
         """Hold the blue task-three arm high without generic STOP cleanup."""
-        self.platform_task.reset()
-        self.task3_ring_place_actions.clear()
         if (
             self.active_chassis_station != "COLUMN_CATCH"
             or self.field_mode != FieldMode.BLUE
         ):
             self.chassis_station_error_reason = "BLUE_HOLD_WITHOUT_COLUMN_CATCH"
             return "blue task-three hold ignored; no active blue COLUMN_CATCH"
+        # H7 may retransmit HOLD while the supplement is running. Keep the
+        # current action queue intact; restarting it would replay OPEN_HIGH
+        # forever and prevent the descend/close/place steps from running.
+        if self.task3_supplement_active:
+            return "HOLD_EXPANDED_HIGH; supplement in progress"
+        if self.task3_supplement_hold_completed:
+            return "HOLD_EXPANDED_HIGH; supplement already complete"
+        self.platform_task.reset()
+        self.task3_ring_place_actions.clear()
         status = self._column_pose(
             *COLUMN_CATCH_BLUE_HOLD_HIGH,
             "COLUMN_CATCH blue orbit boundary; hold expanded high",
@@ -3725,7 +3789,17 @@ class TargetGraspController:
         self.id1, self.id2, self.id6 = COLUMN_CATCH_BLUE_HOLD_HIGH
         self.platform_high_hold = True
         self.platform_high_pose_sent = True
-        self.chassis_station_stage = None
+        self.task3_supplement_label = self._task3_supplement_label()
+        self.task3_supplement_done = False
+        if self.task3_supplement_label is not None:
+            self.task3_supplement_active = True
+            self.task3_supplement_hold_completed = False
+            self.task3_supplement_actions.clear()
+            self.chassis_station_stage = "task3_supplement_start"
+        else:
+            self.task3_supplement_active = False
+            self.task3_supplement_hold_completed = True
+            self.chassis_station_stage = None
         # Keep COLUMN_CATCH active until H7 sends RETRACT after white-line
         # alignment. No generic station cleanup is allowed in this state.
         self.chassis_station_done_reason = None
@@ -3734,10 +3808,293 @@ class TargetGraspController:
             "COLUMN_CATCH blue arm held expanded "
             f"ID1={self.id1} ID2={self.id2} ID6={self.id6}"
         )
+        if self.task3_supplement_label is not None:
+            self.status += (
+                " | fixed supplement pending "
+                f"letter={self.task3_supplement_label}"
+            )
         self.arm_preview.publish(self.status)
         return f"HOLD_EXPANDED_HIGH; {status}"
 
+    def _task3_supplement_label(self):
+        """Choose one deficient letter from the locked secondary-camera pair."""
+        selected = tuple(sorted(self.platform_selected_letters))
+        if len(selected) != 2:
+            print(
+                "COLUMN_CATCH supplement skipped: secondary pair is not locked",
+                flush=True,
+            )
+            return None
+        deficient = [
+            label for label in selected
+            if self.letter_success_counts.get(label, 0)
+            < PLATFORM_LETTER_SUCCESS_QUOTA
+        ]
+        if not deficient:
+            print(
+                "COLUMN_CATCH supplement not required: selected pair quotas complete",
+                flush=True,
+            )
+            return None
+        return min(
+            deficient,
+            key=lambda label: (
+                self.letter_success_counts.get(label, 0),
+                label,
+            ),
+        )
+
+    def task3_supplement_pending(self):
+        return bool(self.task3_supplement_active)
+
+    def consume_task3_supplement_done(self):
+        if not self.task3_supplement_done:
+            return False
+        self.task3_supplement_done = False
+        return True
+
+    def _task3_supplement_command(
+        self, reason, motion_ms, *, id1=None, id2=None, id6=None, id7=None
+    ):
+        """Send one fixed supplement motion with explicit timing."""
+        targets = {}
+        if id1 is not None:
+            targets["id1"] = int(id1)
+        if id2 is not None:
+            targets["id2"] = int(id2)
+        if id6 is not None:
+            targets["id6"] = int(id6)
+        if id7 is not None:
+            targets["id4"] = int(id7)
+        if not targets:
+            return False
+        bridge = self.servo_bridge
+        previous_arm = getattr(bridge, "arm_time_ms", PLATFORM_ARM_TIME_MS)
+        previous_gripper = getattr(
+            bridge, "gripper_time_ms", PLATFORM_GRIPPER_TIME_MS
+        )
+        try:
+            bridge.arm_time_ms = int(motion_ms)
+            bridge.gripper_time_ms = int(motion_ms)
+            status = bridge.send_targets(**targets)
+        finally:
+            bridge.arm_time_ms = previous_arm
+            bridge.gripper_time_ms = previous_gripper
+        self.last_command_time = time.monotonic()
+        if bridge.write_enabled and not bridge.last_command_ok:
+            return False
+        if id1 is not None:
+            self.id1 = int(id1)
+        if id2 is not None:
+            self.id2 = int(id2)
+        if id6 is not None:
+            self.id6 = int(id6)
+        if id7 is not None:
+            self.id7 = int(id7)
+        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+        print(
+            f"COLUMN_CATCH SUPPLEMENT {reason} "
+            f"ID1={self.id1} ID2={self.id2} ID6={self.id6} ID17={self.id7} "
+            f"time={int(motion_ms)}ms | {status}",
+            flush=True,
+        )
+        return max(0.10, int(motion_ms) / 1000.0)
+
+    def _task3_supplement_wait(self, wait_ms, label):
+        print(
+            f"COLUMN_CATCH SUPPLEMENT {label} wait={int(wait_ms)}ms",
+            flush=True,
+        )
+        return max(0.10, int(wait_ms) / 1000.0)
+
+    def _task3_supplement_pose(self, pose, label, *, raising):
+        status = self._column_pose(
+            *pose,
+            f"COLUMN_CATCH SUPPLEMENT {label}",
+            raising=raising,
+            id7=COLUMN_CATCH_GRIPPER_CLOSED_TICK,
+            id5=COLUMN_CATCH_CATCHER_HOME_TICK,
+            splitter_id4=COLUMN_CATCH_SPLITTER_TICK,
+        )
+        if self.servo_bridge.write_enabled and not self.servo_bridge.last_command_ok:
+            return False
+        print(f"COLUMN_CATCH SUPPLEMENT {label} | {status}", flush=True)
+        return self._arm_settle_s()
+
+    def _task3_supplement_gripper(self, target, motion_ms, label):
+        status = self._send_gripper_id7(
+            target,
+            f"COLUMN_CATCH SUPPLEMENT {label}",
+            motion_ms=motion_ms,
+        )
+        if self.servo_bridge.write_enabled and not self.servo_bridge.last_command_ok:
+            return False
+        print(f"COLUMN_CATCH SUPPLEMENT {label} | {status}", flush=True)
+        return max(0.10, int(motion_ms) / 1000.0)
+
+    def _update_task3_supplement(self):
+        """Run the fixed post-orbit grab before releasing H7's hold."""
+        now = time.monotonic()
+        if self.chassis_station_stage == "task3_supplement_start":
+            self.task3_supplement_actions.extend([
+                (
+                    "OPEN_HIGH",
+                    self._task3_supplement_command,
+                    ("open high", TASK3_SUPPLEMENT_OPEN_HOLD_MS),
+                    {
+                        "id1": COLUMN_CATCH_BLUE_HOLD_HIGH[0],
+                        "id2": COLUMN_CATCH_BLUE_HOLD_HIGH[1],
+                        "id6": COLUMN_CATCH_BLUE_HOLD_HIGH[2],
+                        "id7": COLUMN_CATCH_GRIPPER_OPEN_TICK,
+                    },
+                ),
+                (
+                    "DESCEND_ID1",
+                    self._task3_supplement_command,
+                    ("fixed ID1 descend", TASK3_SUPPLEMENT_DESCEND_TIME_MS),
+                    {"id1": TASK3_SUPPLEMENT_DESCEND_ID1_TICK},
+                ),
+                (
+                    "CLOSE_ID17",
+                    self._task3_supplement_gripper,
+                    (
+                        COLUMN_CATCH_GRIPPER_CLOSED_TICK,
+                        TASK3_SUPPLEMENT_GRIPPER_TIME_MS,
+                        "close ID17",
+                    ),
+                    {},
+                ),
+                (
+                    "RETURN_HIGH_ID1",
+                    self._task3_supplement_command,
+                    ("return regular high ID1", TASK3_SUPPLEMENT_AXIS_TIME_MS),
+                    {"id1": TASK3_SUPPLEMENT_HIGH[0]},
+                ),
+                (
+                    "RETURN_HIGH_ID2",
+                    self._task3_supplement_command,
+                    ("return regular high ID2", TASK3_SUPPLEMENT_AXIS_TIME_MS),
+                    {"id2": TASK3_SUPPLEMENT_HIGH[1]},
+                ),
+                (
+                    "RETURN_HIGH_ID6",
+                    self._task3_supplement_command,
+                    ("return regular high ID6", TASK3_SUPPLEMENT_AXIS_TIME_MS),
+                    {"id6": TASK3_SUPPLEMENT_HIGH[2]},
+                ),
+                (
+                    "PLACE_WORK_ID6",
+                    self._task3_supplement_command,
+                    ("place block ID6", TASK3_SUPPLEMENT_AXIS_TIME_MS),
+                    {"id6": TASK3_SUPPLEMENT_PLACE[2]},
+                ),
+                (
+                    "PLACE_WORK_ID2",
+                    self._task3_supplement_command,
+                    ("place block ID2", TASK3_SUPPLEMENT_AXIS_TIME_MS),
+                    {"id2": TASK3_SUPPLEMENT_PLACE[1]},
+                ),
+                (
+                    "PLACE_WORK_ID1",
+                    self._task3_supplement_command,
+                    ("place block ID1", TASK3_SUPPLEMENT_AXIS_TIME_MS),
+                    {"id1": TASK3_SUPPLEMENT_PLACE[0]},
+                ),
+                (
+                    "OPEN_RELEASE",
+                    self._task3_supplement_gripper,
+                    (
+                        COLUMN_CATCH_GRIPPER_OPEN_TICK,
+                        TASK3_SUPPLEMENT_GRIPPER_TIME_MS,
+                        "release block",
+                    ),
+                    {},
+                ),
+                (
+                    "CLOSE_RELEASE",
+                    self._task3_supplement_gripper,
+                    (
+                        COLUMN_CATCH_GRIPPER_CLOSED_TICK,
+                        TASK3_SUPPLEMENT_GRIPPER_TIME_MS,
+                        "close after release",
+                    ),
+                    {},
+                ),
+                (
+                    "FINAL_HIGH_ID1",
+                    self._task3_supplement_command,
+                    ("final regular high ID1", TASK3_SUPPLEMENT_AXIS_TIME_MS),
+                    {"id1": TASK3_SUPPLEMENT_HIGH[0]},
+                ),
+                (
+                    "FINAL_HIGH_ID2",
+                    self._task3_supplement_command,
+                    ("final regular high ID2", TASK3_SUPPLEMENT_AXIS_TIME_MS),
+                    {"id2": TASK3_SUPPLEMENT_HIGH[1]},
+                ),
+                (
+                    "FINAL_HIGH_ID6",
+                    self._task3_supplement_command,
+                    ("final regular high ID6", TASK3_SUPPLEMENT_AXIS_TIME_MS),
+                    {"id6": TASK3_SUPPLEMENT_HIGH[2]},
+                ),
+            ])
+            self.chassis_station_stage = "task3_supplement_actions"
+            self.chassis_station_deadline = now
+
+        if self.chassis_station_stage != "task3_supplement_actions":
+            return self.status
+        if now < self.chassis_station_deadline:
+            return (
+                "COLUMN_CATCH supplement settling "
+                f"{self.chassis_station_deadline - now:.1f}s"
+            )
+        if not self.task3_supplement_actions:
+            label = self.task3_supplement_label
+            if label is not None:
+                self.letter_success_counts[label] = (
+                    self.letter_success_counts.get(label, 0) + 1
+                )
+                print(
+                    "COLUMN_CATCH SUPPLEMENT_SUCCESS "
+                    f"letter={label} count={self.letter_success_counts[label]}/"
+                    f"{PLATFORM_LETTER_SUCCESS_QUOTA}",
+                    flush=True,
+                )
+            self.task3_supplement_active = False
+            self.task3_supplement_done = True
+            self.task3_supplement_hold_completed = True
+            self.chassis_station_stage = None
+            self.status = (
+                "COLUMN_CATCH supplement complete; arm high and closed; "
+                "ready for H7 HOLD_DONE"
+            )
+            self.arm_preview.publish(self.status)
+            return self.status
+        label, callback, args, kwargs = self.task3_supplement_actions.popleft()
+        try:
+            settle = callback(*args, **kwargs)
+            if settle is False or settle is None:
+                raise RuntimeError("servo write failed")
+        except Exception as exc:
+            self.task3_supplement_actions.clear()
+            self.task3_supplement_active = False
+            self.chassis_station_stage = None
+            self.chassis_station_error_reason = f"TASK3_SUPPLEMENT_{label}_FAILED"
+            self.state = self.algorithm_stage = "fault"
+            self.status = f"COLUMN_CATCH supplement {label} failed: {exc}"
+            self.arm_preview.publish(self.status)
+            return self.status
+        self.chassis_station_deadline = time.monotonic() + float(settle)
+        self.status = f"COLUMN_CATCH supplement {label} dispatched"
+        return self.status
+
     def retract_blue_task3_arm(self):
+        self.task3_supplement_actions.clear()
+        self.task3_supplement_label = None
+        self.task3_supplement_active = False
+        self.task3_supplement_done = False
+        self.task3_supplement_hold_completed = False
         self.platform_high_hold = False
         status = self.shutdown_contract()
         success = not self.servo_bridge.write_enabled or self.servo_bridge.last_command_ok
@@ -3850,6 +4207,14 @@ class TargetGraspController:
         if station == "PLATFORM_PICK":
             self.platform_task.tick(detections, frame_shape, fresh=detection_fresh)
             return self._sync_platform_task()
+        if (
+            station == "COLUMN_CATCH"
+            and self.chassis_station_stage in {
+                "task3_supplement_start",
+                "task3_supplement_actions",
+            }
+        ):
+            return self._update_task3_supplement()
         if station == "COLUMN_CATCH" and self.chassis_station_stage is not None:
             return self._update_column_catch_station(
                 detections,
@@ -8327,6 +8692,20 @@ def main(argv=None):
             return f"{info}; station DONE={done_reason}"
         return info
 
+    def complete_task3_supplement_hold_if_ready(info):
+        """Release H7 only after the optional fixed BLUE recovery grab ends."""
+        if (
+            chassis_link.active_task != "COLUMN_CATCH"
+            or not grasp_controller.consume_task3_supplement_done()
+        ):
+            return info
+        chassis_link.complete_blue_column_hold(
+            "COLUMN_CATCH",
+            reason="ARM_STOP_DONE_AFTER_SUPPLEMENT",
+            success=True,
+        )
+        return f"{info}; H7 HOLD_DONE sent after supplement"
+
     def _process_white_line_queries(frame, reason):
         nonlocal white_line_last_query_sequence, white_line_last_phase
         pending_white_line_queries = chassis_link.consume_white_line_queries()
@@ -8421,6 +8800,7 @@ def main(argv=None):
                     (args.height, args.width, 3),
                     detection_fresh=False,
                 )
+            info = complete_task3_supplement_hold_if_ready(info)
             info = resolve_station_outcome(info)
             now = time.monotonic()
             if (
@@ -8570,11 +8950,24 @@ def main(argv=None):
                         or grasp_controller.servo_bridge.last_command_ok
                     )
                 )
-                chassis_link.complete_blue_column_hold(
-                    hold,
-                    reason=hold_status,
-                    success=hold_success,
-                )
+                if hold_success and not grasp_controller.task3_supplement_pending():
+                    chassis_link.complete_blue_column_hold(
+                        hold,
+                        reason=hold_status,
+                        success=True,
+                    )
+                elif not hold_success:
+                    chassis_link.complete_blue_column_hold(
+                        hold,
+                        reason=hold_status,
+                        success=False,
+                    )
+                else:
+                    print(
+                        "CHASSIS BLUE TASK3 HOLD deferred until fixed supplement "
+                        "grab/place completes",
+                        flush=True,
+                    )
                 print(
                     f"CHASSIS BLUE TASK3 HOLD success={'yes' if hold_success else 'no'} | "
                     f"{hold_status}",
@@ -8921,6 +9314,9 @@ def main(argv=None):
                             detection_fresh=detection_fresh,
                             chassis_link=chassis_link,
                         )
+                    station_info = complete_task3_supplement_hold_if_ready(
+                        station_info
+                    )
                     if station_info is not None:
                         grasp_info = station_info
                     else:
@@ -8938,7 +9334,6 @@ def main(argv=None):
                                 detection_fresh or not args.fresh_detection_on_lock
                             ),
                         )
-                    grasp_info = resolve_station_outcome(grasp_info)
                 elif not grasp_controller.startup_complete():
                     grasp_info = grasp_controller.update(None, frame.shape)
                 else:
@@ -8948,6 +9343,7 @@ def main(argv=None):
                         else chassis_link.status
                     )
                     arm_preview.publish(grasp_info, preview_target, "WAIT_CHASSIS")
+                grasp_info = resolve_station_outcome(grasp_info)
                 now = time.monotonic()
                 if (
                     chassis_link.enabled
