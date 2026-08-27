@@ -45,6 +45,7 @@ RING_RELEASE_HOLD_S = 1.0
 LETTER_AXIS_TIME_MS = 500
 LETTER_ID1_TIME_MS = 500
 CENTER_DEADBAND_PX = 45.0
+RING_CENTER_DEADBAND_PX = 30.0
 CENTER_STEP_TICKS = 7
 CENTER_ID6_STEP_TICKS = 5
 CENTER_TIME_MS = 100
@@ -870,7 +871,11 @@ def center_main_target(camera: cv2.VideoCapture, detector, field: str,
         cx, cy = target.get("center", (width / 2.0, height / 2.0))
         error_x = float(cx) - width / 2.0
         error_y = float(cy) - height / 2.0
-        if abs(error_x) <= CENTER_DEADBAND_PX and abs(error_y) <= CENTER_DEADBAND_PX:
+        center_deadband = (
+            RING_CENTER_DEADBAND_PX
+            if target.get("kind") == "ring" else CENTER_DEADBAND_PX
+        )
+        if abs(error_x) <= center_deadband and abs(error_y) <= center_deadband:
             target["frame_shape"] = frame.shape
             target["center_id2"] = id2
             target["center_id6"] = id6
@@ -882,12 +887,12 @@ def center_main_target(camera: cv2.VideoCapture, detector, field: str,
             return target
         next_id2 = id2
         next_id6 = id6
-        if abs(error_x) > CENTER_DEADBAND_PX:
+        if abs(error_x) > center_deadband:
             next_id6 += (
                 -CENTER_ID6_STEP_TICKS
                 if error_x > 0.0 else CENTER_ID6_STEP_TICKS
             )
-        if abs(error_y) > CENTER_DEADBAND_PX:
+        if abs(error_y) > center_deadband:
             next_id2 += -CENTER_STEP_TICKS if error_y > 0.0 else CENTER_STEP_TICKS
         next_id2 = max(CENTER_ID2_RANGE[0], min(CENTER_ID2_RANGE[1], next_id2))
         next_id6 = max(CENTER_ID6_RANGE[0], min(CENTER_ID6_RANGE[1], next_id6))
@@ -1089,7 +1094,7 @@ def run(args) -> int:
                 boards.place_ring()
                 boards.pulse_gripper()
                 boards.pose_high()
-                print("TASK2 RING_DONE after_high ID1=520 ID2=345 ID6=160", flush=True)
+                print("TASK2 RING_DONE after_high ID1=520 ID2=345 ID6=171", flush=True)
             elif (
                     target.get("kind") == "letter"
                     and str(target.get("letter", "")).upper() in pair

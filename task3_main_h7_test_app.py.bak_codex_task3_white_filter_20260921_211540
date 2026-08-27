@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Standalone task-three test: main-camera letter pickup while orbiting.
 
-The H7 owns a closed-loop 450 mm radius, 360 degree orbit. RK owns the
+The H7 owns a closed-loop 400 mm radius, 360 degree orbit. RK owns the
 main-camera ABCD detector and pauses the orbit only for a confirmed letter.
 Arm motion reuses the task-two direct servo-board path and the measured IK
 model from the deployed workspace.
@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import argparse
 import copy
-import math
 import os
 import select
 import sys
@@ -69,7 +68,7 @@ TARGET_RECHECK_DELAY_S = 0.15
 ORBIT_RESCUE_INTERVAL_FRAMES = 3
 ORBIT_RESCUE_MIN_CONFIDENCE = 38.0
 TASK3_LETTERS = tuple(sorted(LETTERS))
-TASK3_ORBIT_RADIUS_MM = 450
+TASK3_ORBIT_RADIUS_MM = 400
 TASK3_ORBIT_ANGLE_DEG = 360
 TASK3_LETTER_MIN_CONFIDENCE = max(40.0, MAIN_LETTER_MIN_CONFIDENCE - 5.0)
 TASK3_HIGH = {1: 650, 2: 570, 6: 415}
@@ -95,7 +94,7 @@ TASK3_D_MIN_CONFIDENCE = 55.0
 TASK3_GREEN_HUE_RANGE = (35, 105)
 TASK3_GREEN_MIN_SATURATION = 40
 TASK3_GREEN_MIN_VALUE = 25
-TASK3_WHITE_MIN_VALUE = 190
+TASK3_WHITE_MIN_VALUE = 115
 TASK3_WHITE_MAX_SATURATION = 135
 TASK3_WHITE_PATCH_MIN_AREA = 700.0
 TASK3_WHITE_PATCH_MAX_AREA_RATIO = 0.12
@@ -104,40 +103,9 @@ TASK3_WHITE_PATCH_MAX_SIDE_RATIO = 0.45
 TASK3_WHITE_PATCH_MIN_RECTANGULARITY = 0.55
 TASK3_WHITE_PATCH_MIN_SOLIDITY = 0.72
 TASK3_WHITE_PATCH_MIN_GREEN_SUPPORT = 0.42
-TASK3_WHITE_PATCH_MIN_GREEN_RING_SUPPORT = 0.55
-TASK3_WHITE_PATCH_MIN_INNER_WHITE_RATIO = 0.12
-TASK3_WHITE_PATCH_APPROX_EPSILON = 0.04
-TASK3_WHITE_PATCH_MIN_APPROX_VERTICES = 4
-TASK3_WHITE_PATCH_MAX_APPROX_VERTICES = 5
-# A task-three station must be safely inside the camera view before it can
-# pause the orbit. This rejects chassis parts clipped by the image boundary.
-TASK3_WHITE_PATCH_EDGE_MARGIN_RATIO = 0.05
-# A real white letter patch contains a dark glyph or other non-white interior;
-# solid white hardware panels must never become orbit targets.
-TASK3_WHITE_PATCH_MAX_INNER_WHITE_RATIO = 0.97
-# A real square has four continuous white sides and white corner joins. A
-# circular hole/reflection has white pixels only on scattered arcs.
-TASK3_WHITE_PATCH_MIN_EDGE_WHITE_RATIO = 0.30
-TASK3_WHITE_PATCH_MIN_CORNER_WHITE_RATIO = 0.18
-TASK3_WHITE_PATCH_MIN_INNER_NONWHITE_RATIO = 0.15
-TASK3_WHITE_PATCH_MAX_CIRCULARITY = 0.88
-TASK3_WHITE_BLOCK_CONFIRM_FRAMES = 1
-TASK3_WHITE_BLOCK_MATCH_CENTER_PX = 55.0
-TASK3_WHITE_BLOCK_MATCH_IOU = 0.35
-# During arm centering the locked block moves in the image. Keep associating
-# it by bounded motion and size, without switching to another block.
-TASK3_LOCKED_BLOCK_MAX_JUMP_PX = 220.0
-TASK3_LOCKED_BLOCK_MAX_SIZE_RATIO = 2.5
-# A handled block is only geometrically suppressed while it remains visible.
-# After this many missing frames, a later candidate is allowed through again.
-TASK3_HANDLED_BLOCK_REARM_FRAMES = 15
-TASK3_LOCKED_LETTER_MAX_JUMP_PX = 260.0
-TASK3_LOCKED_LETTER_MAX_SIZE_RATIO = 2.8
 TASK3_GREEN_LETTER_MIN_CONFIDENCE = 0.42
 TASK3_BLOCK_MAX_ANGLE_DEG = 14.0
-# Keep H7 paused long enough for a fresh ROI-bound glyph result. A brief
-# camera/detector gap must not turn a valid white block into an orbit skip.
-TASK3_CLASSIFY_TIMEOUT_S = 3.0
+TASK3_CLASSIFY_TIMEOUT_S = 1.5
 
 
 class Task3H7Link:
@@ -351,15 +319,6 @@ def _task3_white_block_geometry(frame: np.ndarray) -> list[dict]:
         if area < TASK3_WHITE_PATCH_MIN_AREA or area > frame_area * TASK3_WHITE_PATCH_MAX_AREA_RATIO:
             continue
         x, y, box_width, box_height = cv2.boundingRect(contour)
-        edge_margin_x = int(round(width * TASK3_WHITE_PATCH_EDGE_MARGIN_RATIO))
-        edge_margin_y = int(round(height * TASK3_WHITE_PATCH_EDGE_MARGIN_RATIO))
-        if (
-            x < edge_margin_x
-            or y < edge_margin_y
-            or x + box_width > width - edge_margin_x
-            or y + box_height > height - edge_margin_y
-        ):
-            continue
         if min(box_width, box_height) < TASK3_WHITE_PATCH_MIN_SIDE:
             continue
         if max(box_width, box_height) > min(width, height) * TASK3_WHITE_PATCH_MAX_SIDE_RATIO:
@@ -376,83 +335,11 @@ def _task3_white_block_geometry(frame: np.ndarray) -> list[dict]:
         hull_area = max(1.0, float(cv2.contourArea(cv2.convexHull(contour))))
         if area / hull_area < TASK3_WHITE_PATCH_MIN_SOLIDITY:
             continue
-        perimeter = float(cv2.arcLength(contour, True))
-        approx_vertices = len(
-            cv2.approxPolyDP(
-                contour,
-                TASK3_WHITE_PATCH_APPROX_EPSILON * perimeter,
-                True,
-            )
-        )
-        if not (
-            TASK3_WHITE_PATCH_MIN_APPROX_VERTICES
-            <= approx_vertices
-            <= TASK3_WHITE_PATCH_MAX_APPROX_VERTICES
-        ):
-            continue
-        inner_margin_x = max(4, int(round(box_width * 0.20)))
-        inner_margin_y = max(4, int(round(box_height * 0.20)))
-        inner = white[
-            y + inner_margin_y:y + box_height - inner_margin_y,
-            x + inner_margin_x:x + box_width - inner_margin_x,
-        ]
-        inner_white_ratio = cv2.countNonZero(inner) / float(max(1, inner.size))
-        if not (
-            TASK3_WHITE_PATCH_MIN_INNER_WHITE_RATIO
-            <= inner_white_ratio
-            <= TASK3_WHITE_PATCH_MAX_INNER_WHITE_RATIO
-        ):
-            continue
-        edge_band = max(2, int(round(min(box_width, box_height) * 0.12)))
-        edge_ratios = (
-            cv2.countNonZero(white[y:y + edge_band, x:x + box_width])
-            / float(max(1, edge_band * box_width)),
-            cv2.countNonZero(
-                white[y + box_height - edge_band:y + box_height,
-                      x:x + box_width]
-            ) / float(max(1, edge_band * box_width)),
-            cv2.countNonZero(white[y:y + box_height, x:x + edge_band])
-            / float(max(1, box_height * edge_band)),
-            cv2.countNonZero(
-                white[y:y + box_height,
-                      x + box_width - edge_band:x + box_width]
-            ) / float(max(1, box_height * edge_band)),
-        )
-        if min(edge_ratios) < TASK3_WHITE_PATCH_MIN_EDGE_WHITE_RATIO:
-            continue
-        corner_side = max(3, int(round(min(box_width, box_height) * 0.16)))
-        corner_ratios = (
-            cv2.countNonZero(white[y:y + corner_side, x:x + corner_side])
-            / float(max(1, corner_side * corner_side)),
-            cv2.countNonZero(
-                white[y:y + corner_side,
-                      x + box_width - corner_side:x + box_width]
-            ) / float(max(1, corner_side * corner_side)),
-            cv2.countNonZero(
-                white[y + box_height - corner_side:y + box_height,
-                      x:x + corner_side]
-            ) / float(max(1, corner_side * corner_side)),
-            cv2.countNonZero(
-                white[y + box_height - corner_side:y + box_height,
-                      x + box_width - corner_side:x + box_width]
-            ) / float(max(1, corner_side * corner_side)),
-        )
-        if min(corner_ratios) < TASK3_WHITE_PATCH_MIN_CORNER_WHITE_RATIO:
-            continue
-        if 1.0 - inner_white_ratio < TASK3_WHITE_PATCH_MIN_INNER_NONWHITE_RATIO:
-            continue
-        perimeter = float(cv2.arcLength(contour, True))
-        circularity = 4.0 * math.pi * area / float(max(1.0, perimeter * perimeter))
-        if circularity > TASK3_WHITE_PATCH_MAX_CIRCULARITY:
-            continue
-        # minAreaRect may choose either edge as the reference for a nearly
-        # square target. Normalize to the smallest signed edge tilt instead
-        # of turning a real -9 degree block into an apparent 81 degree block.
         angle = float(rect[2])
-        while angle <= -45.0:
+        if rect_width < rect_height:
             angle += 90.0
-        while angle > 45.0:
-            angle -= 90.0
+        while angle > 90.0:
+            angle -= 180.0
         pad = max(10, int(round(max(box_width, box_height) * 0.18)))
         x0, y0 = max(0, x - pad), max(0, y - pad)
         x1, y1 = min(width, x + box_width + pad), min(height, y + box_height + pad)
@@ -460,31 +347,6 @@ def _task3_white_block_geometry(frame: np.ndarray) -> list[dict]:
             max(1, (y1 - y0) * (x1 - x0))
         )
         if green_support < TASK3_WHITE_PATCH_MIN_GREEN_SUPPORT:
-            continue
-        contour_mask = np.zeros_like(white)
-        cv2.drawContours(contour_mask, [contour], -1, 255, -1)
-        ring_kernel_size = max(
-            7,
-            int(round(max(box_width, box_height) * 0.16)),
-        )
-        if ring_kernel_size % 2 == 0:
-            ring_kernel_size += 1
-        expanded = cv2.dilate(
-            contour_mask,
-            cv2.getStructuringElement(
-                cv2.MORPH_ELLIPSE,
-                (ring_kernel_size, ring_kernel_size),
-            ),
-        )
-        green_ring = cv2.bitwise_and(
-            expanded,
-            cv2.bitwise_not(contour_mask),
-        )
-        green_ring_pixels = green_ring > 0
-        green_ring_support = cv2.countNonZero(
-            green[green_ring_pixels]
-        ) / float(max(1, int(np.count_nonzero(green_ring_pixels))))
-        if green_ring_support < TASK3_WHITE_PATCH_MIN_GREEN_RING_SUPPORT:
             continue
         blocks.append({
             "kind": "column_block",
@@ -495,9 +357,6 @@ def _task3_white_block_geometry(frame: np.ndarray) -> list[dict]:
             "box": contour.astype(np.int32),
             "bbox": (int(x), int(y), int(box_width), int(box_height)),
             "projected_area": max(area, rect_area),
-            "approx_vertices": approx_vertices,
-            "inner_white_ratio": round(float(inner_white_ratio), 4),
-            "green_ring_support": round(float(green_ring_support), 4),
             "fully_visible": x > 2 and y > 2 and x + box_width < width - 2
             and y + box_height < height - 2,
             "angle": round(angle, 1),
@@ -506,302 +365,11 @@ def _task3_white_block_geometry(frame: np.ndarray) -> list[dict]:
     return blocks
 
 
-def _task3_parallel_blocks(frame: np.ndarray, detector=None) -> list[dict]:
-    blocks = [
+def _task3_parallel_blocks(frame: np.ndarray) -> list[dict]:
+    return [
         block for block in _task3_white_block_geometry(frame)
         if block.get("fully_visible", True) and block.get("parallel", False)
     ]
-    if blocks or detector is None:
-        return blocks
-    try:
-        letters = detector.detect(frame)
-    except (AttributeError, cv2.error, TypeError, ValueError):
-        return blocks
-    inferred = [
-        block for item in letters or []
-        for block in [_task3_inferred_block_from_letter(frame, item)]
-        if block is not None
-    ]
-    return inferred
-
-
-def _task3_inferred_block_from_letter(frame: np.ndarray, letter: dict) -> dict | None:
-    """Recover a white block whose glyph split its outer white contour."""
-    if frame is None or letter.get("kind") != "letter":
-        return None
-    bbox = letter.get("bbox", ())
-    if len(bbox) < 4 or not letter.get("fully_visible", True):
-        return None
-    height, width = frame.shape[:2]
-    x, y, box_width, box_height = (int(value) for value in bbox[:4])
-    if min(box_width, box_height) < TASK3_WHITE_PATCH_MIN_SIDE:
-        return None
-    if (
-        x < int(width * TASK3_WHITE_PATCH_EDGE_MARGIN_RATIO)
-        or y < int(height * TASK3_WHITE_PATCH_EDGE_MARGIN_RATIO)
-        or x + box_width > width - int(width * TASK3_WHITE_PATCH_EDGE_MARGIN_RATIO)
-        or y + box_height > height - int(height * TASK3_WHITE_PATCH_EDGE_MARGIN_RATIO)
-    ):
-        return None
-    aspect = box_width / float(max(1, box_height))
-    if not 0.65 <= aspect <= 1.55:
-        return None
-    angle = float(letter.get("angle", 90.0))
-    if abs(angle) > TASK3_BLOCK_MAX_ANGLE_DEG:
-        return None
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-    white = cv2.inRange(
-        hsv,
-        np.array((0, 0, TASK3_WHITE_MIN_VALUE), dtype=np.uint8),
-        np.array((180, TASK3_WHITE_MAX_SATURATION, 255), dtype=np.uint8),
-    )
-    green = cv2.inRange(
-        hsv,
-        np.array((TASK3_GREEN_HUE_RANGE[0], TASK3_GREEN_MIN_SATURATION, TASK3_GREEN_MIN_VALUE), dtype=np.uint8),
-        np.array((TASK3_GREEN_HUE_RANGE[1], 255, 255), dtype=np.uint8),
-    )
-    patch = white[y:y + box_height, x:x + box_width]
-    white_ratio = cv2.countNonZero(patch) / float(max(1, patch.size))
-    if white_ratio < 0.30:
-        return None
-    edge_band = max(2, int(round(min(box_width, box_height) * 0.12)))
-    edge_ratios = (
-        cv2.countNonZero(white[y:y + edge_band, x:x + box_width]) / float(max(1, edge_band * box_width)),
-        cv2.countNonZero(white[y + box_height - edge_band:y + box_height, x:x + box_width]) / float(max(1, edge_band * box_width)),
-        cv2.countNonZero(white[y:y + box_height, x:x + edge_band]) / float(max(1, box_height * edge_band)),
-        cv2.countNonZero(white[y:y + box_height, x + box_width - edge_band:x + box_width]) / float(max(1, box_height * edge_band)),
-    )
-    if min(edge_ratios) < 0.25:
-        return None
-    inner_margin_x = max(4, int(round(box_width * 0.16)))
-    inner_margin_y = max(4, int(round(box_height * 0.16)))
-    inner = white[y + inner_margin_y:y + box_height - inner_margin_y, x + inner_margin_x:x + box_width - inner_margin_x]
-    inner_white_ratio = cv2.countNonZero(inner) / float(max(1, inner.size))
-    if not 0.30 <= inner_white_ratio <= 0.98:
-        return None
-    mask = np.zeros_like(white)
-    cv2.rectangle(mask, (x, y), (x + box_width, y + box_height), 255, -1)
-    kernel_size = max(7, int(round(max(box_width, box_height) * 0.16)))
-    if kernel_size % 2 == 0:
-        kernel_size += 1
-    expanded = cv2.dilate(mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size)))
-    ring = cv2.bitwise_and(expanded, cv2.bitwise_not(mask))
-    ring_pixels = ring > 0
-    green_ring_support = cv2.countNonZero(green[ring_pixels]) / float(max(1, int(np.count_nonzero(ring_pixels))))
-    if green_ring_support < 0.30:
-        return None
-    contour_box = np.asarray(letter.get("box", ()), dtype=np.int32)
-    if contour_box.size != 8:
-        contour_box = np.asarray(((x, y), (x + box_width, y), (x + box_width, y + box_height), (x, y + box_height)), dtype=np.int32)
-    return {
-        "kind": "column_block",
-        "color": "white_edge",
-        "source": "column_letter_box_inferred_geometry",
-        "center": tuple(map(int, letter.get("center", (x + box_width // 2, y + box_height // 2)))),
-        "box": contour_box.reshape(4, 2),
-        "bbox": (x, y, box_width, box_height),
-        "projected_area": float(box_width * box_height),
-        "inner_white_ratio": round(float(inner_white_ratio), 4),
-        "green_ring_support": round(float(green_ring_support), 4),
-        "fully_visible": True,
-        "angle": round(angle, 1),
-        "parallel": True,
-    }
-
-
-def _task3_bbox_iou(first, second) -> float:
-    if not first or not second or len(first) < 4 or len(second) < 4:
-        return 0.0
-    ax, ay, aw, ah = (float(value) for value in first[:4])
-    bx, by, bw, bh = (float(value) for value in second[:4])
-    ax2, ay2 = ax + max(0.0, aw), ay + max(0.0, ah)
-    bx2, by2 = bx + max(0.0, bw), by + max(0.0, bh)
-    intersection = max(0.0, min(ax2, bx2) - max(ax, bx)) * max(
-        0.0, min(ay2, by2) - max(ay, by)
-    )
-    union = max(1.0, aw * ah + bw * bh - intersection)
-    return intersection / union
-
-
-def _task3_blocks_match(first: dict | None, second: dict | None) -> bool:
-    if first is None or second is None:
-        return False
-    first_center = np.asarray(first.get("center", ()), dtype=np.float32)
-    second_center = np.asarray(second.get("center", ()), dtype=np.float32)
-    if first_center.shape != (2,) or second_center.shape != (2,):
-        return False
-    return (
-        float(np.linalg.norm(first_center - second_center))
-        <= TASK3_WHITE_BLOCK_MATCH_CENTER_PX
-        and _task3_bbox_iou(first.get("bbox"), second.get("bbox"))
-        >= TASK3_WHITE_BLOCK_MATCH_IOU
-    )
-
-
-def _task3_block_tracks_match(first: dict | None, second: dict | None) -> bool:
-    """Match the same block after an arm-centering movement."""
-    if first is None or second is None:
-        return False
-    first_center = np.asarray(first.get("center", ()), dtype=np.float32)
-    second_center = np.asarray(second.get("center", ()), dtype=np.float32)
-    first_bbox = first.get("bbox", ())
-    second_bbox = second.get("bbox", ())
-    if (
-        first_center.shape != (2,)
-        or second_center.shape != (2,)
-        or len(first_bbox) < 4
-        or len(second_bbox) < 4
-    ):
-        return False
-    first_size = max(float(first_bbox[2]), float(first_bbox[3]), 1.0)
-    second_size = max(float(second_bbox[2]), float(second_bbox[3]), 1.0)
-    size_ratio = max(first_size, second_size) / min(first_size, second_size)
-    return (
-        float(np.linalg.norm(first_center - second_center))
-        <= TASK3_LOCKED_BLOCK_MAX_JUMP_PX
-        and size_ratio <= TASK3_LOCKED_BLOCK_MAX_SIZE_RATIO
-    )
-
-
-def _task3_candidate_block(candidate: dict) -> dict:
-    """Return the geometric parent block attached to a letter detection."""
-    return {
-        "bbox": tuple(candidate.get("task3_block_bbox", candidate.get("bbox", ()))),
-        "center": tuple(candidate.get("task3_block_center", candidate.get("center", ()))),
-    }
-
-
-def _task3_record_handled_block(
-    handled_blocks: list[dict], label: str, block: dict | None
-) -> None:
-    """Lock a processed block while it remains visible in the orbit view."""
-    if block is None:
-        return
-    candidate = {
-        "label": str(label).upper(),
-        "block": {
-            "bbox": tuple(block.get("bbox", ())),
-            "center": tuple(block.get("center", ())),
-        },
-    }
-    if len(candidate["block"]["bbox"]) < 4:
-        return
-    if np.asarray(candidate["block"]["center"], dtype=np.float32).shape != (2,):
-        return
-    if any(
-        _task3_block_tracks_match(existing.get("block"), candidate["block"])
-        for existing in handled_blocks
-    ):
-        return
-    handled_blocks.append(candidate)
-    print(
-        f"TASK3 BLOCK_LOCKED label={candidate['label']} "
-        f"center={candidate['block']['center']} action=SKIP_WHILE_VISIBLE",
-        flush=True,
-    )
-
-
-def _task3_has_grabbed_letter(
-    frame: np.ndarray, detector, block: dict, grabbed: set[str]
-) -> bool:
-    """Recognize an already handled glyph before pausing the orbit again."""
-    if not grabbed:
-        return False
-    try:
-        detections = _task3_green_white_letter_detections(frame, detector)
-    except (AttributeError, cv2.error, TypeError, ValueError):
-        return False
-    for candidate in detections:
-        label = str(candidate.get("letter", "")).upper()
-        if (
-            label in grabbed
-            and _task3_block_tracks_match(block, _task3_candidate_block(candidate))
-        ):
-            return True
-    return False
-
-
-def _task3_bounded_letter_fallback(
-    frame: np.ndarray,
-    detector,
-    label: str,
-    last_target: dict,
-    locked_block: dict,
-) -> list[dict]:
-    """Recover a locked glyph if motion temporarily hides its white border.
-
-    This is intentionally a bounded track, not a whole-frame fallback: the
-    label, previous center, and approximate glyph size must all match the
-    already classified block.
-    """
-    if detector is None:
-        return []
-    previous_center = np.asarray(last_target.get("center", ()), dtype=np.float32)
-    if previous_center.shape != (2,):
-        return []
-    previous_bbox = last_target.get("bbox", ())
-    previous_size = (
-        max(float(previous_bbox[2]), float(previous_bbox[3]), 1.0)
-        if len(previous_bbox) >= 4 else None
-    )
-    block_center = np.asarray(locked_block.get("center", ()), dtype=np.float32)
-    block_bbox = locked_block.get("bbox", ())
-    block_size = (
-        max(float(block_bbox[2]), float(block_bbox[3]), 1.0)
-        if len(block_bbox) >= 4 else 120.0
-    )
-    try:
-        raw = detector.detect(frame)
-    except (AttributeError, cv2.error, TypeError, ValueError):
-        return []
-    candidates = []
-    for item in raw or []:
-        if (
-            item.get("kind") != "letter"
-            or str(item.get("letter", "")).upper() != label
-            or not item.get("fully_visible", True)
-        ):
-            continue
-        center = np.asarray(item.get("center", ()), dtype=np.float32)
-        if center.shape != (2,):
-            continue
-        if float(np.linalg.norm(center - previous_center)) > TASK3_LOCKED_LETTER_MAX_JUMP_PX:
-            continue
-        if block_center.shape == (2,) and float(np.linalg.norm(center - block_center)) > max(
-            TASK3_LOCKED_BLOCK_MAX_JUMP_PX * 2.0, block_size * 3.0
-        ):
-            continue
-        bbox = item.get("bbox", ())
-        if previous_size is not None and len(bbox) >= 4:
-            item_size = max(float(bbox[2]), float(bbox[3]), 1.0)
-            if max(previous_size, item_size) / min(previous_size, item_size) > TASK3_LOCKED_LETTER_MAX_SIZE_RATIO:
-                continue
-        recovered = dict(item)
-        recovered["task3_block_bbox"] = tuple(block_bbox)
-        recovered["task3_block_center"] = tuple(center)
-        candidates.append(recovered)
-    return sorted(
-        candidates,
-        key=lambda item: float(
-            np.linalg.norm(
-                np.asarray(item.get("center"), dtype=np.float32) - previous_center
-            )
-        ),
-    )
-
-
-def _task3_candidate_in_block(candidate: dict, block: dict) -> bool:
-    """Associate a glyph with the exact white block that paused the orbit."""
-    center = np.asarray(candidate.get("center", ()), dtype=np.float32)
-    bbox = block.get("bbox", ())
-    if center.shape != (2,) or len(bbox) < 4:
-        return False
-    x, y, width, height = (float(value) for value in bbox[:4])
-    pad_x = max(12.0, width * 0.22)
-    pad_y = max(12.0, height * 0.22)
-    return x - pad_x <= float(center[0]) <= x + width + pad_x and (
-        y - pad_y <= float(center[1]) <= y + height + pad_y
-    )
 
 
 def _task3_green_white_letter_detections(
@@ -835,37 +403,8 @@ def _task3_green_white_letter_detections(
                 "fully_visible": block["fully_visible"],
                 "angle": block["angle"],
                 "distance_cm": None,
-                "task3_block_bbox": (int(x), int(y), int(box_width), int(box_height)),
-                "task3_block_center": tuple(block["center"]),
             }
         )
-    if detections:
-        return detections
-    # The glyph may split the white border into disconnected regions. In that
-    # case use the already validated letter box to infer the local parent
-    # block, while retaining the same geometric gates before association.
-    try:
-        raw_letters = detector.detect(frame)
-    except (AttributeError, cv2.error, TypeError, ValueError):
-        raw_letters = []
-    for item in raw_letters or []:
-        label = str(item.get("letter", "")).upper()
-        if item.get("kind") != "letter" or label not in TASK3_LETTERS:
-            continue
-        block = _task3_inferred_block_from_letter(frame, item)
-        if block is None:
-            continue
-        inferred = dict(item)
-        inferred.update(
-            {
-                "source": "task3_letter_box_inferred",
-                "color": "green_station_white_patch",
-                "task3_block_bbox": tuple(block["bbox"]),
-                "task3_block_center": tuple(block["center"]),
-                "distance_cm": item.get("distance_cm"),
-            }
-        )
-        detections.append(inferred)
     return detections
 
 
@@ -904,11 +443,30 @@ def _letter_candidates(
     rescue_detector=None,
     frame_index: int = 0,
 ) -> list[dict]:
-    # The task-three station geometry is authoritative. Never fall back to a
-    # whole-frame letter detector here: a letter on another object can otherwise
-    # be promoted after a white hardware edge or reflection triggers a pause.
+    # The task-three station geometry is authoritative: a real target is the
+    # black glyph inside a white patch on the green surface. When that pass
+    # finds a patch, do not fuse whole-frame candidates back in, because a
+    # background edge can otherwise win nearest-to-center selection as a
+    # different letter. The generic detector remains the fallback for motion
+    # blur or frames where the patch is temporarily not segmented.
     station_detections = _task3_green_white_letter_detections(frame, detector)
-    detections = station_detections
+    detections = (
+        station_detections
+        if station_detections
+        else letter_detections(detector, frame, min_confidence)
+    )
+    rescue = []
+    # A moving target may be blurred without making the strict pass empty:
+    # run a bounded rescue pass periodically and fuse it with the strict one.
+    if rescue_detector is not None and (
+        not detections or frame_index % ORBIT_RESCUE_INTERVAL_FRAMES == 0
+    ):
+        rescue = letter_detections(
+            rescue_detector,
+            _motion_enhanced_frame(frame),
+            ORBIT_RESCUE_MIN_CONFIDENCE,
+        )
+    detections = _merge_letter_candidates(detections + rescue)
     height, width = frame.shape[:2]
     frame_center = np.asarray((width / 2.0, height / 2.0), dtype=np.float32)
 
@@ -941,10 +499,6 @@ def _task3_classify_paused_block(
     """Classify the block only after H7 has confirmed PAUSED."""
     deadline = time.monotonic() + timeout_s
     block_center = np.asarray(block.get("center", (400, 300)), dtype=np.float32)
-    locked_block = {
-        "bbox": tuple(block.get("bbox", ())),
-        "center": tuple(block.get("center", block_center)),
-    }
     block_size = max(
         float(value) for value in block.get("bbox", (0, 0, 80, 80))[2:]
     )
@@ -956,6 +510,18 @@ def _task3_classify_paused_block(
             time.sleep(0.01)
             continue
         candidates = _task3_green_white_letter_detections(frame, detector)
+        if not candidates:
+            candidates = letter_detections(
+                detector, frame, TASK3_LETTER_MIN_CONFIDENCE
+            )
+        if rescue_detector is not None and frame_index % ORBIT_RESCUE_INTERVAL_FRAMES == 0:
+            candidates = _merge_letter_candidates(
+                candidates + letter_detections(
+                    rescue_detector,
+                    _motion_enhanced_frame(frame),
+                    ORBIT_RESCUE_MIN_CONFIDENCE,
+                )
+            )
         frame_index += 1
         associated = []
         for candidate in candidates:
@@ -965,31 +531,8 @@ def _task3_classify_paused_block(
             center = np.asarray(candidate.get("center", ()), dtype=np.float32)
             if center.shape != (2,):
                 continue
-            candidate_block = _task3_candidate_block(candidate)
-            if (
-                np.linalg.norm(center - block_center) <= max_distance
-                and _task3_block_tracks_match(locked_block, candidate_block)
-            ):
+            if np.linalg.norm(center - block_center) <= max_distance:
                 associated.append(candidate)
-        if not associated:
-            # The white border can disappear for a frame after PAUSED. Use
-            # the already locked block and center as the only rescue scope;
-            # never promote an unrelated full-frame letter.
-            try:
-                raw_letters = detector.detect(frame)
-            except (AttributeError, cv2.error, TypeError, ValueError):
-                raw_letters = []
-            for candidate in raw_letters or []:
-                label = str(candidate.get("letter", "")).upper()
-                center = np.asarray(candidate.get("center", ()), dtype=np.float32)
-                if (
-                    candidate.get("kind") == "letter"
-                    and label in TASK3_LETTERS
-                    and center.shape == (2,)
-                    and np.linalg.norm(center - block_center) <= max_distance
-                    and _task3_candidate_in_block(candidate, block)
-                ):
-                    associated.append(candidate)
         if associated:
             target = min(
                 associated,
@@ -1001,9 +544,6 @@ def _task3_classify_paused_block(
                 ),
             )
             target = dict(target)
-            target_block = _task3_candidate_block(target)
-            target["task3_block_bbox"] = tuple(target_block.get("bbox", ()))
-            target["task3_block_center"] = tuple(target_block.get("center", block_center))
             if target.get("distance_cm") is None:
                 try:
                     raw = [
@@ -1011,7 +551,6 @@ def _task3_classify_paused_block(
                         if str(item.get("letter", "")).upper()
                         == str(target.get("letter", "")).upper()
                         and item.get("distance_cm") is not None
-                        and _task3_candidate_in_block(item, target_block)
                     ]
                     if raw:
                         target["distance_cm"] = min(
@@ -1026,24 +565,9 @@ def _task3_classify_paused_block(
                 except (AttributeError, cv2.error, TypeError, ValueError):
                     pass
             target["frame_shape"] = frame.shape
-            target["task3_classified_after_pause"] = True
             return target
         time.sleep(0.01)
     return None
-
-
-def _task3_capture_authorized(
-    target: dict | None, block: dict, grabbed: set[str]
-) -> bool:
-    """Permit arm descent only for the paused block's selected letter."""
-    if not isinstance(target, dict) or not target.get("task3_classified_after_pause"):
-        return False
-    label = str(target.get("letter", "")).upper()
-    if label not in TASK3_LETTERS or label in grabbed:
-        return False
-    if not _task3_candidate_in_block(target, block):
-        return False
-    return _task3_block_tracks_match(block, _task3_candidate_block(target))
 
 
 def _nearest_target(candidates: list[dict], frame_shape) -> dict | None:
@@ -1185,43 +709,6 @@ def _task3_pose_high(boards: ServoBoards) -> None:
     time.sleep(max(ARM_TIME_MS, HTD85_AUX_TIME_MS) / 1000.0)
 
 
-def _task3_stop_safely(h7: Task3H7Link, sequence: int, field: str, boards=None):
-    """Return the arm high before stopping H7 after a control failure."""
-    if boards is not None:
-        try:
-            _task3_pose_high(boards)
-            print("TASK3 SAFE_RECOVERY arm=HIGH", flush=True)
-        except Exception as exc:
-            print(f"TASK3 SAFE_RECOVERY arm=HIGH_FAILED error={exc}", flush=True)
-    try:
-        h7.send(f"RK,TEST,TASK3,STOP,SEQ,{sequence},FIELD,{field}")
-        h7.wait_status(sequence, "STOPPED", 2.0)
-    except Exception as exc:
-        print(f"TASK3 SAFE_RECOVERY h7=STOP_FAILED error={exc}", flush=True)
-
-
-def _task3_resume_or_recover(
-    h7: Task3H7Link,
-    sequence: int,
-    field: str,
-    timeout_s: float,
-    boards: ServoBoards,
-    reason: str,
-):
-    """Resume H7, or retract the arm and stop safely if RESUMED times out."""
-    try:
-        h7.send(f"RK,TEST,TASK3,RESUME,SEQ,{sequence},FIELD,{field}")
-        return h7.wait_status(sequence, "RESUMED", timeout_s)
-    except Exception as exc:
-        print(
-            f"TASK3 RESUME_FAILED reason={reason} error={exc}; "
-            "action=SAFE_HIGH_THEN_STOP",
-            flush=True,
-        )
-        _task3_stop_safely(h7, sequence, field, boards)
-        raise
-
-
 def _import_grasp_model():
     """Load the same measured 7-30 cm calibration used by formal task three."""
     sys.path.insert(0, str(os.path.join(ROOT, "ros2_test1")))
@@ -1245,16 +732,6 @@ def _center_task3_target(
     last_target = reference
     missing_started = None
     reference_label = str(reference.get("letter", "")).upper()
-    locked_block = {
-        "bbox": tuple(reference.get("task3_block_bbox", reference.get("bbox", ()))),
-        "center": tuple(reference.get("task3_block_center", reference.get("center", ()))),
-    }
-    last_valid_distance = reference.get("distance_cm")
-    try:
-        if last_valid_distance is not None:
-            last_valid_distance = float(last_valid_distance)
-    except (TypeError, ValueError):
-        last_valid_distance = None
 
     while True:
         ok, frame = camera.read()
@@ -1271,15 +748,7 @@ def _center_task3_target(
                 frame_index,
             )
             if str(item.get("letter", "")).upper() == reference_label
-            and _task3_block_tracks_match(
-                locked_block,
-                _task3_candidate_block(item),
-            )
         ]
-        if not candidates:
-            candidates = _task3_bounded_letter_fallback(
-                frame, detector, reference_label, last_target, locked_block
-            )
         frame_index += 1
         if not candidates:
             now = time.monotonic()
@@ -1322,10 +791,6 @@ def _center_task3_target(
                 candidates,
                 key=lambda item: float(item.get("confidence", 0.0)),
             )
-        target_block = _task3_candidate_block(target)
-        locked_block = target_block
-        target["task3_block_bbox"] = tuple(target_block.get("bbox", ()))
-        target["task3_block_center"] = tuple(target_block.get("center", ()))
         last_target = target
 
         height, width = frame.shape[:2]
@@ -1339,7 +804,6 @@ def _center_task3_target(
                         item for item in detector.detect(frame)
                         if str(item.get("letter", "")).upper() == reference_label
                         and item.get("distance_cm") is not None
-                        and _task3_candidate_in_block(item, locked_block)
                     ]
                     if raw:
                         target["distance_cm"] = min(
@@ -1352,13 +816,6 @@ def _center_task3_target(
                             ),
                         ).get("distance_cm")
                 except (AttributeError, cv2.error, TypeError, ValueError):
-                    pass
-            if target.get("distance_cm") is None and last_valid_distance is not None:
-                target["distance_cm"] = last_valid_distance
-            if target.get("distance_cm") is not None:
-                try:
-                    last_valid_distance = float(target["distance_cm"])
-                except (TypeError, ValueError):
                     pass
             target["frame_shape"] = frame.shape
             target["center_id1"] = id1
@@ -1463,9 +920,6 @@ def run(args) -> int:
         )
 
         orbit_frame_index = 0
-        pending_block = None
-        pending_block_frames = 0
-        handled_blocks: list[dict] = []
         while True:
             for line in h7.poll():
                 if h7._matches(line, "DONE", sequence):
@@ -1480,45 +934,8 @@ def run(args) -> int:
             if not ok or frame is None:
                 time.sleep(0.01)
                 continue
-            blocks = _task3_parallel_blocks(frame, detector)
+            blocks = _task3_parallel_blocks(frame)
             orbit_frame_index += 1
-            active_handled_blocks = []
-            for handled in handled_blocks:
-                still_visible = any(
-                    _task3_block_tracks_match(
-                        handled.get("block"), candidate
-                    )
-                    for candidate in blocks
-                )
-                if still_visible:
-                    handled["missing_frames"] = 0
-                    active_handled_blocks.append(handled)
-                    continue
-                handled["missing_frames"] = int(
-                    handled.get("missing_frames", 0)
-                ) + 1
-                if handled["missing_frames"] < TASK3_HANDLED_BLOCK_REARM_FRAMES:
-                    active_handled_blocks.append(handled)
-                else:
-                    print(
-                        f"TASK3 BLOCK_REARMED label={handled.get('label', '?')} "
-                        "reason=NOT_VISIBLE",
-                        flush=True,
-                    )
-            handled_blocks = active_handled_blocks
-            blocks = [
-                candidate
-                for candidate in blocks
-                if not _task3_has_grabbed_letter(
-                    frame, detector, candidate, grabbed
-                )
-                and not any(
-                    _task3_block_tracks_match(
-                        handled.get("block"), candidate
-                    )
-                    for handled in handled_blocks
-                )
-            ]
             block = max(
                 blocks,
                 key=lambda item: float(item.get("projected_area", 0.0)),
@@ -1531,19 +948,7 @@ def run(args) -> int:
             if cv2.waitKey(1) & 0xFF in (ord("q"), 27):
                 raise KeyboardInterrupt
             if block is None:
-                pending_block = None
-                pending_block_frames = 0
                 continue
-
-            if _task3_blocks_match(pending_block, block):
-                pending_block_frames += 1
-            else:
-                pending_block = block
-                pending_block_frames = 1
-            if pending_block_frames < TASK3_WHITE_BLOCK_CONFIRM_FRAMES:
-                continue
-            pending_block = None
-            pending_block_frames = 0
 
             label = "?"
             history.clear()
@@ -1552,15 +957,7 @@ def run(args) -> int:
                 f"center={block.get('center')} action=PAUSE_THEN_CLASSIFY",
                 flush=True,
             )
-            try:
-                h7.pause_until_confirmed(sequence, field, args.pause_timeout_s)
-            except Exception as exc:
-                print(
-                    f"TASK3 PAUSE_FAILED error={exc}; action=SAFE_HIGH_THEN_STOP",
-                    flush=True,
-                )
-                _task3_stop_safely(h7, sequence, field, boards)
-                raise
+            h7.pause_until_confirmed(sequence, field, args.pause_timeout_s)
             print("TASK3 ORBIT_PAUSED reason=PARALLEL_WHITE_BLOCK", flush=True)
 
             target = _task3_classify_paused_block(
@@ -1576,45 +973,28 @@ def run(args) -> int:
                     "TASK3 BLOCK_CLASSIFY_NONE action=RESUME_ORBIT",
                     flush=True,
                 )
-                _task3_resume_or_recover(
-                    h7, sequence, field, args.resume_timeout_s, boards,
-                    "NO_ASSOCIATED_LETTER",
+                h7.send(
+                    f"RK,TEST,TASK3,RESUME,SEQ,{sequence},FIELD,{field}"
                 )
+                h7.wait_status(sequence, "RESUMED", args.resume_timeout_s)
                 continue
 
             label = str(target.get("letter", "")).upper()
             if label in grabbed or label not in TASK3_LETTERS:
-                _task3_record_handled_block(
-                    handled_blocks,
-                    label,
-                    block,
-                )
                 print(
                     f"TASK3 BLOCK_CLASSIFY_SKIP letter={label} action=RESUME_ORBIT",
                     flush=True,
                 )
-                _task3_resume_or_recover(
-                    h7, sequence, field, args.resume_timeout_s, boards,
-                    "NON_TARGET_LETTER",
+                h7.send(
+                    f"RK,TEST,TASK3,RESUME,SEQ,{sequence},FIELD,{field}"
                 )
+                h7.wait_status(sequence, "RESUMED", args.resume_timeout_s)
                 continue
             print(
                 f"TASK3 BLOCK_CLASSIFIED letter={label} "
                 f"depth_cm={target.get('distance_cm', '-')}",
                 flush=True,
             )
-
-            if not _task3_capture_authorized(target, block, grabbed):
-                print(
-                    "TASK3 CAPTURE_AUTHORIZATION_FAILED action=RESUME_ORBIT",
-                    flush=True,
-                )
-                _task3_record_handled_block(handled_blocks, label, block)
-                _task3_resume_or_recover(
-                    h7, sequence, field, args.resume_timeout_s, boards,
-                    "CLASSIFIED_TARGET_NOT_BOUND_TO_PAUSED_BLOCK",
-                )
-                continue
 
             try:
                 centered = _center_task3_target(
@@ -1633,27 +1013,22 @@ def run(args) -> int:
                     "action=RESUME_ORBIT",
                     flush=True,
                 )
-                _task3_resume_or_recover(
-                    h7, sequence, field, args.resume_timeout_s, boards,
-                    "TARGET_TRACK_TIMEOUT",
+                h7.send(
+                    f"RK,TEST,TASK3,RESUME,SEQ,{sequence},FIELD,{field}"
                 )
+                h7.wait_status(sequence, "RESUMED", args.resume_timeout_s)
                 history.clear()
                 print("TASK3 ORBIT_RESUMED reason=TARGET_TRACK_TIMEOUT", flush=True)
                 continue
             _letter_grasp(boards, centered, grasp_model)
-            _task3_record_handled_block(
-                handled_blocks,
-                label,
-                block,
-            )
             grabbed.add(label)
             history.clear()
             time.sleep(TARGET_RECHECK_DELAY_S)
 
-            _task3_resume_or_recover(
-                h7, sequence, field, args.resume_timeout_s, boards,
-                "LETTER_GRASP_COMPLETE",
+            h7.send(
+                f"RK,TEST,TASK3,RESUME,SEQ,{sequence},FIELD,{field}"
             )
+            h7.wait_status(sequence, "RESUMED", args.resume_timeout_s)
             print(
                 f"TASK3 ORBIT_RESUMED grabbed={','.join(sorted(grabbed))}",
                 flush=True,

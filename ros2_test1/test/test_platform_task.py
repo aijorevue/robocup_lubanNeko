@@ -10,6 +10,7 @@ from ros2_test1.platform_task import (
     TARGET_WINDOW_SIZE_PX, TARGET_WINDOW_MIN_AREA_FRACTION,
     PLATFORM_LETTER_PLACE_TIME_MS, PLATFORM_RING_RELEASE_HOLD_S,
     PLATFORM_NO_TARGET_TIMEOUT_S,
+    CENTER_DEADBAND_PX, RING_CENTER_DEADBAND_PX,
     _target_in_center_window,
 )
 from ros2_test1.chassis_link import ChassisArmLink
@@ -130,6 +131,23 @@ class Fixture:
 
 
 class TestPlatformTask(unittest.TestCase):
+    def test_ring_center_deadband_is_30px_while_letters_stay_at_45px(self):
+        self.assertEqual(CENTER_DEADBAND_PX, 45)
+        self.assertEqual(RING_CENTER_DEADBAND_PX, 30)
+
+        # At 40 px from center, the ring still needs a correction, while a
+        # letter is already centered under the existing 45 px contract.
+        ring_fixture = Fixture(); ring_fixture.ready(); ring_fixture.writes.clear()
+        ring_fixture.task.begin_slot('red')
+        ring = dict(letter(center=(440, 300)), kind='ring', color='red', score=.9)
+        ring_fixture.feed(ring)
+        self.assertTrue(any(write[0] == 'center' for write in ring_fixture.writes))
+
+        letter_fixture = Fixture(); letter_fixture.ready(); letter_fixture.writes.clear()
+        letter_fixture.task.begin_slot('red')
+        letter_fixture.feed(letter(center=(440, 300)))
+        self.assertFalse(any(write[0] == 'center' for write in letter_fixture.writes))
+
     def test_formal_offset_preserves_other_calibration_callers(self):
         from ros2_test1.grasp_calibration import calibrated_grasp_ticks
 

@@ -384,9 +384,16 @@ class ChassisArmLink:
                             command = parts[index + 1]
                             break
                     if command == "PAUSE":
-                        self.formal_column_control_state = "PAUSE_ACK"
+                        # PAUSED is terminal for this request; a delayed ACK
+                        # must not move the state backwards.
+                        if self.formal_column_control_state != "PAUSED":
+                            self.formal_column_control_state = "PAUSE_ACK"
                     elif command == "RESUME":
-                        self.formal_column_control_state = "RESUME_ACK"
+                        # H7 may emit RESUMED before a duplicate/delayed ACK.
+                        # Preserve the terminal state so RK does not retract
+                        # the arm after a successful resume.
+                        if self.formal_column_control_state != "RESUMED":
+                            self.formal_column_control_state = "RESUME_ACK"
                 print(
                     "CHASSIS FORMAL COLUMN_CATCH "
                     f"state={self.formal_column_control_state} seq={response_sequence}",
@@ -849,7 +856,9 @@ class ChassisArmLink:
     def request_formal_column_pause(self):
         if self.active_task != "COLUMN_CATCH" or self.active_sequence is None:
             return False
-        if self.formal_column_control_state in {"PAUSE_ACK", "PAUSED"}:
+        if self.formal_column_control_state in {
+            "PAUSE_REQUESTED", "PAUSE_ACK", "PAUSED"
+        }:
             return True
         sent = self.send_line(
             "RK,ARM,COLUMN_CATCH,PAUSE,SEQ,"
@@ -863,7 +872,9 @@ class ChassisArmLink:
     def request_formal_column_resume(self):
         if self.active_task != "COLUMN_CATCH" or self.active_sequence is None:
             return False
-        if self.formal_column_control_state in {"RESUME_ACK", "RESUMED"}:
+        if self.formal_column_control_state in {
+            "RESUME_REQUESTED", "RESUME_ACK", "RESUMED"
+        }:
             return True
         sent = self.send_line(
             "RK,ARM,COLUMN_CATCH,RESUME,SEQ,"

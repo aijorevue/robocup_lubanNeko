@@ -47,6 +47,7 @@ FORMAL_RING_LONG_RANGE_ID1_REDUCTION_TICKS = 20
 FORMAL_RING_LONG_RANGE_ID2_INCREASE_TICKS = 30
 PLATFORM_GRASP_ID1_OFFSET_TICKS = 40
 CENTER_DEADBAND_PX = 45
+RING_CENTER_DEADBAND_PX = 30
 CENTER_ID6_STEP_TICKS = 5
 CENTER_ID2_STEP_TICKS = 7
 CENTER_ID2_RANGE = (450, 700)
@@ -276,16 +277,20 @@ class PlatformTask:
             return
         self.target_key, self.target_center = key, point
         dx, dy = point[0] - width / 2, point[1] - height / 2
-        if abs(dx) > CENTER_DEADBAND_PX or abs(dy) > CENTER_DEADBAND_PX:
+        center_deadband = (
+            RING_CENTER_DEADBAND_PX
+            if key[0] == "ring" else CENTER_DEADBAND_PX
+        )
+        if abs(dx) > center_deadband or abs(dy) > center_deadband:
             id2 = max(CENTER_ID2_RANGE[0], min(CENTER_ID2_RANGE[1], self.center_id2 + (
-                -CENTER_ID2_STEP_TICKS if dy > CENTER_DEADBAND_PX
-                else CENTER_ID2_STEP_TICKS if dy < -CENTER_DEADBAND_PX else 0
+                -CENTER_ID2_STEP_TICKS if dy > center_deadband
+                else CENTER_ID2_STEP_TICKS if dy < -center_deadband else 0
             )))
             id6 = max(
                 CENTER_ID6_RANGE[0],
                 min(CENTER_ID6_RANGE[1], self.center_id6 + (
-                    -CENTER_ID6_STEP_TICKS if dx > CENTER_DEADBAND_PX
-                    else CENTER_ID6_STEP_TICKS if dx < -CENTER_DEADBAND_PX else 0
+                    -CENTER_ID6_STEP_TICKS if dx > center_deadband
+                    else CENTER_ID6_STEP_TICKS if dx < -center_deadband else 0
                 )),
             )
             if (id2, id6) == (self.center_id2, self.center_id6):
