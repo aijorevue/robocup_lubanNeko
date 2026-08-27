@@ -102,6 +102,11 @@ from .white_line_alignment import WhiteLineAlignmentDetector
 
 WINDOW_NAME = "Ros2_test1 Target Vision"
 
+# H7 white-line frames carry an explicit image size and rejects measurements
+# from another geometry. Keep both cameras on the calibrated route format.
+ROUTE_CAMERA_WIDTH = 800
+ROUTE_CAMERA_HEIGHT = 600
+
 # Keep only the detector family needed by the current route stage.  The
 # white-line detector is handled in the main loop and never shares a target
 # result with the ball/letter pipelines.
@@ -7459,6 +7464,20 @@ def camera_candidates(device):
 def open_camera(device, width, height, fps, role="CAMERA"):
     errors = []
     for candidate in camera_candidates(device):
+        # Set the V4L2 format before OpenCV opens the node. Without this,
+        # reconnects can leave the camera at its previous 640x480 mode even
+        # though the route protocol requires 800x600.
+        subprocess.run(
+            [
+                "v4l2-ctl",
+                "-d",
+                str(candidate),
+                f"--set-fmt-video=width={int(width)},height={int(height)},pixelformat=MJPG",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
         cap = cv2.VideoCapture(parse_device(candidate), cv2.CAP_V4L2)
         read_timeout_prop = getattr(cv2, "CAP_PROP_READ_TIMEOUT_MSEC", None)
         open_timeout_prop = getattr(cv2, "CAP_PROP_OPEN_TIMEOUT_MSEC", None)
@@ -7499,6 +7518,13 @@ def open_camera(device, width, height, fps, role="CAMERA"):
                 actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                 actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                 actual_fps = cap.get(cv2.CAP_PROP_FPS)
+                if actual_width != int(width) or actual_height != int(height):
+                    errors.append(
+                        f"{candidate}: negotiated {actual_width}x{actual_height}, "
+                        f"expected {int(width)}x{int(height)}"
+                    )
+                    cap.release()
+                    continue
                 print(
                     f"{role} CAMERA: {candidate} {actual_width}x{actual_height} "
                     f"reported_fps={actual_fps:.1f}"
@@ -7624,8 +7650,8 @@ def build_arg_parser():
         default=os.environ.get("SECONDARY_CAMERA_DEVICE", ""),
         help="secondary camera used only for task-two initial letter preselection",
     )
-    parser.add_argument("--width", type=int, default=640)
-    parser.add_argument("--height", type=int, default=480)
+    parser.add_argument("--width", type=int, default=ROUTE_CAMERA_WIDTH)
+    parser.add_argument("--height", type=int, default=ROUTE_CAMERA_HEIGHT)
     parser.add_argument("--fps", type=int, default=30)
     parser.add_argument("--detect-every-n-frames", type=int, default=1)
     parser.add_argument("--detection-scale", type=float, default=1.0)
@@ -7859,6 +7885,9 @@ def main(argv=None):
     # Formal task two has a separate lower-strip detector.  Task one keeps
     # the generic detector and its fallback unchanged.
     task2_white_line_detector = WhiteLineAlignmentDetector()
+    # Formal blue task three uses the same lower-strip geometry after the
+    # orbit, but keeps independent temporal history from task two.
+    task3_blue_white_line_detector = WhiteLineAlignmentDetector()
     white_line_last_query_sequence = None
     white_line_last_phase = None
     if args.chassis_home_on_start and execute_auto_grasp:
@@ -8125,10 +8154,8 @@ def main(argv=None):
             return
         query_sequence = pending_white_line_queries[-1]
         phase = getattr(chassis_link, "white_line_phase", None)
-        task2_phase = phase in {
-            "TASK2_AFTER_SECONDARY_SHIFT",
-            "TASK3_BLUE_WHITE_LINE_ALIGN",
-        }
+        task2_phase = phase == "TASK2_AFTER_SECONDARY_SHIFT"
+        task3_blue_phase = phase == "TASK3_BLUE_WHITE_LINE_ALIGN"
         if (
             query_sequence != white_line_last_query_sequence
             or phase != white_line_last_phase
@@ -8137,6 +8164,7 @@ def main(argv=None):
             # frame, never from a held result of a previous route stage.
             white_line_detector.reset_tracking()
             task2_white_line_detector.reset_tracking()
+            task3_blue_white_line_detector.reset_tracking()
             white_line_last_query_sequence = query_sequence
             white_line_last_phase = phase
         if frame is None or getattr(frame, "size", 0) == 0:
@@ -8147,10 +8175,23 @@ def main(argv=None):
                     flush=True,
                 )
             return
+        # H7 accepts only the calibrated 800x600 white-line geometry. Some
+        # V4L2 reconnects still deliver 640x480 after negotiation; normalize
+        # only this route-specific vision path so coordinates and W/H stay
+        # consistent. Target/letter/ball detection keeps the native frame.
+        white_line_frame = frame
+        if white_line_frame.shape[1] != ROUTE_CAMERA_WIDTH or white_line_frame.shape[0] != ROUTE_CAMERA_HEIGHT:
+            white_line_frame = cv2.resize(
+                white_line_frame,
+                (ROUTE_CAMERA_WIDTH, ROUTE_CAMERA_HEIGHT),
+                interpolation=cv2.INTER_LINEAR,
+            )
         if task2_phase:
-            line_measurement = task2_white_line_detector.detect_task2(frame)
+            line_measurement = task2_white_line_detector.detect_task2(white_line_frame)
+        elif task3_blue_phase:
+            line_measurement = task3_blue_white_line_detector.detect_task2(white_line_frame)
         else:
-            line_measurement = white_line_detector.detect(frame)
+            line_measurement = white_line_detector.detect(white_line_frame)
         if line_measurement is None and pending_white_line_queries:
             # TEMP DEBUG: save the first unseen frame per query sequence so a
             # missed detection can be inspected offline. Remove after tuning.
