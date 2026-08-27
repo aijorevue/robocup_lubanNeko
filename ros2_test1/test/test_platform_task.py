@@ -278,19 +278,18 @@ class TestPlatformTask(unittest.TestCase):
         f.task.tick()
         self.assertEqual(f.task.done, 'PRESELECT_DONE:A:C')
 
-    def test_secondary_pair_locks_after_three_consecutive_frames(self):
+    def test_secondary_pair_locks_after_two_consecutive_frames(self):
         f = Fixture()
         f.task.begin_preselect()
-        self.assertEqual(SECONDARY_PAIR_REQUIRED_FRAMES, 3)
+        self.assertEqual(SECONDARY_PAIR_REQUIRED_FRAMES, 2)
         # The first camera frame is intentionally discarded as the one-frame
-        # preheat frame; only the following three frames count toward locking.
+        # preheat frame; only the following two frames count toward locking.
         f.task.preselect([letter('C', (100, 200)), letter('D', (600, 200))])
-        for _ in range(2):
-            f.task.preselect([letter('C', (100, 200)), letter('D', (600, 200))])
         self.assertFalse(f.writes)
         f.task.preselect([letter('C', (100, 200)), letter('D', (600, 200))])
+        f.task.preselect([letter('C', (100, 200)), letter('D', (600, 200))])
         self.assertEqual(f.task.selected, ('C', 'D'))
-        self.assertEqual(f.task.preselect_lock_source, 'PAIR_3_FRAME')
+        self.assertEqual(f.task.preselect_lock_source, 'PAIR_2_FRAME')
 
     def test_secondary_history_fallback_chooses_two_distinct_labels(self):
         f = Fixture()

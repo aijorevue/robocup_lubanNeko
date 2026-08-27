@@ -71,8 +71,8 @@ PLATFORM_CENTER_REACQUIRE_TIMEOUT_S = 1.0
 PLATFORM_DEPTH_INVALID_TIMEOUT_S = 4.0
 TARGET_WINDOW_SIZE_PX = 400
 TARGET_WINDOW_MIN_AREA_FRACTION = 0.80
-SECONDARY_PAIR_REQUIRED_FRAMES = 3
-SECONDARY_PRESELECT_TIMEOUT_S = 25.0
+SECONDARY_PAIR_REQUIRED_FRAMES = 2
+SECONDARY_PRESELECT_TIMEOUT_S = 10.0
 SECONDARY_PRESELECT_FALLBACK_WINDOW_S = 2.0
 
 
@@ -271,7 +271,9 @@ class PlatformTask:
             self.pair_streak = 0
         self.last_pair = pair
         if self.pair_streak >= SECONDARY_PAIR_REQUIRED_FRAMES:
-            self._lock_selected(pair, "PAIR_3_FRAME")
+            self._lock_selected(
+                pair, f"PAIR_{SECONDARY_PAIR_REQUIRED_FRAMES}_FRAME"
+            )
             return
         if self.timeout - self.clock() <= SECONDARY_PRESELECT_FALLBACK_WINDOW_S:
             self._fallback_pair()
