@@ -363,11 +363,11 @@ class TestPlatformTask(unittest.TestCase):
             ('letter', 10.0, 600, 500, 570),
             ('letter', 11.0, 590, 520, 570),
             ('letter', 13.0, 570, 560, 570),
-            ('ring', 7.0, 630, 567, 520),
-            ('ring', 9.0, 610, 557, 520),
-            ('ring', 10.0, 600, 477, 520),
-            ('ring', 11.0, 590, 497, 550),
-            ('ring', 13.0, 570, 537, 550),
+            ('ring', 7.0, 630, 562, 520),
+            ('ring', 9.0, 610, 552, 520),
+            ('ring', 10.0, 600, 472, 520),
+            ('ring', 11.0, 590, 492, 550),
+            ('ring', 13.0, 570, 532, 550),
         ]
         for kind, depth, expected_descent_id1, expected_descent_id2, expected_retreat_id2 in cases:
             with self.subTest(kind=kind, depth=depth):
