@@ -12,6 +12,18 @@ LETTERS = ("A", "B", "C", "D")
 SECONDARY_TIGHT_DARK_THRESHOLD = 70
 SECONDARY_TIGHT_MIN_CONFIDENCE = 0.50
 SECONDARY_TIGHT_MIN_SIZE_FRACTION = 0.06
+# The low-contrast secondary camera compresses C/D strokes into the card
+# background. Keep the existing threshold as the first pass, then score a
+# narrow threshold ladder for C/D recovery without changing the A/B path.
+SECONDARY_TIGHT_THRESHOLDS = (70, 80, 90, 100, 110, 120, 130, 140)
+# Some secondary-camera cards are large enough to be detected as one contour,
+# but their white border and board background corrupt the tight glyph crop.
+# Restrict the fallback to the card interior and use it only for weak results.
+SECONDARY_CARD_INNER_TRIMS = (0.16, 0.18, 0.20)
+SECONDARY_CARD_THRESHOLDS = (80, 100, 120, 140)
+SECONDARY_CARD_MIN_CONFIDENCE = 0.50
+SECONDARY_CARD_OVERRIDE_MAX_BASE_CONFIDENCE = 0.46
+SECONDARY_CARD_MIN_AREA = 800.0
 
 
 class SecondaryLetterDetector:
@@ -93,6 +105,18 @@ class SecondaryLetterDetector:
                 )
             ):
                 letter, confidence, occupancy = tight
+            card = (None, 0.0, 0.0)
+            if min(box_width, box_height) >= min_tight_size:
+                card = self._classify_card_interior(
+                    frame[y : y + box_height, x : x + box_width]
+                )
+            card_letter, card_confidence, card_occupancy = card
+            if (
+                card_letter in {"C", "D"}
+                and card_confidence >= SECONDARY_CARD_MIN_CONFIDENCE
+                and confidence < SECONDARY_CARD_OVERRIDE_MAX_BASE_CONFIDENCE
+            ):
+                letter, confidence, occupancy = card
             if letter is None or confidence < self.min_confidence:
                 continue
             min_candidate_size = max(
@@ -122,7 +146,80 @@ class SecondaryLetterDetector:
                     "angle": 0.0,
                 }
             )
+        # The printed C/D cards remain visible as white rectangles even when
+        # their dark strokes fragment under exposure changes. Use that stable
+        # card geometry as a C/D-only recovery path.
+        for x, y, box_width, box_height in self._white_card_boxes(frame):
+            card_letter, card_confidence, card_occupancy = (
+                self._classify_card_interior(
+                    frame[y : y + box_height, x : x + box_width]
+                )
+            )
+            if (
+                card_letter not in {"C", "D"}
+                or card_confidence < SECONDARY_CARD_MIN_CONFIDENCE
+            ):
+                continue
+            detections.append(
+                {
+                    "kind": "letter",
+                    "letter": card_letter,
+                    "color": "black",
+                    "source": "secondary_card_interior",
+                    "confidence": round(card_confidence * 100.0, 1),
+                    "glyph_occupancy": round(card_occupancy, 4),
+                    "center": (int(x + box_width / 2), int(y + box_height / 2)),
+                    "bbox": (int(x), int(y), int(box_width), int(box_height)),
+                    "box": np.array(
+                        [[x, y], [x + box_width, y],
+                         [x + box_width, y + box_height], [x, y + box_height]],
+                        dtype=np.int32,
+                    ),
+                    "projected_area": float(box_width * box_height),
+                    "fully_visible": x > 0 and y > 0
+                    and x + box_width < width and y + box_height < height,
+                    "angle": 0.0,
+                }
+            )
         return self._dedupe(detections)
+
+    @staticmethod
+    def _white_card_boxes(frame):
+        """Find moderate white card rectangles without using black strokes."""
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(
+            hsv,
+            np.array([0, 0, 150], dtype=np.uint8),
+            np.array([180, 120, 255], dtype=np.uint8),
+        )
+        mask = cv2.morphologyEx(
+            mask, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8)
+        )
+        contours, _ = cv2.findContours(
+            mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        height, width = frame.shape[:2]
+        boxes = []
+        for contour in contours:
+            area = float(cv2.contourArea(contour))
+            x, y, box_width, box_height = cv2.boundingRect(contour)
+            if area < SECONDARY_CARD_MIN_AREA:
+                continue
+            if not 0.65 <= box_width / float(max(1, box_height)) <= 1.80:
+                continue
+            if not 0.05 <= box_width / float(width) <= 0.30:
+                continue
+            if not 0.05 <= box_height / float(height) <= 0.30:
+                continue
+            fill = area / float(max(1, box_width * box_height))
+            if fill < 0.25:
+                continue
+            perimeter = cv2.arcLength(contour, True)
+            approx = cv2.approxPolyDP(contour, 0.06 * perimeter, True)
+            if not 4 <= len(approx) <= 8:
+                continue
+            boxes.append((x, y, box_width, box_height))
+        return boxes
 
     def _classify(self, roi):
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
@@ -143,25 +240,82 @@ class SecondaryLetterDetector:
             return None, 0.0, 0.0
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
         gray = cv2.createCLAHE(clipLimit=2.2, tileGridSize=(4, 4)).apply(gray)
-        _, dark_strokes = cv2.threshold(
-            gray,
-            SECONDARY_TIGHT_DARK_THRESHOLD,
-            255,
-            cv2.THRESH_BINARY_INV,
-        )
-        dark_strokes = cv2.morphologyEx(
-            dark_strokes, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8)
-        )
-        return self._classify_glyph(self._normalize_glyph(dark_strokes))
+        results = []
+        for threshold in SECONDARY_TIGHT_THRESHOLDS:
+            _, dark_strokes = cv2.threshold(
+                gray,
+                threshold,
+                255,
+                cv2.THRESH_BINARY_INV,
+            )
+            variants = (
+                dark_strokes,
+                cv2.morphologyEx(
+                    dark_strokes, cv2.MORPH_CLOSE, np.ones((2, 2), np.uint8)
+                ),
+            )
+            for variant in variants:
+                result = self._classify_glyph(self._normalize_glyph(variant))
+                if result[0] is not None:
+                    results.append(result)
+        if not results:
+            return None, 0.0, 0.0
+        return max(results, key=lambda result: result[1])
+
+    def _classify_card_interior(self, roi):
+        """Recover C/D when a detected card includes its white border."""
+        if roi is None or roi.size == 0:
+            return None, 0.0, 0.0
+        height, width = roi.shape[:2]
+        if height < 24 or width < 24:
+            return None, 0.0, 0.0
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        results = []
+        for trim in SECONDARY_CARD_INNER_TRIMS:
+            x0 = int(round(width * trim))
+            y0 = int(round(height * trim))
+            x1 = width - x0
+            y1 = height - y0
+            crop = gray[y0:y1, x0:x1]
+            if crop.shape[0] < 20 or crop.shape[1] < 20:
+                continue
+            enhanced = cv2.createCLAHE(
+                clipLimit=2.0, tileGridSize=(4, 4)
+            ).apply(crop)
+            # The raw crop is the reliable path for the present card print;
+            # keeping the equalized image out of this fallback also keeps the
+            # per-frame cost bounded for the live secondary stream.
+            for source in (crop,):
+                for threshold in SECONDARY_CARD_THRESHOLDS:
+                    _, dark_strokes = cv2.threshold(
+                        source,
+                        threshold,
+                        255,
+                        cv2.THRESH_BINARY_INV,
+                    )
+                    result = self._classify_glyph(
+                        self._normalize_glyph(dark_strokes)
+                    )
+                    if result[0] in {"C", "D"}:
+                        results.append(result)
+        if not results:
+            return None, 0.0, 0.0
+        return max(results, key=lambda result: result[1])
 
     def _classify_glyph(self, glyph):
         glyph_binary = glyph > 127
         occupancy = float(np.count_nonzero(glyph_binary)) / glyph_binary.size
         if not 0.025 <= occupancy <= 0.60:
             return None, 0.0, occupancy
+        candidate_signature = self._glyph_signature(glyph_binary)
         scores = sorted(
             (
-                (self._best_template_score(glyph, glyph_binary, letter), letter)
+                (
+                    self._best_template_score(
+                        glyph, glyph_binary, candidate_signature, letter
+                    ),
+                    letter,
+                )
                 for letter in LETTERS
             ),
             reverse=True,
@@ -184,20 +338,25 @@ class SecondaryLetterDetector:
     def _build_template_bank(self):
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2, 2))
         return {
-            letter: (
-                template,
-                cv2.GaussianBlur(template, (3, 3), 0),
-                cv2.dilate(template, kernel),
-                cv2.erode(template, kernel),
+            letter: tuple(
+                (
+                    variant,
+                    variant > 127,
+                    self._glyph_signature(variant > 127),
+                )
+                for variant in (
+                    template,
+                    cv2.GaussianBlur(template, (3, 3), 0),
+                    cv2.dilate(template, kernel),
+                    cv2.erode(template, kernel),
+                )
             )
             for letter, template in self.templates.items()
         }
 
-    def _best_template_score(self, glyph, glyph_binary, letter):
+    def _best_template_score(self, glyph, glyph_binary, candidate_signature, letter):
         best = 0.0
-        candidate_signature = self._glyph_signature(glyph_binary)
-        for template in self.template_bank[letter]:
-            template_binary = template > 127
+        for template, template_binary, template_signature in self.template_bank[letter]:
             intersection = np.count_nonzero(glyph_binary & template_binary)
             union = np.count_nonzero(glyph_binary | template_binary)
             iou = intersection / max(1, union)
@@ -205,7 +364,6 @@ class SecondaryLetterDetector:
                 0.0,
                 float(cv2.matchTemplate(glyph, template, cv2.TM_CCOEFF_NORMED)[0, 0]),
             )
-            template_signature = self._glyph_signature(template_binary)
             projection = self._projection_similarity(
                 candidate_signature[2], template_signature[2]
             )

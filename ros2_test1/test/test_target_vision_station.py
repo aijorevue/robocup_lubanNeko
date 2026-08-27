@@ -487,7 +487,11 @@ class ChassisStationSafetyTests(unittest.TestCase):
         self.assertEqual(bridge.sent[-1], {"id2": 570})
 
     def test_task3_ring_place_waits_then_finishes_contracted(self):
-        self.assertEqual(target_vision.TASK3_RING_PLACE_POSE, (480, 340, 171))
+        self.assertEqual(target_vision.TASK3_RING_PLACE_POSE, (470, 350, 171))
+        self.assertEqual(target_vision.TASK3_RING_PLACE_RETURN_HIGH, (620, 490, 415))
+        self.assertEqual(target_vision.TASK3_RING_PLACE_GRIPPER_TIME_MS, 200)
+        self.assertEqual(target_vision.TASK3_RING_PLACE_SLOW_CLOSE_TIME_MS, 2000)
+        self.assertEqual(target_vision.TASK3_RING_PLACE_RELEASE_GRIPPER_TIME_MS, 2000)
         controller, bridge, _ = make_controller()
         with mock.patch.object(target_vision.time, "monotonic", return_value=1000.0), mock.patch.object(
             target_vision.time, "sleep"
@@ -517,6 +521,23 @@ class ChassisStationSafetyTests(unittest.TestCase):
             ),
         )
 
+    def test_task3_ring_place_followup_gripper_pulses_are_slow(self):
+        controller, _bridge, _ = make_controller()
+        with mock.patch.object(target_vision.time, "monotonic", return_value=1000.0), mock.patch.object(
+            target_vision.time, "sleep"
+        ):
+            controller.begin_chassis_station("TASK3_RING_PLACE")
+            controller.chassis_station_deadline = 0.0
+            controller.update_chassis_station(
+                "TASK3_RING_PLACE", [], (600, 800, 3), detection_fresh=False
+            )
+
+        actions = {name: args for name, _handler, args in controller.task3_ring_place_actions}
+        self.assertEqual(actions["OPEN_ID17"][1], 200)
+        self.assertEqual(actions["SLOW_CLOSE_ID17"][1], 2000)
+        self.assertEqual(actions["OPEN_ID17_AGAIN"][1], 2000)
+        self.assertEqual(actions["CLOSE_ID17_AGAIN"][1], 2000)
+
     def test_column_centering_uses_seven_and_five_tick_steps(self):
         controller, bridge, _ = make_controller()
         controller.active_chassis_station = "COLUMN_CATCH"
@@ -534,6 +555,69 @@ class ChassisStationSafetyTests(unittest.TestCase):
         self.assertEqual((controller.id2, controller.id6), (493, 410))
         self.assertEqual(bridge.sent[-1], {"id2": 493, "id6": 410})
         self.assertEqual(bridge.arm_time_ms, 1)
+
+    def test_column_pause_classification_window_is_three_seconds(self):
+        self.assertEqual(target_vision.COLUMN_BLOCK_CLASSIFY_TIMEOUT_S, 3.0)
+
+    def test_column_centering_allows_three_second_target_loss_grace(self):
+        controller, bridge, _ = make_controller()
+        controller.active_chassis_station = "COLUMN_CATCH"
+        controller.chassis_station_stage = "column_centering"
+        controller.column_capture_authorized = True
+        controller.column_locked_block = {
+            "bbox": (350, 250, 100, 100),
+            "center": (400, 300),
+        }
+        controller.locked_target = {
+            "kind": "letter",
+            "letter": "A",
+            "bbox": (350, 250, 100, 100),
+            "center": (400, 300),
+        }
+
+        class FakeColumnLink:
+            def __init__(self):
+                self.resume_requests = 0
+
+            def formal_column_pause_state(self):
+                return "PAUSED"
+
+            def request_formal_column_resume(self):
+                self.resume_requests += 1
+
+        link = FakeColumnLink()
+        with mock.patch.object(target_vision.time, "monotonic", return_value=100.0):
+            first = controller.update_chassis_station(
+                "COLUMN_CATCH", [], (600, 800, 3), detection_fresh=False,
+                chassis_link=link,
+            )
+        self.assertIn("waiting fresh letter", first)
+        self.assertEqual(controller.chassis_station_stage, "column_centering")
+        self.assertEqual(bridge.sent, [])
+
+        with mock.patch.object(target_vision.time, "monotonic", return_value=102.9):
+            second = controller.update_chassis_station(
+                "COLUMN_CATCH", [], (600, 800, 3), detection_fresh=False,
+                chassis_link=link,
+            )
+        self.assertIn("waiting fresh letter", second)
+        self.assertEqual(controller.chassis_station_stage, "column_centering")
+
+        with mock.patch.object(target_vision.time, "monotonic", return_value=103.1):
+            third = controller.update_chassis_station(
+                "COLUMN_CATCH", [], (600, 800, 3), detection_fresh=False,
+                chassis_link=link,
+            )
+        self.assertIn("resume H7", third)
+        self.assertEqual(controller.chassis_station_stage, "column_resume_abort")
+        self.assertEqual(link.resume_requests, 0)
+
+        with mock.patch.object(target_vision.time, "monotonic", return_value=103.2):
+            controller.update_chassis_station(
+                "COLUMN_CATCH", [], (600, 800, 3), detection_fresh=False,
+                chassis_link=link,
+            )
+        self.assertEqual(link.resume_requests, 1)
 
     def test_column_stop_retracts_before_done(self):
         controller, bridge, _ = make_controller()

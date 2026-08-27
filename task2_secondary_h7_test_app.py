@@ -31,6 +31,8 @@ SECONDARY_CAMERA = "/dev/v4l/by-path/platform-fc880000.usb-usb-0:1.3:1.0-video-i
 H7_DEVICE = "/dev/h7_chassis"
 ARM_DEVICE = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5C82109853-if00"
 HIGH = {1: 650, 2: 600, 6: 415}
+INTERMEDIATE_HIGH = {1: 650, 2: 400, 6: 415}
+PREPLACE_ID2 = 400
 LETTER_WORK = {1: 500, 2: 350, 6: 670}
 RING_AFTER_HIGH = {1: 520, 2: 345, 6: 171}
 HTD85_AUX_HIGH = {14: 300, 15: 600, 17: 320}
@@ -60,9 +62,10 @@ MAIN_TARGET_REQUIRED_VOTES = 3
 MAIN_TARGET_VOTE_CENTER_TOL_PX = 140.0
 TARGET_TRACK_MISSING_TIMEOUT_S = 4.0
 MAIN_TARGET_TIMEOUT_S = 5.0
-LETTER_LOCK_WARMUP_FRAMES = 20
+LETTER_LOCK_WARMUP_FRAMES = 1
 LETTER_LOCK_HISTORY_FRAMES = 12
-LETTER_LOCK_REQUIRED_FRAMES = 8
+LETTER_LOCK_REQUIRED_FRAMES = 3
+LETTER_LOCK_FALLBACK_WINDOW_S = 2.0
 LETTER_SIZE_MM = 30.0
 RING_SIZE_MM = 55.0
 CAMERA_GRIPPER_OFFSET_MM = 50.0
@@ -221,6 +224,11 @@ class ServoBoards:
         self.aux_high()
         time.sleep(max(ARM_TIME_MS, HTD85_AUX_TIME_MS) / 1000.0)
 
+    def pose_intermediate_high(self) -> None:
+        self.arm(INTERMEDIATE_HIGH)
+        self.aux_high()
+        time.sleep(max(ARM_TIME_MS, HTD85_AUX_TIME_MS) / 1000.0)
+
     def pulse_gripper(self) -> None:
         self.open_gripper()
         self.close_gripper()
@@ -234,23 +242,23 @@ class ServoBoards:
         time.sleep(GRIPPER_TIME_MS / 1000.0)
 
     def place_ring(self) -> None:
-        """Move ring placement ID6, ID2, then ID1, then hold before release."""
+        """After high pose, retreat ID2, then enter the ring place pose."""
+        self.arm({2: PREPLACE_ID2}, RING_AXIS_TIME_MS)
+        time.sleep(RING_AXIS_TIME_MS / 1000.0)
         self.arm({6: RING_AFTER_HIGH[6]}, RING_AXIS_TIME_MS)
         time.sleep(RING_AXIS_TIME_MS / 1000.0)
-        self.arm({2: RING_AFTER_HIGH[2]}, RING_AXIS_TIME_MS)
-        time.sleep(RING_AXIS_TIME_MS / 1000.0)
-        self.arm({1: RING_AFTER_HIGH[1]}, RING_ID1_TIME_MS)
+        self.arm({1: RING_AFTER_HIGH[1], 2: RING_AFTER_HIGH[2]}, RING_ID1_TIME_MS)
         time.sleep(RING_ID1_TIME_MS / 1000.0)
         print("TASK2 RING_RELEASE_HOLD 1.0s", flush=True)
         time.sleep(RING_RELEASE_HOLD_S)
 
     def place_letter(self) -> None:
-        """Move letter placement ID6, ID2, then ID1 with 500 ms each."""
+        """After high pose, retreat ID2, then enter the letter place pose."""
+        self.arm({2: PREPLACE_ID2}, LETTER_AXIS_TIME_MS)
+        time.sleep(LETTER_AXIS_TIME_MS / 1000.0)
         self.arm({6: LETTER_WORK[6]}, LETTER_AXIS_TIME_MS)
         time.sleep(LETTER_AXIS_TIME_MS / 1000.0)
-        self.arm({2: LETTER_WORK[2]}, LETTER_AXIS_TIME_MS)
-        time.sleep(LETTER_AXIS_TIME_MS / 1000.0)
-        self.arm({1: LETTER_WORK[1]}, LETTER_ID1_TIME_MS)
+        self.arm({1: LETTER_WORK[1], 2: LETTER_WORK[2]}, LETTER_ID1_TIME_MS)
         time.sleep(LETTER_ID1_TIME_MS / 1000.0)
 
     def close(self) -> None:
@@ -514,6 +522,34 @@ def lock_pair(camera: cv2.VideoCapture, detector, timeout_s: float) -> tuple[str
     history: deque[tuple[str, str]] = deque(maxlen=LETTER_LOCK_HISTORY_FRAMES)
     started = time.monotonic()
     warmup_frames = 0
+    pair_streak = 0
+    last_pair = None
+    label_counts = {letter: 0 for letter in LETTERS}
+    label_confidence = {letter: 0.0 for letter in LETTERS}
+    label_x = {}
+
+    def fallback_pair():
+        ranked = sorted(
+            (
+                label,
+                label_counts[label],
+                label_confidence[label],
+            )
+            for label in LETTERS
+            if label_counts[label] > 0
+        )
+        ranked.sort(key=lambda item: (-item[1], -item[2], item[0]))
+        if len(ranked) < 2:
+            return None
+        selected = [ranked[0][0], ranked[1][0]]
+        selected.sort(key=lambda label: (label_x.get(label, 10**9), label))
+        print(
+            f"TASK2 LETTERS FALLBACK L1={selected[0]} L2={selected[1]} "
+            f"COUNTS={ranked[0][0]}:{ranked[0][1]},{ranked[1][0]}:{ranked[1][1]}",
+            flush=True,
+        )
+        return tuple(selected)
+
     while time.monotonic() - started < timeout_s:
         ok, frame = camera.read()
         if not ok or frame is None:
@@ -526,36 +562,49 @@ def lock_pair(camera: cv2.VideoCapture, detector, timeout_s: float) -> tuple[str
         )
         # Track the two physical targets by x position. A transient A/B class
         # fluctuation contributes one vote instead of clearing all history.
-        ordered = sorted(detections, key=lambda item: item["center"][0])
+        by_label = {}
+        for item in detections:
+            label = str(item["letter"]).upper()
+            confidence = float(item.get("confidence") or 0.0)
+            previous = by_label.get(label)
+            if previous is None or confidence > previous[0]:
+                by_label[label] = (confidence, item)
+        ordered = sorted(
+            (item for _, item in by_label.values()),
+            key=lambda item: item["center"][0],
+        )
+        pair = None
         if len(ordered) >= 2:
-            history.append(
-                (
-                    str(ordered[0]["letter"]).upper(),
-                    str(ordered[-1]["letter"]).upper(),
-                )
+            pair = (
+                str(ordered[0]["letter"]).upper(),
+                str(ordered[-1]["letter"]).upper(),
             )
-        if len(history) >= LETTER_LOCK_REQUIRED_FRAMES:
-            winners = []
-            winner_votes = []
-            for position in (0, 1):
-                counts = {
-                    letter: sum(pair[position] == letter for pair in history)
-                    for letter in LETTERS
-                }
-                winner = max(LETTERS, key=lambda letter: counts[letter])
-                winners.append(winner)
-                winner_votes.append(counts[winner])
-            if (
-                winners[0] != winners[1]
-                and min(winner_votes) >= max(5, LETTER_LOCK_REQUIRED_FRAMES - 2)
-            ):
-                print(
-                    f"TASK2 LETTERS LOCKED L1={winners[0]} L2={winners[1]} "
-                    f"CAMERA=SECONDARY votes={winner_votes[0]}/{len(history)},"
-                    f"{winner_votes[1]}/{len(history)}",
-                    flush=True,
-                )
-                return winners[0], winners[1]
+            if pair[0] == pair[1]:
+                pair = None
+        for label, (confidence, item) in by_label.items():
+            label_counts[label] += 1
+            label_confidence[label] += confidence
+            label_x[label] = float(item["center"][0])
+        if pair == last_pair and pair is not None:
+            pair_streak += 1
+        elif pair is not None:
+            pair_streak = 1
+        else:
+            pair_streak = 0
+        last_pair = pair
+        if pair is not None:
+            history.append(pair)
+        if pair_streak >= LETTER_LOCK_REQUIRED_FRAMES:
+            print(
+                f"TASK2 LETTERS LOCKED L1={pair[0]} L2={pair[1]} "
+                f"CAMERA=SECONDARY source=PAIR_3_FRAME streak={pair_streak}",
+                flush=True,
+            )
+            return pair
+        if time.monotonic() - started >= max(0.0, timeout_s - LETTER_LOCK_FALLBACK_WINDOW_S):
+            selected = fallback_pair()
+            if selected is not None:
+                return selected
         view = frame.copy()
         for item in detections:
             x, y = map(int, item.get("center", (0, 0)))
@@ -566,6 +615,9 @@ def lock_pair(camera: cv2.VideoCapture, detector, timeout_s: float) -> tuple[str
         cv2.imshow("Task2 secondary", view)
         if cv2.waitKey(1) & 0xFF in (ord("q"), 27):
             raise KeyboardInterrupt
+    selected = fallback_pair()
+    if selected is not None:
+        return selected
     raise RuntimeError("LETTER_TIMEOUT")
 
 
@@ -1093,6 +1145,7 @@ def run(args) -> int:
                 boards.pose_high()
                 boards.place_ring()
                 boards.pulse_gripper()
+                boards.pose_intermediate_high()
                 boards.pose_high()
                 print("TASK2 RING_DONE after_high ID1=520 ID2=345 ID6=171", flush=True)
             elif (
@@ -1117,6 +1170,7 @@ def run(args) -> int:
                 boards.place_letter()
                 time.sleep(ARM_TIME_MS / 1000.0)
                 boards.pulse_gripper()
+                boards.pose_intermediate_high()
                 boards.pose_high()
                 print(
                     f"TASK2 LETTER_DONE letter={target['letter']} "

@@ -69,6 +69,7 @@ TARGET_RECHECK_DELAY_S = 0.15
 ORBIT_RESCUE_INTERVAL_FRAMES = 3
 ORBIT_RESCUE_MIN_CONFIDENCE = 38.0
 TASK3_LETTERS = tuple(sorted(LETTERS))
+TASK3_LETTER_SUCCESS_QUOTA = 2
 TASK3_ORBIT_RADIUS_MM = 450
 TASK3_ORBIT_ANGLE_DEG = 360
 TASK3_LETTER_MIN_CONFIDENCE = max(40.0, MAIN_LETTER_MIN_CONFIDENCE - 5.0)
@@ -702,7 +703,7 @@ def _task3_record_handled_block(
 
 
 def _task3_has_grabbed_letter(
-    frame: np.ndarray, detector, block: dict, grabbed: set[str]
+    frame: np.ndarray, detector, block: dict, grabbed: dict[str, int]
 ) -> bool:
     """Recognize an already handled glyph before pausing the orbit again."""
     if not grabbed:
@@ -714,7 +715,7 @@ def _task3_has_grabbed_letter(
     for candidate in detections:
         label = str(candidate.get("letter", "")).upper()
         if (
-            label in grabbed
+            grabbed.get(label, 0) >= TASK3_LETTER_SUCCESS_QUOTA
             and _task3_block_tracks_match(block, _task3_candidate_block(candidate))
         ):
             return True
@@ -899,7 +900,7 @@ def _merge_letter_candidates(candidates: list[dict]) -> list[dict]:
 def _letter_candidates(
     frame: np.ndarray,
     detector,
-    grabbed: set[str],
+    grabbed: dict[str, int],
     min_confidence: float,
     rescue_detector=None,
     frame_index: int = 0,
@@ -925,7 +926,8 @@ def _letter_candidates(
     return [
         item for item in detections
         if str(item.get("letter", "")).upper() in TASK3_LETTERS
-        and str(item.get("letter", "")).upper() not in grabbed
+        and grabbed.get(str(item.get("letter", "")).upper(), 0)
+        < TASK3_LETTER_SUCCESS_QUOTA
         and task3_actionable(item)
     ]
 
@@ -935,7 +937,7 @@ def _task3_classify_paused_block(
     detector,
     rescue_detector,
     block: dict,
-    grabbed: set[str],
+    grabbed: dict[str, int],
     timeout_s: float,
 ) -> dict | None:
     """Classify the block only after H7 has confirmed PAUSED."""
@@ -1033,13 +1035,16 @@ def _task3_classify_paused_block(
 
 
 def _task3_capture_authorized(
-    target: dict | None, block: dict, grabbed: set[str]
+    target: dict | None, block: dict, grabbed: dict[str, int]
 ) -> bool:
     """Permit arm descent only for the paused block's selected letter."""
     if not isinstance(target, dict) or not target.get("task3_classified_after_pause"):
         return False
     label = str(target.get("letter", "")).upper()
-    if label not in TASK3_LETTERS or label in grabbed:
+    if (
+        label not in TASK3_LETTERS
+        or grabbed.get(label, 0) >= TASK3_LETTER_SUCCESS_QUOTA
+    ):
         return False
     if not _task3_candidate_in_block(target, block):
         return False
@@ -1061,7 +1066,7 @@ def _nearest_target(candidates: list[dict], frame_shape) -> dict | None:
     )
 
 
-def _draw_view(frame: np.ndarray, candidates: list[dict], grabbed: set[str], state: str):
+def _draw_view(frame: np.ndarray, candidates: list[dict], grabbed: dict[str, int], state: str):
     view = frame.copy()
     for item in candidates:
         x, y = map(int, item.get("center", (0, 0)))
@@ -1072,7 +1077,9 @@ def _draw_view(frame: np.ndarray, candidates: list[dict], grabbed: set[str], sta
             0.8, (0, 255, 0), 2,
         )
     cv2.putText(
-        view, f"TASK3 MAIN / {state} / GRABBED={','.join(sorted(grabbed)) or '-'}",
+        view,
+        f"TASK3 MAIN / {state} / GRABBED="
+        f"{','.join(f'{key}:{value}' for key, value in sorted(grabbed.items())) or '-'}",
         (15, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (255, 255, 255), 2,
     )
     return view
@@ -1408,7 +1415,7 @@ def run(args) -> int:
     started = False
     completed = False
     sequence = (int(time.time() * 1000.0)) & 0xFFFFFFFF
-    grabbed: set[str] = set()
+    grabbed: dict[str, int] = {}
     history: deque = deque(maxlen=TARGET_VOTE_WINDOW)
     try:
         detector = import_main_detector()
@@ -1583,7 +1590,10 @@ def run(args) -> int:
                 continue
 
             label = str(target.get("letter", "")).upper()
-            if label in grabbed or label not in TASK3_LETTERS:
+            if (
+                label not in TASK3_LETTERS
+                or grabbed.get(label, 0) >= TASK3_LETTER_SUCCESS_QUOTA
+            ):
                 _task3_record_handled_block(
                     handled_blocks,
                     label,
@@ -1646,7 +1656,7 @@ def run(args) -> int:
                 label,
                 block,
             )
-            grabbed.add(label)
+            grabbed[label] = grabbed.get(label, 0) + 1
             history.clear()
             time.sleep(TARGET_RECHECK_DELAY_S)
 
@@ -1655,14 +1665,16 @@ def run(args) -> int:
                 "LETTER_GRASP_COMPLETE",
             )
             print(
-                f"TASK3 ORBIT_RESUMED grabbed={','.join(sorted(grabbed))}",
+                f"TASK3 ORBIT_RESUMED grabbed="
+                f"{','.join(f'{key}:{value}' for key, value in sorted(grabbed.items()))}",
                 flush=True,
             )
 
         print(
             f"TASK3 TEST COMPLETE orbit={TASK3_ORBIT_ANGLE_DEG}deg "
             f"radius={TASK3_ORBIT_RADIUS_MM}mm "
-            f"grabbed={','.join(sorted(grabbed)) or 'none'}",
+            f"grabbed="
+            f"{','.join(f'{key}:{value}' for key, value in sorted(grabbed.items())) or 'none'}",
             flush=True,
         )
         return 0

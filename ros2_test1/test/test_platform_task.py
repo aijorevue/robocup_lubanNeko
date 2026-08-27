@@ -4,12 +4,15 @@ import unittest
 from unittest.mock import Mock, patch
 
 from ros2_test1.platform_task import (
-    PlatformTask, HIGH, LETTER_PLACE, RING_PLACE,
+    PlatformTask, HIGH, INTERMEDIATE_HIGH, PREPLACE_ID2, LETTER_PLACE, RING_PLACE,
     POST_OPEN_ID2_RETREAT_TICKS_BY_KIND, PLATFORM_GRIPPER_CLOSED,
     PLATFORM_GRIPPER_OPEN,
     TARGET_WINDOW_SIZE_PX, TARGET_WINDOW_MIN_AREA_FRACTION,
     PLATFORM_LETTER_PLACE_TIME_MS, PLATFORM_RING_RELEASE_HOLD_S,
     PLATFORM_NO_TARGET_TIMEOUT_S,
+    PLATFORM_DEPTH_INVALID_TIMEOUT_S,
+    SECONDARY_PAIR_REQUIRED_FRAMES,
+    SECONDARY_PRESELECT_FALLBACK_WINDOW_S,
     CENTER_DEADBAND_PX, RING_CENTER_DEADBAND_PX,
     _target_in_center_window,
 )
@@ -37,12 +40,14 @@ class Fixture:
             ring_place_id6=self.ring_place_id6,
             ring_place_id2=self.ring_place_id2,
             ring_place_id1=self.ring_place_id1,
+            ring_place_id12=self.ring_place_id12,
             ring_return_high_id1=self.ring_return_high_id1,
             ring_return_high_id2=self.ring_return_high_id2,
             ring_return_high_id6=self.ring_return_high_id6,
             letter_place_id6=self.letter_place_id6,
             letter_place_id2=self.letter_place_id2,
             letter_place_id1=self.letter_place_id1,
+            letter_place_id12=self.letter_place_id12,
             letter_return_high_id1=self.letter_return_high_id1,
             letter_return_high_id2=self.letter_return_high_id2,
             letter_return_high_id6=self.letter_return_high_id6,
@@ -73,6 +78,10 @@ class Fixture:
         self.writes.append(('ring_id1', id1))
         return 0.7
 
+    def ring_place_id12(self, id1, id2):
+        self.writes.append(('ring_id1_id2', id1, id2))
+        return 0.7
+
     def ring_return_high_id1(self, id1):
         self.writes.append(('ring_high_id1', id1))
         return 0.6
@@ -95,6 +104,10 @@ class Fixture:
 
     def letter_place_id1(self, id1):
         self.writes.append(('letter_id1', id1))
+        return 0.5
+
+    def letter_place_id12(self, id1, id2):
+        self.writes.append(('letter_id1_id2', id1, id2))
         return 0.5
 
     def letter_return_high_id1(self, id1):
@@ -202,6 +215,15 @@ class TestPlatformTask(unittest.TestCase):
         self.assertEqual(f.writes[2][0], 'pose')
         self.assertEqual(f.writes[2][1][0:2], (474, 499))
 
+    def test_formal_long_range_final_id2_increase_applies_to_letters_and_rings(self):
+        for kind, expected in (("letter", (474, 484)), ("ring", (474, 499))):
+            with self.subTest(kind=kind):
+                f = Fixture(); f.ready(); f.writes.clear(); f.task.begin_slot('red')
+                target = dict(letter(depth=22.83), kind=kind, color='red', score=.9)
+                f.feed(target)
+                f.finish()
+                self.assertEqual(f.writes[2][1][0:2], expected)
+
     def test_retreat_floor_after_visual_centering(self):
         for kind in ('letter', 'ring'):
             with self.subTest(kind=kind):
@@ -233,13 +255,13 @@ class TestPlatformTask(unittest.TestCase):
     def test_pair_first_and_high_settle_barrier(self):
         f = Fixture()
         f.task.begin_preselect()
-        for _ in range(40):
+        for _ in range(41):
             f.task.preselect([letter('A')])
         self.assertEqual(f.writes, [])
         for _ in range(8):
             f.task.preselect([letter('C')])
         self.assertEqual(f.writes, [])
-        for _ in range(6):
+        for _ in range(7):
             f.task.preselect([letter('A', (100, 200)), letter('C', (600, 200))])
         self.assertEqual(f.writes, [('pose', HIGH, True)])
         f.now = f.task.deadline - .001
@@ -248,6 +270,37 @@ class TestPlatformTask(unittest.TestCase):
         f.now += .002
         f.task.tick()
         self.assertEqual(f.task.done, 'PRESELECT_DONE:A:C')
+
+    def test_secondary_pair_locks_after_three_consecutive_frames(self):
+        f = Fixture()
+        f.task.begin_preselect()
+        self.assertEqual(SECONDARY_PAIR_REQUIRED_FRAMES, 3)
+        # The first camera frame is intentionally discarded as the one-frame
+        # preheat frame; only the following three frames count toward locking.
+        f.task.preselect([letter('C', (100, 200)), letter('D', (600, 200))])
+        for _ in range(2):
+            f.task.preselect([letter('C', (100, 200)), letter('D', (600, 200))])
+        self.assertFalse(f.writes)
+        f.task.preselect([letter('C', (100, 200)), letter('D', (600, 200))])
+        self.assertEqual(f.task.selected, ('C', 'D'))
+        self.assertEqual(f.task.preselect_lock_source, 'PAIR_3_FRAME')
+
+    def test_secondary_history_fallback_chooses_two_distinct_labels(self):
+        f = Fixture()
+        f.task.begin_preselect()
+        f.now = 23.1
+        f.task.preselect([letter('D', (100, 200))])
+        f.task.preselect([letter('D', (100, 200))])
+        f.task.preselect([letter('C', (600, 200))])
+        self.assertEqual(
+            f.task.selected,
+            ('D', 'C'),
+        )
+        self.assertEqual(f.task.preselect_lock_source, 'HISTORY_FALLBACK')
+        self.assertLessEqual(
+            SECONDARY_PRESELECT_FALLBACK_WINDOW_S,
+            2.0,
+        )
 
     def test_stale_and_duplicate_letter_pair_never_lock(self):
         for stale in (True, False):
@@ -287,6 +340,7 @@ class TestPlatformTask(unittest.TestCase):
 
     def test_letter_and_both_field_ring_exact_actions(self):
         self.assertEqual(HIGH, (650, 600, 415))
+        self.assertEqual(PREPLACE_ID2, 400)
         self.assertEqual(LETTER_PLACE, (500, 350, 670))
         self.assertEqual(RING_PLACE, (520, 345, 171))
         self.assertEqual(POST_OPEN_ID2_RETREAT_TICKS_BY_KIND,
@@ -306,20 +360,28 @@ class TestPlatformTask(unittest.TestCase):
                     ('gripper', PLATFORM_GRIPPER_OPEN),
                     ('pose', (650, 600 - retreat_ticks, 415), False),
                     ('pose', (478, expected_descent_id2, 415), False),
-                    ('gripper', PLATFORM_GRIPPER_CLOSED), ('pose', HIGH, True),
+                    ('gripper', PLATFORM_GRIPPER_CLOSED),
                 ]
                 expected += (
                     [
-                        ('ring_id6', 171), ('ring_id2', 345),
-                        ('ring_id1', 520), ('gripper', PLATFORM_GRIPPER_OPEN),
-                        ('gripper', PLATFORM_GRIPPER_CLOSED), ('ring_high_id1', 650),
+                        ('ring_high_id1', 650), ('ring_high_id2', 600),
+                        ('ring_high_id6', 415), ('ring_id2', 400),
+                        ('ring_id6', 171), ('ring_id1_id2', 520, 345),
+                        ('gripper', PLATFORM_GRIPPER_OPEN),
+                        ('gripper', PLATFORM_GRIPPER_CLOSED),
+                        ('pose', INTERMEDIATE_HIGH, True),
+                        ('ring_high_id1', 650),
                         ('ring_high_id2', 600), ('ring_high_id6', 415),
                     ]
                     if kind == 'ring'
                     else [
-                        ('letter_id6', 670), ('letter_id2', 350),
-                        ('letter_id1', 500), ('gripper', PLATFORM_GRIPPER_OPEN),
-                        ('gripper', PLATFORM_GRIPPER_CLOSED), ('letter_high_id1', 650),
+                        ('letter_high_id1', 650), ('letter_high_id2', 600),
+                        ('letter_high_id6', 415), ('letter_id2', 400),
+                        ('letter_id6', 670), ('letter_id1_id2', 500, 350),
+                        ('gripper', PLATFORM_GRIPPER_OPEN),
+                        ('gripper', PLATFORM_GRIPPER_CLOSED),
+                        ('pose', INTERMEDIATE_HIGH, True),
+                        ('letter_high_id1', 650),
                         ('letter_high_id2', 600), ('letter_high_id6', 415),
                     ]
                 )
@@ -332,12 +394,44 @@ class TestPlatformTask(unittest.TestCase):
                     self.assertEqual(
                         [item for item in f.writes if item[0].startswith('letter_')],
                         [
-                            ('letter_id6', 670), ('letter_id2', 350),
-                            ('letter_id1', 500), ('letter_high_id1', 650),
+                            ('letter_high_id1', 650),
+                            ('letter_high_id2', 600), ('letter_high_id6', 415),
+                            ('letter_id2', 400),
+                            ('letter_id6', 670), ('letter_id1_id2', 500, 350),
+                            ('letter_high_id1', 650),
                             ('letter_high_id2', 600), ('letter_high_id6', 415),
                         ],
                     )
                     self.assertEqual(PLATFORM_LETTER_PLACE_TIME_MS, 500)
+
+    def test_both_kinds_lift_high_then_retreat_id2_before_placement(self):
+        for kind in ('letter', 'ring'):
+            with self.subTest(kind=kind):
+                f = Fixture(); f.ready(); f.writes.clear()
+                f.task.begin_slot('red')
+                target = letter() if kind == 'letter' else dict(
+                    letter(), kind='ring', color='red', score=.9,
+                )
+                f.feed(target)
+                labels = [action[0] for action in f.task.actions]
+                high_prefix = 'LIFT_LETTER' if kind == 'letter' else 'LIFT_RING'
+                place_id6 = ('PLACE_LETTER_ID6' if kind == 'letter'
+                             else 'PLACE_RING_ID6')
+                self.assertEqual(
+                    labels[labels.index('GRIPPER_CLOSE') + 1:
+                           labels.index(place_id6) + 1],
+                    [
+                        high_prefix + '_HIGH_ID1',
+                        high_prefix + '_HIGH_ID2',
+                        high_prefix + '_HIGH_ID6',
+                        'PREPLACE_ID2',
+                        place_id6,
+                    ],
+                )
+                preplace = next(action for action in f.task.actions
+                                if action[0] == 'PREPLACE_ID2')
+                self.assertEqual(preplace[2], (400,))
+                self.assertEqual(preplace[1](*preplace[2]), 0.5)
 
     def test_ring_waits_one_second_after_axes_before_release(self):
         f = Fixture(); f.ready(); f.writes.clear()
@@ -345,7 +439,7 @@ class TestPlatformTask(unittest.TestCase):
         f.feed(dict(letter(), kind='ring', color='red', score=.9))
         labels = [action[0] for action in f.task.actions]
         self.assertEqual(
-            labels[labels.index('PLACE_RING_ID1') + 1],
+            labels[labels.index('PLACE_RING_ID1_ID2') + 1],
             'RING_RELEASE_HOLD',
         )
         self.assertEqual(
@@ -355,6 +449,27 @@ class TestPlatformTask(unittest.TestCase):
         hold = next(action for action in f.task.actions
                     if action[0] == 'RING_RELEASE_HOLD')
         self.assertEqual(hold[1](*hold[2]), 1.0)
+
+    def test_placement_axes_are_id6_then_simultaneous_id1_id2(self):
+        for kind in ('letter', 'ring'):
+            with self.subTest(kind=kind):
+                f = Fixture(); f.ready(); f.writes.clear()
+                f.task.begin_slot('red')
+                target = letter() if kind == 'letter' else dict(
+                    letter(), kind='ring', color='red', score=.9,
+                )
+                f.feed(target)
+                labels = [action[0] for action in f.task.actions]
+                if kind == 'letter':
+                    self.assertEqual(
+                        labels[labels.index('PLACE_LETTER_ID6') + 1],
+                        'PLACE_LETTER_ID1_ID2',
+                    )
+                else:
+                    self.assertEqual(
+                        labels[labels.index('PLACE_RING_ID6') + 1],
+                        'PLACE_RING_ID1_ID2',
+                    )
 
     def test_formal_id2_adjustment_applies_to_letters_and_rings_7_to_13cm(self):
         cases = [
@@ -402,7 +517,7 @@ class TestPlatformTask(unittest.TestCase):
     def test_last_high_must_settle_before_done_and_no_retract_while_waiting(self):
         f = Fixture(); f.ready(); f.writes.clear()
         f.task.begin_slot('red'); f.feed(letter())
-        while len(f.writes) < 13:
+        while f.task.actions:
             f.now = max(f.now, f.task.deadline); f.task.tick()
         self.assertEqual(f.writes[-1], ('letter_high_id6', HIGH[2]))
         self.assertIsNone(f.task.done)
@@ -435,6 +550,23 @@ class TestPlatformTask(unittest.TestCase):
                 self.assertFalse(any(write[0] == 'pose' and write[1] != HIGH
                                      for write in f.writes))
                 self.assertIsNone(f.task.done)
+
+    def test_continuous_invalid_depth_skips_after_five_seconds(self):
+        f = Fixture(); f.ready(); f.writes.clear(); f.task.begin_slot('red')
+        invalid = letter(depth=None)
+        f.feed(invalid, 20)
+        self.assertFalse(f.writes)
+        self.assertEqual(PLATFORM_DEPTH_INVALID_TIMEOUT_S, 5.0)
+        depth_deadline = f.task.depth_invalid_deadline
+        self.assertGreater(depth_deadline, f.now)
+        f.now = depth_deadline - 0.01
+        f.task.tick([invalid], (600, 800, 3), fresh=True)
+        self.assertIsNone(f.task.done)
+        f.now = depth_deadline + 0.01
+        f.task.tick([invalid], (600, 800, 3), fresh=True)
+        f.finish()
+        self.assertEqual(f.task.done, 'SKIPPED:DEPTH_INVALID_TIMEOUT')
+        self.assertEqual(f.writes, [('pose', HIGH, True)])
 
     def test_no_frame_times_out_without_grab(self):
         f = Fixture(); f.ready(); f.writes.clear(); f.task.begin_slot('red')
