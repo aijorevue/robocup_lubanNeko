@@ -47,6 +47,7 @@ class ChassisArmLink:
         self.pending_preselects = []
         self.pending_platform_slots = []
         self.pending_stops = []
+        self.pending_retracts = []
         self.pending_preps = []
         self.pending_aux_requests = []
         self.pending_white_line_queries = []
@@ -410,7 +411,11 @@ class ChassisArmLink:
                 if item == "PHASE":
                     phase = parts[index + 1]
                     break
-            if phase not in {"TASK1_AFTER_ARC", "TASK2_AFTER_SECONDARY_SHIFT"}:
+            if phase not in {
+                "TASK1_AFTER_ARC",
+                "TASK2_AFTER_SECONDARY_SHIFT",
+                "TASK3_BLUE_WHITE_LINE_ALIGN",
+            }:
                 self.send_line(
                     "RK,VISION,WHITE_LINE,ERR,REASON,INVALID_PHASE"
                 )
@@ -747,6 +752,35 @@ class ChassisArmLink:
             self._send_task_state(task, "STOP_ACK", self.active_sequence)
             return
 
+        if (
+            len(parts) >= 3
+            and parts[0] == "ARM"
+            and parts[1] == "COLUMN_CATCH"
+            and parts[2] == "RETRACT"
+        ):
+            requested = self._field_from_parts(parts[3:])
+            if requested != FieldMode.BLUE or self.field_mode != FieldMode.BLUE:
+                self._send_task_state(
+                    "COLUMN_CATCH", "ERR", sequence,
+                    "REASON", "BLUE_ONLY", "FIELD", self.field_mode.wire_name,
+                )
+                return
+            if self.active_task != "COLUMN_CATCH":
+                self._send_task_state(
+                    "COLUMN_CATCH", "ERR", sequence,
+                    "REASON", "NO_HELD_COLUMN_CATCH",
+                    "FIELD", self.field_mode.wire_name,
+                )
+                return
+            request = {"task": "COLUMN_CATCH", "sequence": sequence}
+            if not any(item.get("sequence") == sequence for item in self.pending_retracts):
+                self.pending_retracts.append(request)
+            self._send_task_state(
+                "COLUMN_CATCH", "ACK", sequence,
+                "FIELD", self.field_mode.wire_name, "COMMAND", "RETRACT",
+            )
+            return
+
         if normalized in {"RUN", "START"}:
             self._announce_ready()
 
@@ -848,6 +882,43 @@ class ChassisArmLink:
         self.pending_stops = []
         return stops
 
+    def complete_blue_column_hold(self, task, reason=""):
+        if task != "COLUMN_CATCH" or self.active_task != task:
+            return False
+        return self._send_task_state(
+            task, "HOLD_DONE", self.active_sequence,
+            "FIELD", self.field_mode.wire_name,
+            "REASON", reason or "ARM_STOP_DONE",
+        )
+
+    def consume_retracts(self):
+        retracts = self.pending_retracts
+        self.pending_retracts = []
+        return retracts
+
+    def complete_retract(self, request, success, reason=""):
+        sequence = request.get("sequence")
+        if success:
+            sent = self._send_task_state(
+                "COLUMN_CATCH", "DONE", sequence,
+                "FIELD", self.field_mode.wire_name, "COMMAND", "RETRACT",
+            )
+            self.active_task = None
+            self.active_sequence = None
+            self.formal_column_control_state = None
+            self.formal_column_control_sequence = None
+            self.last_completed_task = "COLUMN_CATCH"
+            self.last_completed_sequence = sequence
+            self.last_completed_outcome = "DONE"
+            self.last_completed_reason = "RETRACTED"
+            self.last_completed_details = ("COMMAND", "RETRACT")
+            return sent
+        return self._send_task_state(
+            "COLUMN_CATCH", "ERR", sequence,
+            "REASON", reason or "RETRACT_FAILED",
+            "FIELD", self.field_mode.wire_name, "COMMAND", "RETRACT",
+        )
+
     def formal_column_pause_state(self):
         if self.active_task != "COLUMN_CATCH":
             return None
@@ -903,7 +974,10 @@ class ChassisArmLink:
             f"W,{int(measurement['frame_width'])},"
             f"H,{int(measurement['frame_height'])}"
         )
-        if self.white_line_phase == "TASK2_AFTER_SECONDARY_SHIFT":
+        if self.white_line_phase in {
+            "TASK2_AFTER_SECONDARY_SHIFT",
+            "TASK3_BLUE_WHITE_LINE_ALIGN",
+        }:
             result += f",RX,{int(round(measurement.get('right_edge_x', -1.0)))}"
         return self.send_line(result)
 
@@ -924,6 +998,7 @@ class ChassisArmLink:
         self.pending_preselects.clear()
         self.pending_platform_slots.clear()
         self.pending_stops.clear()
+        self.pending_retracts.clear()
         self.pending_white_line_queries.clear()
         self.white_line_active = False
         self.white_line_phase = None
