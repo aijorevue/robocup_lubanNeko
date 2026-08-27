@@ -232,6 +232,14 @@ DISC_CATCH_YELLOW_COOLDOWN_S = 0.5
 DISC_CATCH_OPEN_HOLD_MARGIN_S = 0.1
 DISC_CATCH_CLOSE_CONFIRM_DELAY_S = 0.05
 DISC_CATCH_GRIPPER_TIME_MS = 80
+# Task-one disc trigger window in the original 800x600 main-camera frame.
+# Only a ball whose detected center is inside this window may trigger the
+# splitter/catcher/gripper action.  This is intentionally local to DISC_CATCH;
+# task-two and task-three target detectors do not use it.
+DISC_CATCH_WINDOW_X_MIN = 280
+DISC_CATCH_WINDOW_X_MAX = 720
+DISC_CATCH_WINDOW_Y_MIN = 100
+DISC_CATCH_WINDOW_Y_MAX = 500
 # Blue-field ID14 must remain on the detected ball's channel for a full
 # half-second before preparing the other channel for the next target.
 DISC_CATCH_BLUE_CHANNEL_HOLD_S = 0.5
@@ -3375,14 +3383,42 @@ class TargetGraspController:
         allowed_colors = self._disc_catch_allowed_colors()
         allowed = []
         rejected = []
+        rejected_outside_window = []
         for det in detections:
             if det.get("kind") != "ball":
                 continue
             color = det.get("color")
-            if color in allowed_colors:
-                allowed.append(det)
-            elif color in {"red", "blue", "yellow"}:
-                rejected.append(color)
+            if color not in allowed_colors:
+                if color in {"red", "blue", "yellow"}:
+                    rejected.append(color)
+                continue
+            center = det.get("center")
+            if not isinstance(center, (tuple, list)) or len(center) < 2:
+                rejected_outside_window.append(color)
+                continue
+            try:
+                center_x = float(center[0])
+                center_y = float(center[1])
+            except (TypeError, ValueError):
+                rejected_outside_window.append(color)
+                continue
+            if not (
+                DISC_CATCH_WINDOW_X_MIN <= center_x <= DISC_CATCH_WINDOW_X_MAX
+                and DISC_CATCH_WINDOW_Y_MIN <= center_y <= DISC_CATCH_WINDOW_Y_MAX
+            ):
+                rejected_outside_window.append(
+                    f"{color}@({center_x:.0f},{center_y:.0f})"
+                )
+                continue
+            allowed.append(det)
+        if rejected_outside_window:
+            print(
+                "CHASSIS STATION DISC_CATCH ignored target(s) outside "
+                f"window X={DISC_CATCH_WINDOW_X_MIN}..{DISC_CATCH_WINDOW_X_MAX} "
+                f"Y={DISC_CATCH_WINDOW_Y_MIN}..{DISC_CATCH_WINDOW_Y_MAX}: "
+                f"{rejected_outside_window}",
+                flush=True,
+            )
         if rejected:
             print(
                 "CHASSIS STATION DISC_CATCH ignored "
