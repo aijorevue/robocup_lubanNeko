@@ -226,6 +226,8 @@ DISC_CATCH_SPLITTER_YELLOW_TICK = TASK1_ID14_YELLOW_TICK
 DISC_CATCH_SPLITTER_RESET_TICK = TASK1_ID14_RETRACT_TICK
 DISC_CATCH_CATCHER_FIELD_TICK = TASK1_ID15_OPEN_TICK
 DISC_CATCH_CATCHER_YELLOW_TICK = TASK1_ID15_OPEN_TICK
+# Task-one ball pulse only; other formal flows retain the shared 405-tick open.
+DISC_CATCH_GRIPPER_OPEN_TICK = 420
 DISC_CATCH_YELLOW_COOLDOWN_S = 0.5
 DISC_CATCH_OPEN_HOLD_MARGIN_S = 0.1
 DISC_CATCH_CLOSE_CONFIRM_DELAY_S = 0.05
@@ -2312,13 +2314,15 @@ class TargetGraspController:
         previous_id7 = self.id7
         splitter_target = int(splitter_target)
         catcher_target = int(catcher_target)
-        self.arm_preview.set_targets(self.id1, self.id2, self.id7_open, self.id6)
+        self.arm_preview.set_targets(
+            self.id1, self.id2, DISC_CATCH_GRIPPER_OPEN_TICK, self.id6
+        )
         self.arm_preview.publish(reason)
         print(
             f"DISC OPEN reason={reason} ID1={self.id1} ID2={self.id2} ID6={self.id6} "
             f"ID14={previous_splitter}->{splitter_target} "
             f"ID15={previous_id5}->{catcher_target} "
-            f"ID17={previous_id7}->{self.id7_open}",
+            f"ID17={previous_id7}->{DISC_CATCH_GRIPPER_OPEN_TICK}",
             flush=True,
         )
         previous_gripper_time = getattr(
@@ -2330,7 +2334,7 @@ class TargetGraspController:
             self.status = self.servo_bridge.send_targets(
                 splitter_id4=splitter_target,
                 id5=catcher_target,
-                id4=self.id7_open,
+                id4=DISC_CATCH_GRIPPER_OPEN_TICK,
                 aux_time_ms=TASK1_AUX_TIME_MS,
                 splitter_time_ms=TASK1_ID14_TIME_MS,
             )
@@ -2351,7 +2355,7 @@ class TargetGraspController:
             return self.status
         self.splitter_id4 = splitter_target
         self.id5 = catcher_target
-        self.id7 = self.id7_open
+        self.id7 = DISC_CATCH_GRIPPER_OPEN_TICK
         self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
         return (
             f"{reason}: ID14={self.splitter_id4} ID15={self.id5} "
@@ -4337,7 +4341,7 @@ class TargetGraspController:
                 self.disc_pulse_done = True
                 self.splitter_id4 = splitter_target
                 self.id5 = catcher_target
-                self.id7 = self.id7_open
+                self.id7 = DISC_CATCH_GRIPPER_OPEN_TICK
                 self.chassis_station_stage = "disc_open_wait"
                 self.chassis_station_deadline = now + self._disc_open_hold_s()
                 self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
@@ -4360,13 +4364,13 @@ class TargetGraspController:
         if self.chassis_station_stage == "disc_open":
             self.state = "DISC_CATCH open claw"
             if not self.servo_bridge.write_enabled:
-                self.id7 = self.id7_open
+                self.id7 = DISC_CATCH_GRIPPER_OPEN_TICK
                 self.chassis_station_stage = "disc_open_wait"
                 self.chassis_station_deadline = now + self._disc_open_hold_s()
                 self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
                 return "preview DISC_CATCH open ID7 pulse"
             status = self._send_gripper_id7(
-                self.id7_open,
+                DISC_CATCH_GRIPPER_OPEN_TICK,
                 "DISC_CATCH open ID7 pulse",
                 motion_ms=(DISC_CATCH_GRIPPER_TIME_MS if self.disc_fast_blue_cycle else None),
             )

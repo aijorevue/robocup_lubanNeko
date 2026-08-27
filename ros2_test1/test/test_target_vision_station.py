@@ -93,6 +93,23 @@ def make_controller(bridge=None, field_mode=target_vision.FieldMode.RED):
 
 
 class ChassisStationSafetyTests(unittest.TestCase):
+    def test_disc_open_uses_task_one_override_without_changing_shared_open(self):
+        controller, bridge, _ = make_controller()
+        controller.disc_fast_blue_cycle = False
+
+        controller._send_disc_open_phase(
+            target_vision.DISC_CATCH_SPLITTER_FIELD_TICK,
+            target_vision.DISC_CATCH_CATCHER_FIELD_TICK,
+            "test DISC_CATCH open",
+        )
+
+        self.assertEqual(
+            bridge.sent[-1]["id4"], target_vision.DISC_CATCH_GRIPPER_OPEN_TICK
+        )
+        self.assertEqual(controller.id7, target_vision.DISC_CATCH_GRIPPER_OPEN_TICK)
+        self.assertEqual(controller.id7_open, 450)
+        self.assertEqual(target_vision.GRIPPER_OPEN_TICK, 405)
+
     def test_blue_orbit_hold_runs_one_quota_supplement_before_release(self):
         controller, bridge, _ = make_controller(
             field_mode=target_vision.FieldMode.BLUE
@@ -466,7 +483,9 @@ class ChassisStationSafetyTests(unittest.TestCase):
             )
 
         self.assertEqual(controller.chassis_station_stage, "disc_open_wait")
-        self.assertEqual(bridge.sent[-1]["id4"], controller.id7_open)
+        self.assertEqual(
+            bridge.sent[-1]["id4"], target_vision.DISC_CATCH_GRIPPER_OPEN_TICK
+        )
 
     def test_disc_blue_field_yellow_holds_channel_then_returns_to_blue(self):
         controller, bridge, _ = make_controller(field_mode=target_vision.FieldMode.BLUE)
@@ -538,7 +557,9 @@ class ChassisStationSafetyTests(unittest.TestCase):
             bridge.sent[-1]["splitter_id4"],
             target_vision.DISC_CATCH_SPLITTER_FIELD_TICK,
         )
-        self.assertEqual(bridge.sent[-1]["id4"], controller.id7_open)
+        self.assertEqual(
+            bridge.sent[-1]["id4"], target_vision.DISC_CATCH_GRIPPER_OPEN_TICK
+        )
 
     def test_disc_station_starts_with_app_low_pose(self):
         controller, bridge, _ = make_controller()
