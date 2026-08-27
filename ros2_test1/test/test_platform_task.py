@@ -151,9 +151,9 @@ class Fixture:
 
 
 class TestPlatformTask(unittest.TestCase):
-    def test_ring_center_deadband_is_30px_while_letters_stay_at_45px(self):
+    def test_ring_center_deadband_is_10px_while_letters_stay_at_45px(self):
         self.assertEqual(CENTER_DEADBAND_PX, 45)
-        self.assertEqual(RING_CENTER_DEADBAND_PX, 30)
+        self.assertEqual(RING_CENTER_DEADBAND_PX, 10)
 
         # At 40 px from center, the ring still needs a correction, while a
         # letter is already centered under the existing 45 px contract.
@@ -249,8 +249,8 @@ class TestPlatformTask(unittest.TestCase):
                 )
                 self.assertEqual(f.task.done, 'PICKED_' + kind.upper())
 
-    def test_center_window_requires_400px_and_80_percent_bbox_overlap(self):
-        self.assertEqual(TARGET_WINDOW_SIZE_PX, 400)
+    def test_center_window_requires_500px_and_80_percent_bbox_overlap(self):
+        self.assertEqual(TARGET_WINDOW_SIZE_PX, 500)
         self.assertEqual(TARGET_WINDOW_MIN_AREA_FRACTION, 0.80)
         self.assertTrue(_target_in_center_window(
             letter(center=(400, 300)), (600, 800, 3)))
@@ -348,7 +348,7 @@ class TestPlatformTask(unittest.TestCase):
     def test_letter_and_both_field_ring_exact_actions(self):
         self.assertEqual(HIGH, (650, 600, 415))
         self.assertEqual(PREPLACE_ID2, 400)
-        self.assertEqual(LETTER_PLACE, (515, 350, 670))
+        self.assertEqual(LETTER_PLACE, (530, 350, 670))
         self.assertEqual(RING_PLACE, (520, 345, 171))
         self.assertEqual(POST_OPEN_ID2_RETREAT_TICKS_BY_KIND,
                          {'letter': 30, 'ring': 50})
@@ -384,7 +384,7 @@ class TestPlatformTask(unittest.TestCase):
                     else [
                         ('letter_high_id1', 650), ('letter_high_id2', 600),
                         ('letter_high_id6', 415), ('letter_id2', 400),
-                        ('letter_id6', 670), ('letter_id1_id2', 500, 350),
+                        ('letter_id6', 670), ('letter_id1_id2', 530, 350),
                         ('gripper', PLATFORM_GRIPPER_OPEN),
                         ('gripper', PLATFORM_GRIPPER_CLOSED),
                         ('pose', INTERMEDIATE_HIGH, True),
@@ -404,7 +404,7 @@ class TestPlatformTask(unittest.TestCase):
                             ('letter_high_id1', 650),
                             ('letter_high_id2', 600), ('letter_high_id6', 415),
                             ('letter_id2', 400),
-                            ('letter_id6', 670), ('letter_id1_id2', 500, 350),
+                            ('letter_id6', 670), ('letter_id1_id2', 530, 350),
                             ('letter_high_id1', 650),
                             ('letter_high_id2', 600), ('letter_high_id6', 415),
                         ],

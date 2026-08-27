@@ -12,7 +12,7 @@ from .grasp_calibration import calibrated_grasp_ticks
 HIGH = (650, 600, 415)
 INTERMEDIATE_HIGH = (650, 400, 415)
 PREPLACE_ID2 = 400
-LETTER_PLACE = (515, 350, 670)
+LETTER_PLACE = (530, 350, 670)
 RING_PLACE = (520, 345, 171)
 HTD85_AUX_HIGH = (300, 600, 310)  # physical ID14, ID15, ID17; ID14 retracted
 PLATFORM_GRIPPER_CLOSED = 310
@@ -54,7 +54,7 @@ FORMAL_RING_LONG_RANGE_ID2_INCREASE_TICKS = 30
 FORMAL_LONG_RANGE_FINAL_ID2_INCREASE_TICKS = 15
 PLATFORM_GRASP_ID1_OFFSET_TICKS = 40
 CENTER_DEADBAND_PX = 45
-RING_CENTER_DEADBAND_PX = 30
+RING_CENTER_DEADBAND_PX = 10
 CENTER_ID6_STEP_TICKS = 5
 CENTER_ID2_STEP_TICKS = 7
 CENTER_ID2_RANGE = (450, 700)
@@ -69,7 +69,7 @@ PLATFORM_CENTER_REACQUIRE_TIMEOUT_S = 1.0
 # Once a stable, centered target is visible, do not wait indefinitely for its
 # depth measurement. A continuous invalid-depth window skips this station.
 PLATFORM_DEPTH_INVALID_TIMEOUT_S = 4.0
-TARGET_WINDOW_SIZE_PX = 400
+TARGET_WINDOW_SIZE_PX = 500
 TARGET_WINDOW_MIN_AREA_FRACTION = 0.80
 SECONDARY_PAIR_REQUIRED_FRAMES = 3
 SECONDARY_PRESELECT_TIMEOUT_S = 25.0
@@ -77,7 +77,7 @@ SECONDARY_PRESELECT_FALLBACK_WINDOW_S = 2.0
 
 
 def _target_in_center_window(target, frame_shape):
-    """Require at least 80% of a target bbox inside the centered 400x400 window."""
+    """Require at least 80% of a target bbox inside the centered 500x500 window."""
     bbox = target.get("bbox")
     if bbox is None or len(bbox) != 4:
         return False

@@ -491,7 +491,7 @@ class ChassisStationSafetyTests(unittest.TestCase):
         self.assertEqual(target_vision.TASK3_RING_PLACE_RETURN_HIGH, (600, 480, 415))
         self.assertEqual(target_vision.TASK3_RING_PLACE_GRIPPER_TIME_MS, 200)
         self.assertEqual(target_vision.TASK3_RING_PLACE_SLOW_CLOSE_TIME_MS, 2000)
-        self.assertEqual(target_vision.TASK3_RING_PLACE_RELEASE_GRIPPER_TIME_MS, 2000)
+        self.assertEqual(target_vision.TASK3_RING_PLACE_RELEASE_GRIPPER_TIME_MS, 500)
         self.assertEqual(target_vision.TASK3_RING_PLACE_RELEASE_HOLD_MS, 1500)
         self.assertEqual(target_vision.TASK3_RING_PLACE_POST_HIGH_HOLD_MS, 3000)
         self.assertEqual(target_vision.TASK3_RING_PLACE_CONTRACT_AXIS_TIME_MS, 500)
@@ -538,8 +538,8 @@ class ChassisStationSafetyTests(unittest.TestCase):
         self.assertEqual(actions["OPEN_ID17"][1], 200)
         self.assertEqual(actions["SLOW_CLOSE_ID17"][1], 2000)
         self.assertEqual(actions["WAIT_AFTER_RETURN_HIGH"][0], 3000)
-        self.assertEqual(actions["OPEN_ID17_AGAIN"][1], 2000)
-        self.assertEqual(actions["CLOSE_ID17_AGAIN"][1], 2000)
+        self.assertEqual(actions["OPEN_ID17_AGAIN"][1], 500)
+        self.assertEqual(actions["CLOSE_ID17_AGAIN"][1], 500)
 
     def test_column_centering_uses_seven_and_five_tick_steps(self):
         controller, bridge, _ = make_controller()
