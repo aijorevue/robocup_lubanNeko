@@ -93,6 +93,26 @@ def make_controller(bridge=None, field_mode=target_vision.FieldMode.RED):
 
 
 class ChassisStationSafetyTests(unittest.TestCase):
+    def test_task3_column_geometry_accepts_rotated_white_edge_blocks(self):
+        detector = target_vision.TargetDetector()
+        for angle in (0, 17, 43, 90, 137, 180, 223, 270, 319):
+            with self.subTest(angle=angle):
+                frame = np.full((600, 800, 3), (70, 145, 70), dtype=np.uint8)
+                card = np.full((200, 200, 3), (70, 145, 70), dtype=np.uint8)
+                cv2.rectangle(card, (30, 30), (170, 170), (242, 242, 242), -1)
+                cv2.putText(
+                    card, "A", (67, 122), cv2.FONT_HERSHEY_SIMPLEX,
+                    2.2, (20, 20, 20), 10, cv2.LINE_AA,
+                )
+                matrix = cv2.getRotationMatrix2D((100, 100), angle, 1.0)
+                rotated = cv2.warpAffine(
+                    card, matrix, (200, 200), borderValue=(70, 145, 70)
+                )
+                frame[200:400, 300:500] = rotated
+                blocks = detector._detect_column_blocks(frame)
+                self.assertTrue(blocks, f"angle={angle}")
+                self.assertTrue(blocks[0]["orientation_agnostic"])
+
     def test_blue_disc_detector_rejects_dark_cyan_ball(self):
         detector = target_vision.TargetDetector()
         frame = np.zeros((600, 800, 3), dtype=np.uint8)
@@ -127,7 +147,7 @@ class ChassisStationSafetyTests(unittest.TestCase):
             writes,
         )
 
-    def test_disc_prep_high_keeps_id6_at_415_and_is_idempotent(self):
+    def test_disc_prep_high_keeps_id6_at_413_and_is_idempotent(self):
         controller, bridge, _ = make_controller()
         prep = {"task": "DISC_CATCH", "id1": 650, "id2": 600}
         with mock.patch.object(target_vision.time, "sleep") as sleep_mock:
@@ -135,9 +155,9 @@ class ChassisStationSafetyTests(unittest.TestCase):
             first_command_count = len(bridge.sent)
             controller.prepare_chassis_station_high(prep)
 
-        self.assertEqual(controller.id6, 415)
+        self.assertEqual(controller.id6, 413)
         self.assertEqual(bridge.sent[-2]["id1"], 650)
-        self.assertEqual(bridge.sent[-2]["id6"], 415)
+        self.assertEqual(bridge.sent[-2]["id6"], 413)
         self.assertNotIn("id2", bridge.sent[-2])
         self.assertEqual(bridge.sent[-1], {"id2": 600})
         sleep_mock.assert_called_once_with(target_vision.ARM_JOINT_SEQUENCE_DELAY_S)
@@ -224,7 +244,7 @@ class ChassisStationSafetyTests(unittest.TestCase):
             if item.get("id2") == target_vision.HOME_ID2_TICK
         )
         self.assertEqual(high_first["id1"], 650)
-        self.assertEqual(high_first["id6"], 415)
+        self.assertEqual(high_first["id6"], 413)
         self.assertLess(high_second_index, home_id2_index)
         self.assertEqual(bridge.sent[-1]["id1"], target_vision.HOME_ID1_TICK)
         self.assertNotIn("id2", bridge.sent[-1])
@@ -424,7 +444,7 @@ class ChassisStationSafetyTests(unittest.TestCase):
         )
         self.assertEqual(bridge.sent[-2]["splitter_id4"], target_vision.SPLITTER_RETRACT_TICK)
         self.assertEqual(bridge.sent[-1]["id1"], 560)
-        self.assertEqual(bridge.sent[-1]["id6"], 415)
+        self.assertEqual(bridge.sent[-1]["id6"], 413)
         self.assertNotIn("id2", bridge.sent[-1])
         sleep_mock.assert_called_once_with(target_vision.ARM_JOINT_SEQUENCE_DELAY_S)
 
@@ -472,15 +492,15 @@ class ChassisStationSafetyTests(unittest.TestCase):
 
         self.assertEqual(
             (controller.id1, controller.id2, controller.id6),
-            (650, 570, 415),
+            (650, 570, 413),
         )
         self.assertEqual(controller.id5, target_vision.TASK1_ID15_RETRACT_TICK)
         self.assertEqual(controller.splitter_id4, target_vision.SPLITTER_RETRACT_TICK)
-        self.assertEqual(controller.id7, 310)
+        self.assertEqual(controller.id7, target_vision.PLATFORM_GRIPPER_CLOSED)
         self.assertEqual(bridge.sent[-2], {
             "id1": 650,
-            "id6": 415,
-            "id4": 310,
+            "id6": 413,
+            "id4": target_vision.PLATFORM_GRIPPER_CLOSED,
             "id5": target_vision.TASK1_ID15_RETRACT_TICK,
             "splitter_id4": target_vision.SPLITTER_RETRACT_TICK,
         })
@@ -488,12 +508,14 @@ class ChassisStationSafetyTests(unittest.TestCase):
 
     def test_task3_ring_place_waits_then_finishes_contracted(self):
         self.assertEqual(target_vision.TASK3_RING_PLACE_POSE, (470, 350, 171))
-        self.assertEqual(target_vision.TASK3_RING_PLACE_RETURN_HIGH, (600, 480, 415))
+        self.assertEqual(target_vision.TASK3_RING_PLACE_RETURN_HIGH, (600, 480, 413))
         self.assertEqual(target_vision.TASK3_RING_PLACE_GRIPPER_TIME_MS, 200)
         self.assertEqual(target_vision.TASK3_RING_PLACE_SLOW_CLOSE_TIME_MS, 2000)
-        self.assertEqual(target_vision.TASK3_RING_PLACE_RELEASE_GRIPPER_TIME_MS, 500)
+        self.assertEqual(target_vision.TASK3_RING_PLACE_RELEASE_GRIPPER_TIME_MS, 1000)
         self.assertEqual(target_vision.TASK3_RING_PLACE_RELEASE_HOLD_MS, 1500)
-        self.assertEqual(target_vision.TASK3_RING_PLACE_POST_HIGH_HOLD_MS, 3000)
+        self.assertEqual(target_vision.TASK3_RING_PLACE_RELEASE_ID1_TICK, 590)
+        self.assertEqual(target_vision.TASK3_RING_PLACE_RELEASE_ID1_TIME_MS, 1000)
+        self.assertEqual(target_vision.TASK3_RING_PLACE_RELEASE_ID1_HOLD_MS, 1000)
         self.assertEqual(target_vision.TASK3_RING_PLACE_CONTRACT_AXIS_TIME_MS, 500)
         controller, bridge, _ = make_controller()
         with mock.patch.object(target_vision.time, "monotonic", return_value=1000.0), mock.patch.object(
@@ -507,13 +529,17 @@ class ChassisStationSafetyTests(unittest.TestCase):
                 )
 
         self.assertEqual(controller.consume_chassis_station_done(), "TASK3_RING_PLACE_DONE")
-        self.assertEqual(controller.id7, 310)
-        self.assertEqual(bridge.sent[-1]["id4"], 310)
+        self.assertEqual(controller.id7, target_vision.PLATFORM_GRIPPER_CLOSED)
+        self.assertEqual(
+            bridge.sent[-1]["id4"], target_vision.PLATFORM_GRIPPER_CLOSED
+        )
         self.assertEqual(bridge.sent[-4], {"id6": target_vision.BASE_YAW_HOME_TICK})
         self.assertEqual(bridge.sent[-3], {"id2": target_vision.HOME_ID2_TICK})
         self.assertEqual(bridge.sent[-2], {"id1": target_vision.HOME_ID1_TICK})
         self.assertEqual(bridge.sent[-1]["id3"], target_vision.TASK1_ID3_RETRACT_TICK)
-        self.assertEqual(bridge.sent[-1]["id4"], 310)
+        self.assertEqual(
+            bridge.sent[-1]["id4"], target_vision.PLATFORM_GRIPPER_CLOSED
+        )
         self.assertEqual(
             (controller.id1, controller.id2, controller.id6),
             (
@@ -523,7 +549,7 @@ class ChassisStationSafetyTests(unittest.TestCase):
             ),
         )
 
-    def test_task3_ring_place_followup_gripper_pulses_are_slow(self):
+    def test_task3_ring_place_release_confirmation_pose_and_timing(self):
         controller, _bridge, _ = make_controller()
         with mock.patch.object(target_vision.time, "monotonic", return_value=1000.0), mock.patch.object(
             target_vision.time, "sleep"
@@ -537,9 +563,14 @@ class ChassisStationSafetyTests(unittest.TestCase):
         actions = {name: args for name, _handler, args in controller.task3_ring_place_actions}
         self.assertEqual(actions["OPEN_ID17"][1], 200)
         self.assertEqual(actions["SLOW_CLOSE_ID17"][1], 2000)
-        self.assertEqual(actions["WAIT_AFTER_RETURN_HIGH"][0], 3000)
-        self.assertEqual(actions["OPEN_ID17_AGAIN"][1], 500)
-        self.assertEqual(actions["CLOSE_ID17_AGAIN"][1], 500)
+        action_names = [name for name, _handler, _args in controller.task3_ring_place_actions]
+        self.assertLess(action_names.index("ID6_HIGH"), action_names.index("ID1_RELEASE_CONFIRM"))
+        self.assertLess(action_names.index("ID1_RELEASE_CONFIRM"), action_names.index("WAIT_AFTER_ID1_RELEASE_CONFIRM"))
+        self.assertLess(action_names.index("WAIT_AFTER_ID1_RELEASE_CONFIRM"), action_names.index("OPEN_ID17_AGAIN"))
+        self.assertEqual(actions["ID1_RELEASE_CONFIRM"][:3], ("id1", 590, 1000))
+        self.assertEqual(actions["WAIT_AFTER_ID1_RELEASE_CONFIRM"][0], 1000)
+        self.assertEqual(actions["OPEN_ID17_AGAIN"][1], 1000)
+        self.assertEqual(actions["CLOSE_ID17_AGAIN"][1], 1000)
 
     def test_column_centering_uses_seven_and_five_tick_steps(self):
         controller, bridge, _ = make_controller()
@@ -561,6 +592,65 @@ class ChassisStationSafetyTests(unittest.TestCase):
 
     def test_column_pause_classification_window_is_three_seconds(self):
         self.assertEqual(target_vision.COLUMN_BLOCK_CLASSIFY_TIMEOUT_S, 3.0)
+
+    def test_column_classification_requires_four_of_six_fresh_votes(self):
+        controller, _bridge, _ = make_controller()
+        controller.active_chassis_station = "COLUMN_CATCH"
+        controller.chassis_station_stage = "column_classify"
+        controller.column_locked_block = {
+            "kind": "column_block", "bbox": (350, 250, 100, 100),
+            "center": (400, 300), "fully_visible": True, "parallel": True,
+        }
+        controller.target_letters = frozenset("A")
+        controller.column_classify_deadline = 200.0
+        controller.splitter_id4 = target_vision.COLUMN_CATCH_SPLITTER_TICK
+        controller.id5 = target_vision.COLUMN_CATCH_CATCHER_HOME_TICK
+        controller.id7 = target_vision.COLUMN_CATCH_GRIPPER_CLOSED_TICK
+        detections = [
+            controller.column_locked_block,
+            {
+                "kind": "letter", "letter": "A", "confidence": 90.0,
+                "center": (400, 300), "bbox": (370, 270, 60, 60),
+                "projected_area": 3600.0, "fully_visible": True,
+                "distance_cm": 20.0, "rotation_angle_deg": 31.0,
+            },
+        ]
+
+        with mock.patch.object(target_vision.time, "monotonic", return_value=100.0):
+            for expected in (1, 2, 3):
+                result = controller._update_column_catch_station(
+                    detections, (600, 800, 3), detection_fresh=True
+                )
+                self.assertEqual(len(controller.column_classify_votes), expected)
+                self.assertFalse(controller.column_capture_authorized)
+                self.assertIn("waiting stable", result)
+            controller._update_column_catch_station(
+                detections, (600, 800, 3), detection_fresh=True
+            )
+
+        self.assertTrue(controller.column_capture_authorized)
+        self.assertEqual(controller.chassis_station_stage, "column_centering")
+        self.assertEqual(controller.locked_target["letter"], "A")
+
+    def test_column_classification_rejects_unstable_rotation_estimates(self):
+        stable = [
+            {"letter": "A", "rotation_angle_deg": angle}
+            for angle in (4.0, 8.0, 86.0, 2.0)
+        ]
+        unstable = [
+            {"letter": "A", "rotation_angle_deg": angle}
+            for angle in (3.0, 6.0, 42.0, 47.0)
+        ]
+        self.assertTrue(
+            target_vision.TargetGraspController._column_rotation_votes_stable(
+                stable, "A"
+            )
+        )
+        self.assertFalse(
+            target_vision.TargetGraspController._column_rotation_votes_stable(
+                unstable, "A"
+            )
+        )
 
     def test_column_centering_allows_three_second_target_loss_grace(self):
         controller, bridge, _ = make_controller()

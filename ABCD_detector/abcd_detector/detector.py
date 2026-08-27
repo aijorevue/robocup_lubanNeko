@@ -187,6 +187,14 @@ class ABCDDetector:
         self._add_depth_measurements(detections, frame.shape)
         return detections
 
+    def detect_task3_rotated(self, frame, *, frame_shape=None):
+        """Classify white task-three blocks at arbitrary in-plane rotation."""
+        if frame is None or not isinstance(frame, np.ndarray) or frame.ndim != 3:
+            return []
+        detections = self._detect_white_blocks(frame, rotation_invariant=True)
+        self._add_depth_measurements(detections, frame_shape or frame.shape)
+        return detections
+
     def _add_depth_measurements(self, detections, frame_shape):
         height, width = frame_shape[:2]
         frame_area = max(1, int(width) * int(height))
@@ -267,7 +275,7 @@ class ABCDDetector:
                 )
         return detections
 
-    def _detect_white_blocks(self, frame):
+    def _detect_white_blocks(self, frame, *, rotation_invariant=False):
         height, width = frame.shape[:2]
 
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
@@ -310,7 +318,12 @@ class ABCDDetector:
             rectangularity = area / max(1.0, rect_w * rect_h)
             if rectangularity < self.min_rectangularity:
                 continue
-            box = self._ordered_box(cv2.boxPoints(rect))
+            raw_box = cv2.boxPoints(rect)
+            box = (
+                self._ordered_quad(raw_box)
+                if rotation_invariant
+                else self._ordered_box(raw_box)
+            )
             x, y, box_width, box_height = cv2.boundingRect(box.astype(np.int32))
             fully_visible = (
                 x > edge_margin
@@ -319,20 +332,26 @@ class ABCDDetector:
                 and y + box_height < height - edge_margin
             )
             rectified = self._rectify(frame, box, 128)
-            letter, confidence, occupancy = self._classify(rectified)
-            edge_letter, edge_confidence, edge_occupancy = self._classify(
-                rectified, inset=2
-            )
-            if edge_letter is not None and edge_confidence > confidence:
-                letter, confidence, occupancy = (
-                    edge_letter, edge_confidence, edge_occupancy
+            rotation_angle = None
+            margin = None
+            if rotation_invariant:
+                letter, confidence, occupancy, rotation_angle, margin = (
+                    self._classify_rotation_invariant(rectified)
                 )
+            else:
+                letter, confidence, occupancy = self._classify(rectified)
+                edge_letter, edge_confidence, edge_occupancy = self._classify(
+                    rectified, inset=2
+                )
+                if edge_letter is not None and edge_confidence > confidence:
+                    letter, confidence, occupancy = (
+                        edge_letter, edge_confidence, edge_occupancy
+                    )
             if letter is None:
                 continue
             if confidence < max(self.min_confidence, 0.45):
                 continue
-            results.append(
-                {
+            detection = {
                     "kind": "letter",
                     "letter": letter,
                     "color": "white",
@@ -346,7 +365,10 @@ class ABCDDetector:
                     "fully_visible": fully_visible,
                     "angle": round(float(angle), 1),
                 }
-            )
+            if rotation_invariant:
+                detection["rotation_angle_deg"] = round(float(rotation_angle), 1)
+                detection["classification_margin"] = round(float(margin), 4)
+            results.append(detection)
         return results
 
     def _detect_dark_letters(self, frame):
@@ -487,6 +509,15 @@ class ABCDDetector:
         return ordered
 
     @staticmethod
+    def _ordered_quad(points):
+        points = np.asarray(points, dtype=np.float32).reshape(4, 2)
+        center = points.mean(axis=0)
+        angles = np.arctan2(points[:, 1] - center[1], points[:, 0] - center[0])
+        ordered = points[np.argsort(angles)]
+        start = int(np.argmin(ordered.sum(axis=1)))
+        return np.roll(ordered, -start, axis=0)
+
+    @staticmethod
     def _rectify(frame, box, side):
         destination = np.array(
             [[0, 0], [side - 1, 0], [side - 1, side - 1], [0, side - 1]],
@@ -523,6 +554,70 @@ class ABCDDetector:
         if best_score < self.min_confidence:
             return None, confidence, occupancy
         return best_letter, confidence, occupancy
+
+    def _classify_rotation_invariant(self, rectified, inset=14):
+        gray = cv2.cvtColor(rectified, cv2.COLOR_BGR2GRAY)
+        inner = gray[inset:-inset, inset:-inset]
+        inner = cv2.GaussianBlur(inner, (3, 3), 0)
+        _, glyph = cv2.threshold(
+            inner, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
+        )
+        glyph = cv2.morphologyEx(
+            glyph,
+            cv2.MORPH_OPEN,
+            cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)),
+        )
+        if np.count_nonzero(glyph) > glyph.size // 2:
+            glyph = cv2.bitwise_not(glyph)
+        occupancy = float(np.count_nonzero(glyph)) / float(max(1, glyph.size))
+        if not self.min_glyph_occupancy <= occupancy <= self.max_glyph_occupancy:
+            return None, 0.0, occupancy, 0.0, 0.0
+
+        side = int(np.ceil(np.hypot(*glyph.shape)))
+        canvas = np.zeros((side, side), dtype=np.uint8)
+        offset_x = (side - glyph.shape[1]) // 2
+        offset_y = (side - glyph.shape[0]) // 2
+        canvas[offset_y:offset_y + glyph.shape[0], offset_x:offset_x + glyph.shape[1]] = glyph
+        center = ((side - 1) / 2.0, (side - 1) / 2.0)
+        coarse_scores = {letter: (0.0, 0.0) for letter in LETTERS}
+        for angle in range(0, 360, 15):
+            matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
+            rotated = cv2.warpAffine(
+                canvas, matrix, (side, side), flags=cv2.INTER_LINEAR,
+                borderMode=cv2.BORDER_CONSTANT, borderValue=0,
+            )
+            normalized = self._normalize_glyph(rotated)
+            binary = normalized > 127
+            for letter in LETTERS:
+                score = self._best_template_score(normalized, binary, letter)
+                if score > coarse_scores[letter][0]:
+                    coarse_scores[letter] = (score, float(angle))
+
+        coarse_order = sorted(
+            ((score, letter, angle) for letter, (score, angle) in coarse_scores.items()),
+            reverse=True,
+        )
+        best_score, best_letter, best_angle = coarse_order[0]
+        runner_up = coarse_order[1][0] if len(coarse_order) > 1 else 0.0
+        fine_best = (best_score, best_angle)
+        for offset in range(-6, 7, 3):
+            angle = (best_angle + offset) % 360.0
+            matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
+            rotated = cv2.warpAffine(
+                canvas, matrix, (side, side), flags=cv2.INTER_LINEAR,
+                borderMode=cv2.BORDER_CONSTANT, borderValue=0,
+            )
+            normalized = self._normalize_glyph(rotated)
+            score = self._best_template_score(normalized, normalized > 127, best_letter)
+            if score > fine_best[0]:
+                fine_best = (score, angle)
+
+        best_score, best_angle = fine_best
+        confidence = max(0.0, min(1.0, best_score + 0.18 * (best_score - runner_up)))
+        margin = best_score - runner_up
+        if best_score < self.min_confidence or margin < 0.035:
+            return None, confidence, occupancy, best_angle, margin
+        return best_letter, confidence, occupancy, best_angle, margin
 
     def _best_template_score(self, glyph, glyph_binary, letter):
         templates = self.template_bank.get(letter, [self.templates[letter]])

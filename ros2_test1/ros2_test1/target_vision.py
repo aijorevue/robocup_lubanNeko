@@ -114,12 +114,12 @@ DETECTION_MODE_IDLE = "idle"
 DETECTION_MODE_DISC_BALLS = "disc_balls"
 DETECTION_MODE_PLATFORM_TARGETS = "platform_targets"
 DETECTION_MODE_COLUMN_LETTERS = "column_letters"
+DETECTION_MODE_COLUMN_BLOCKS = "column_blocks"
+DETECTION_MODE_COLUMN_ROTATED_LETTERS = "column_rotated_letters"
 DETECTION_MODE_WHITE_LINE = "white_line"
 
-# Task-three orbit acquisition is deliberately geometric first.  The moving
-# camera only needs to find a plausible white-edged square and wait until its
-# sides are approximately parallel to the image; letter classification happens
-# after H7 is paused on a fresh frame.
+# Task-three orbit acquisition is geometric first; rotation-aware letter
+# classification is enabled only after H7 pauses on the locked block.
 COLUMN_BLOCK_MIN_AREA = 700.0
 COLUMN_BLOCK_MAX_AREA_RATIO = 0.12
 COLUMN_BLOCK_MIN_SIDE = 28.0
@@ -131,7 +131,7 @@ COLUMN_BLOCK_MIN_GREEN_RING_SUPPORT = 0.55
 # The white candidate must look like a quadrilateral, not a circular mark.
 COLUMN_BLOCK_APPROX_EPSILON = 0.04
 COLUMN_BLOCK_MIN_APPROX_VERTICES = 4
-COLUMN_BLOCK_MAX_APPROX_VERTICES = 5
+COLUMN_BLOCK_MAX_APPROX_VERTICES = 8
 # A letter block retains a meaningful white interior around its dark glyph.
 COLUMN_BLOCK_MIN_INNER_WHITE_RATIO = 0.12
 COLUMN_BLOCK_GREEN_HUE_RANGE = (35, 105)
@@ -149,13 +149,15 @@ COLUMN_BLOCK_MIN_EDGE_WHITE_RATIO = 0.30
 COLUMN_BLOCK_MIN_CORNER_WHITE_RATIO = 0.18
 COLUMN_BLOCK_MIN_INNER_NONWHITE_RATIO = 0.15
 COLUMN_BLOCK_MAX_CIRCULARITY = 0.88
-COLUMN_BLOCK_MAX_ANGLE_DEG = 14.0
 # Keep H7 stopped long enough to classify the fresh letter inside the locked
 # white-block ROI. A selected letter then gets a separate bounded tracking
 # grace period while the arm centers; a brief detector gap must not skip it.
 COLUMN_BLOCK_CLASSIFY_TIMEOUT_S = 3.0
 COLUMN_BLOCK_TRACK_LOST_TIMEOUT_S = 3.0
 COLUMN_BLOCK_CONFIRM_FRAMES = 1
+COLUMN_CLASSIFY_VOTE_WINDOW = 6
+COLUMN_CLASSIFY_MIN_VOTES = 4
+COLUMN_CLASSIFY_MAX_ANGLE_JITTER_DEG = 22.0
 COLUMN_BLOCK_MATCH_CENTER_PX = 55.0
 COLUMN_BLOCK_MATCH_IOU = 0.35
 # The block moves in the image while the arm recenters. Keep the original
@@ -272,9 +274,11 @@ TASK3_RING_PLACE_GRIPPER_OPEN_TICK = PLATFORM_GRIPPER_OPEN
 TASK3_RING_PLACE_GRIPPER_CLOSED_TICK = PLATFORM_GRIPPER_CLOSED
 TASK3_RING_PLACE_GRIPPER_TIME_MS = 200
 TASK3_RING_PLACE_SLOW_CLOSE_TIME_MS = 2000
-TASK3_RING_PLACE_RELEASE_GRIPPER_TIME_MS = 500
+TASK3_RING_PLACE_RELEASE_GRIPPER_TIME_MS = 1000
 TASK3_RING_PLACE_RELEASE_HOLD_MS = 1500
-TASK3_RING_PLACE_POST_HIGH_HOLD_MS = 3000
+TASK3_RING_PLACE_RELEASE_ID1_TICK = 590
+TASK3_RING_PLACE_RELEASE_ID1_TIME_MS = 1000
+TASK3_RING_PLACE_RELEASE_ID1_HOLD_MS = 1000
 TASK3_RING_PLACE_CONTRACT_AXIS_TIME_MS = 500
 COLUMN_CATCH_LETTER_PLACE = (530, 350, 670)
 COLUMN_CATCH_LETTER_PLACE_TIME_MS = 500
@@ -585,6 +589,7 @@ def detection_process_worker(
     target_letters=(),
     *,
     platform=False,
+    task3_roi=None,
 ):
     if platform:
         detection_mode = DETECTION_MODE_PLATFORM_TARGETS
@@ -612,11 +617,21 @@ def detection_process_worker(
             (detect_width, detect_height),
             interpolation=cv2.INTER_AREA,
         )
+        detect_roi = None
+        if task3_roi is not None and len(task3_roi) >= 4:
+            x, y, roi_width, roi_height = (float(value) for value in task3_roi[:4])
+            detect_roi = (
+                int(round(x * effective_detection_scale)),
+                int(round(y * effective_detection_scale)),
+                int(round(roi_width * effective_detection_scale)),
+                int(round(roi_height * effective_detection_scale)),
+            )
         result = _PROCESS_DETECTOR.detect(
             detect_frame,
             mode=detection_mode,
             field_name=field_name,
             target_letters=target_letters,
+            task3_roi=detect_roi,
         )
         result = scale_detections(
             result,
@@ -629,6 +644,7 @@ def detection_process_worker(
             mode=detection_mode,
             field_name=field_name,
             target_letters=target_letters,
+            task3_roi=task3_roi,
         )
     return result, time.perf_counter() - detect_started
 
@@ -1344,6 +1360,7 @@ class TargetGraspController:
         self.column_capture_authorized = False
         self.column_handled_blocks = []
         self.column_classify_deadline = 0.0
+        self.column_classify_votes = []
         self.column_target_lost_since = None
         self.column_pause_deadline = 0.0
         self.column_resume_deadline = 0.0
@@ -2979,9 +2996,13 @@ class TargetGraspController:
                 ("ID6_HIGH", self._task3_ring_single,
                  ("id6", TASK3_RING_PLACE_RETURN_HIGH[2],
                   TASK3_RING_PLACE_HIGH_TIME_MS, "return high ID6")),
-                ("WAIT_AFTER_RETURN_HIGH", self._task3_ring_wait,
-                 (TASK3_RING_PLACE_POST_HIGH_HOLD_MS,
-                  "wait after return high before release confirmation")),
+                ("ID1_RELEASE_CONFIRM", self._task3_ring_single,
+                 ("id1", TASK3_RING_PLACE_RELEASE_ID1_TICK,
+                  TASK3_RING_PLACE_RELEASE_ID1_TIME_MS,
+                  "lower ID1 for release confirmation")),
+                ("WAIT_AFTER_ID1_RELEASE_CONFIRM", self._task3_ring_wait,
+                 (TASK3_RING_PLACE_RELEASE_ID1_HOLD_MS,
+                  "wait after ID1 release-confirm position")),
                 ("OPEN_ID17_AGAIN", self._task3_ring_gripper,
                  (TASK3_RING_PLACE_GRIPPER_OPEN_TICK,
                   TASK3_RING_PLACE_RELEASE_GRIPPER_TIME_MS, "open ID17 again")),
@@ -3208,6 +3229,7 @@ class TargetGraspController:
         self.column_capture_authorized = False
         self.column_handled_blocks = []
         self.column_classify_deadline = 0.0
+        self.column_classify_votes = []
         self.column_target_lost_since = None
         self.column_pause_deadline = 0.0
         self.column_resume_deadline = 0.0
@@ -3328,6 +3350,27 @@ class TargetGraspController:
         )
         union = max(1.0, aw * ah + bw * bh - intersection)
         return intersection / union
+
+    @staticmethod
+    def _column_rotation_votes_stable(votes, label):
+        angles = [
+            float(vote["rotation_angle_deg"]) % 90.0
+            for vote in votes
+            if vote is not None
+            and str(vote.get("letter", "")).upper() == str(label).upper()
+            and vote.get("rotation_angle_deg") is not None
+        ]
+        if len(angles) < COLUMN_CLASSIFY_MIN_VOTES:
+            return False
+        radians = np.radians(np.asarray(angles, dtype=np.float64) * 4.0)
+        center = (math.degrees(math.atan2(
+            float(np.sin(radians).mean()), float(np.cos(radians).mean())
+        )) / 4.0) % 90.0
+        deviations = [
+            abs((angle - center + 45.0) % 90.0 - 45.0)
+            for angle in angles
+        ]
+        return max(deviations, default=0.0) <= COLUMN_CLASSIFY_MAX_ANGLE_JITTER_DEG
 
     @classmethod
     def _column_blocks_match(cls, first, second):
@@ -3460,7 +3503,6 @@ class TargetGraspController:
             det for det in detections
             if det.get("kind") == "column_block"
             and det.get("fully_visible", True)
-            and bool(det.get("parallel", False))
             and not self._column_block_has_processed_letter(detections, det)
         ]
         return max(
@@ -3486,7 +3528,6 @@ class TargetGraspController:
             det for det in detections
             if det.get("kind") == "column_block"
             and det.get("fully_visible", True)
-            and bool(det.get("parallel", False))
         ]
         active = []
         for handled in self.column_handled_blocks:
@@ -4120,7 +4161,6 @@ class TargetGraspController:
                 det for det in detections
                 if det.get("kind") == "column_block"
                 and det.get("fully_visible", True)
-                and bool(det.get("parallel", False))
                 and self._column_block_tracks_match(self.column_locked_block, det)
             ]
             if tracked_blocks:
@@ -4161,6 +4201,22 @@ class TargetGraspController:
             )
             if recovered is not None:
                 column_letter_candidates = [recovered]
+        if (
+            self.chassis_station_stage == "column_centering"
+            and self.locked_target is not None
+            and self.locked_target.get("kind") == "letter"
+        ):
+            locked_label = str(self.locked_target.get("letter", "")).upper()
+            column_letter_candidates = [
+                det for det in column_letter_candidates
+                if str(det.get("letter", "")).upper() == locked_label
+            ]
+            if not column_letter_candidates:
+                recovered = self._column_locked_letter_fallback(
+                    detections, self.locked_target, active_locked_block
+                )
+                if recovered is not None:
+                    column_letter_candidates = [recovered]
         any_letter_target = max(
             column_letter_candidates,
             key=lambda det: (
@@ -4182,6 +4238,33 @@ class TargetGraspController:
             ),
             default=None,
         )
+        stable_letter_target = None
+        if self.chassis_station_stage == "column_classify" and detection_fresh:
+            self.column_classify_votes.append(
+                self._copy_target(any_letter_target)
+                if any_letter_target is not None else None
+            )
+            self.column_classify_votes = self.column_classify_votes[
+                -COLUMN_CLASSIFY_VOTE_WINDOW:
+            ]
+            vote_counts = {}
+            for vote in self.column_classify_votes:
+                if vote is not None:
+                    label = str(vote.get("letter", "")).upper()
+                    vote_counts[label] = vote_counts.get(label, 0) + 1
+            if vote_counts:
+                winner, votes = max(vote_counts.items(), key=lambda item: item[1])
+                if (
+                    votes >= COLUMN_CLASSIFY_MIN_VOTES
+                    and self._column_rotation_votes_stable(
+                        self.column_classify_votes, winner
+                    )
+                ):
+                    stable_letter_target = next(
+                        vote for vote in reversed(self.column_classify_votes)
+                        if vote is not None
+                        and str(vote.get("letter", "")).upper() == winner
+                    )
 
         if self.splitter_id4 != COLUMN_CATCH_SPLITTER_TICK:
             if not self.servo_bridge.write_enabled:
@@ -4263,6 +4346,7 @@ class TargetGraspController:
             if state == "PAUSED":
                 self.chassis_station_stage = "column_classify"
                 self.column_classify_deadline = now + COLUMN_BLOCK_CLASSIFY_TIMEOUT_S
+                self.column_classify_votes = []
                 self.column_pause_deadline = 0.0
                 return (
                     "COLUMN_CATCH H7 PAUSED; classify fresh letter "
@@ -4279,24 +4363,35 @@ class TargetGraspController:
 
         if self.chassis_station_stage == "column_classify":
             self.state = "COLUMN_CATCH classify paused block"
-            if detection_fresh and any_letter_target is not None:
-                if letter_target is None:
+            if stable_letter_target is not None:
+                stable_selected = (
+                    self.target_policy.matches_column_letter(
+                        stable_letter_target, self.target_letters
+                    )
+                    and self._column_letter_quota_available(
+                        stable_letter_target.get("letter", "")
+                    )
+                )
+                if not stable_selected:
                     self.status = (
-                        f"COLUMN_CATCH ignored non-target letter "
-                        f"{any_letter_target.get('letter', '?')}; resume H7"
+                        "COLUMN_CATCH ignored stable non-target letter "
+                        f"{stable_letter_target.get('letter', '?')}; resume H7"
                     )
                     self.chassis_station_stage = "column_resume_abort"
                     return self.status
-                self.locked_target = self._copy_target(letter_target)
+                self.locked_target = self._copy_target(stable_letter_target)
+                letter_target = stable_letter_target
                 # Only a paused, ROI-bound, selected letter can authorize
                 # centering and the later open/retreat/descend stages.
                 self.column_capture_authorized = True
-                if letter_target.get("distance_cm") is not None:
+                if stable_letter_target.get("distance_cm") is not None:
                     try:
-                        self.column_locked_distance_cm = float(letter_target["distance_cm"])
+                        self.column_locked_distance_cm = float(
+                            stable_letter_target["distance_cm"]
+                        )
                     except (TypeError, ValueError):
                         self.column_locked_distance_cm = None
-                self.last_visual_target = self._copy_target(letter_target)
+                self.last_visual_target = self._copy_target(stable_letter_target)
                 self.centered_frames = 0
                 self.center_distance_samples = []
                 self.visual_lost_frames = 0
@@ -4305,7 +4400,9 @@ class TargetGraspController:
                 self.chassis_station_stage = "column_centering"
                 print(
                     f"CHASSIS STATION COLUMN_CATCH target letter "
-                    f"{letter_target.get('letter')} accepted after white block pause",
+                    f"{stable_letter_target.get('letter')} accepted after "
+                    f"{COLUMN_CLASSIFY_MIN_VOTES}/{COLUMN_CLASSIFY_VOTE_WINDOW} "
+                    "paused-frame votes",
                     flush=True,
                 )
             elif now >= self.column_classify_deadline:
@@ -4313,7 +4410,11 @@ class TargetGraspController:
                 self.chassis_station_stage = "column_resume_abort"
                 return self.status
             else:
-                return "COLUMN_CATCH paused; waiting fresh letter classification"
+                return (
+                    "COLUMN_CATCH paused; waiting stable rotated-letter vote "
+                    f"({len(self.column_classify_votes)}/"
+                    f"{COLUMN_CLASSIFY_VOTE_WINDOW})"
+                )
 
         if self.chassis_station_stage == "column_centering":
             self.state = "COLUMN_CATCH center target"
@@ -6787,12 +6888,48 @@ class TargetDetector:
             self.letter_detector = ABCDDetector()
         return self.letter_detector.detect(frame)
 
+    def _detect_task3_rotated_letters(self, frame, roi=None):
+        if self.letter_detector is None:
+            self.letter_detector = ABCDDetector()
+        if roi is None or len(roi) < 4:
+            return self.letter_detector.detect_task3_rotated(frame)
+        height, width = frame.shape[:2]
+        x, y, roi_width, roi_height = (int(value) for value in roi[:4])
+        x0, y0 = max(0, x), max(0, y)
+        x1 = min(width, x + roi_width)
+        y1 = min(height, y + roi_height)
+        if x1 <= x0 or y1 <= y0:
+            return []
+        detections = self.letter_detector.detect_task3_rotated(
+            frame[y0:y1, x0:x1], frame_shape=frame.shape
+        )
+        for detection in detections:
+            cx, cy = detection["center"]
+            detection["center"] = (cx + x0, cy + y0)
+            bx, by, bw, bh = detection["bbox"]
+            detection["bbox"] = (bx + x0, by + y0, bw, bh)
+            if "box" in detection:
+                detection["box"] = (
+                    np.asarray(detection["box"], dtype=np.int32)
+                    + np.asarray((x0, y0), dtype=np.int32)
+                )
+        return detections
+
     @staticmethod
     def _column_block_angle(box):
         points = np.asarray(box, dtype=np.float32).reshape(4, 2)
         edge = points[1] - points[0]
         angle = math.degrees(math.atan2(float(edge[1]), float(edge[0])))
         return ((angle + 45.0) % 90.0) - 45.0
+
+    @staticmethod
+    def _ordered_quad(points):
+        points = np.asarray(points, dtype=np.float32).reshape(4, 2)
+        center = points.mean(axis=0)
+        angles = np.arctan2(points[:, 1] - center[1], points[:, 0] - center[0])
+        ordered = points[np.argsort(angles)]
+        start = int(np.argmin(ordered.sum(axis=1)))
+        return np.roll(ordered, -start, axis=0)
 
     def _detect_column_blocks(self, frame):
         """Return geometric white-square candidates without classifying glyphs."""
@@ -6869,11 +7006,16 @@ class TargetDetector:
                 or y + box_h > height - edge_margin_y
             ):
                 continue
-            inner_margin_x = max(4, int(round(box_w * 0.20)))
-            inner_margin_y = max(4, int(round(box_h * 0.20)))
-            inner = white[
-                y + inner_margin_y:y + box_h - inner_margin_y,
-                x + inner_margin_x:x + box_w - inner_margin_x,
+            quad = self._ordered_quad(cv2.boxPoints(rect))
+            destination = np.array(
+                ((0, 0), (127, 0), (127, 127), (0, 127)), dtype=np.float32
+            )
+            transform = cv2.getPerspectiveTransform(quad, destination)
+            rectified_white = cv2.warpPerspective(white, transform, (128, 128))
+            inner_margin = 26
+            inner = rectified_white[
+                inner_margin:128 - inner_margin,
+                inner_margin:128 - inner_margin,
             ]
             inner_white_ratio = cv2.countNonZero(inner) / float(max(1, inner.size))
             if not (
@@ -6882,37 +7024,29 @@ class TargetDetector:
                 <= COLUMN_BLOCK_MAX_INNER_WHITE_RATIO
             ):
                 continue
-            edge_band = max(2, int(round(min(box_w, box_h) * 0.12)))
+            edge_band = 15
             edge_ratios = (
-                cv2.countNonZero(white[y:y + edge_band, x:x + box_w])
-                / float(max(1, edge_band * box_w)),
-                cv2.countNonZero(
-                    white[y + box_h - edge_band:y + box_h, x:x + box_w]
-                ) / float(max(1, edge_band * box_w)),
-                cv2.countNonZero(white[y:y + box_h, x:x + edge_band])
-                / float(max(1, box_h * edge_band)),
-                cv2.countNonZero(
-                    white[y:y + box_h, x + box_w - edge_band:x + box_w]
-                ) / float(max(1, box_h * edge_band)),
+                cv2.countNonZero(rectified_white[:edge_band, :])
+                / float(edge_band * 128),
+                cv2.countNonZero(rectified_white[128 - edge_band:, :])
+                / float(edge_band * 128),
+                cv2.countNonZero(rectified_white[:, :edge_band])
+                / float(edge_band * 128),
+                cv2.countNonZero(rectified_white[:, 128 - edge_band:])
+                / float(edge_band * 128),
             )
             if min(edge_ratios) < COLUMN_BLOCK_MIN_EDGE_WHITE_RATIO:
                 continue
-            corner_side = max(3, int(round(min(box_w, box_h) * 0.16)))
+            corner_side = 20
             corner_ratios = (
-                cv2.countNonZero(white[y:y + corner_side, x:x + corner_side])
-                / float(max(1, corner_side * corner_side)),
-                cv2.countNonZero(
-                    white[y:y + corner_side,
-                          x + box_w - corner_side:x + box_w]
-                ) / float(max(1, corner_side * corner_side)),
-                cv2.countNonZero(
-                    white[y + box_h - corner_side:y + box_h,
-                          x:x + corner_side]
-                ) / float(max(1, corner_side * corner_side)),
-                cv2.countNonZero(
-                    white[y + box_h - corner_side:y + box_h,
-                          x + box_w - corner_side:x + box_w]
-                ) / float(max(1, corner_side * corner_side)),
+                cv2.countNonZero(rectified_white[:corner_side, :corner_side])
+                / float(corner_side * corner_side),
+                cv2.countNonZero(rectified_white[:corner_side, -corner_side:])
+                / float(corner_side * corner_side),
+                cv2.countNonZero(rectified_white[-corner_side:, :corner_side])
+                / float(corner_side * corner_side),
+                cv2.countNonZero(rectified_white[-corner_side:, -corner_side:])
+                / float(corner_side * corner_side),
             )
             if min(corner_ratios) < COLUMN_BLOCK_MIN_CORNER_WHITE_RATIO:
                 continue
@@ -6963,7 +7097,7 @@ class TargetDetector:
                 "color": "white_edge",
                 "source": "column_white_edge_geometry",
                 "center": (int(round(rect[0][0])), int(round(rect[0][1]))),
-                "box": contour.astype(np.int32),
+                "box": quad.astype(np.int32),
                 "bbox": (int(x), int(y), int(box_w), int(box_h)),
                 "projected_area": max(area, float(rect_w * rect_h)),
                 "approx_vertices": approx_vertices,
@@ -6971,7 +7105,8 @@ class TargetDetector:
                 "green_ring_support": round(float(green_ring_support), 4),
                 "fully_visible": x > 2 and y > 2 and x + box_w < width - 2 and y + box_h < height - 2,
                 "angle": round(float(angle), 1),
-                "parallel": abs(angle) <= COLUMN_BLOCK_MAX_ANGLE_DEG,
+                "parallel": True,
+                "orientation_agnostic": True,
             })
         return blocks
 
@@ -6993,9 +7128,7 @@ class TargetDetector:
         aspect = box_width / float(max(1, box_height))
         if not 0.65 <= aspect <= 1.55:
             return None
-        angle = float(letter.get("angle", 90.0))
-        if abs(angle) > COLUMN_BLOCK_MAX_ANGLE_DEG:
-            return None
+        angle = float(letter.get("angle", 0.0))
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         white = cv2.inRange(
             hsv,
@@ -7052,6 +7185,7 @@ class TargetDetector:
             "fully_visible": True,
             "angle": round(angle, 1),
             "parallel": True,
+            "orientation_agnostic": True,
         }
 
     def detect(
@@ -7060,6 +7194,7 @@ class TargetDetector:
         mode=DETECTION_MODE_IDLE,
         field_name="red",
         target_letters=(),
+        task3_roi=None,
     ):
         if frame is None or not isinstance(frame, np.ndarray) or frame.ndim != 3:
             return []
@@ -7093,6 +7228,17 @@ class TargetDetector:
             return [*letters, *detect_platform_rings(frame)]
         elif mode == DETECTION_MODE_COLUMN_LETTERS:
             letters = self._detect_letters(frame)
+            blocks = self._detect_column_blocks(frame)
+            inferred = [
+                block for item in letters
+                for block in [self._infer_column_block_from_letter(frame, item)]
+                if block is not None
+            ]
+            return [*blocks, *inferred, *letters]
+        elif mode == DETECTION_MODE_COLUMN_BLOCKS:
+            return self._detect_column_blocks(frame)
+        elif mode == DETECTION_MODE_COLUMN_ROTATED_LETTERS:
+            letters = self._detect_task3_rotated_letters(frame, task3_roi)
             blocks = self._detect_column_blocks(frame)
             inferred = [
                 block for item in letters
@@ -8008,7 +8154,11 @@ def main(argv=None):
         if chassis_link.white_line_active:
             return DETECTION_MODE_WHITE_LINE
         if station == "COLUMN_CATCH":
-            return DETECTION_MODE_COLUMN_LETTERS
+            if grasp_controller.chassis_station_stage in {
+                "column_classify", "column_centering"
+            }:
+                return DETECTION_MODE_COLUMN_ROTATED_LETTERS
+            return DETECTION_MODE_COLUMN_BLOCKS
         if station == "PLATFORM_PICK":
             if grasp_controller.chassis_station_stage == "platform_preselect":
                 return DETECTION_MODE_IDLE
@@ -8618,6 +8768,22 @@ def main(argv=None):
                 detection_pending_frame = frame.copy()
                 detection_future_mode = requested_detection_mode
                 detection_future_field = grasp_controller.field_mode.value
+                task3_roi = None
+                if (
+                    requested_detection_mode == DETECTION_MODE_COLUMN_ROTATED_LETTERS
+                    and grasp_controller.column_locked_block is not None
+                ):
+                    bx, by, bw, bh = grasp_controller.column_locked_block.get(
+                        "bbox", (0, 0, 0, 0)
+                    )
+                    pad_x = max(12, int(round(float(bw) * 0.45)))
+                    pad_y = max(12, int(round(float(bh) * 0.45)))
+                    task3_roi = (
+                        int(bx) - pad_x,
+                        int(by) - pad_y,
+                        int(bw) + pad_x * 2,
+                        int(bh) + pad_y * 2,
+                    )
                 detection_future = detection_executor.submit(
                     detection_process_worker,
                     detection_pending_frame,
@@ -8629,6 +8795,7 @@ def main(argv=None):
                         if requested_detection_mode == DETECTION_MODE_PLATFORM_TARGETS
                         else target_letters
                     ),
+                    task3_roi=task3_roi,
                 )
             detection_frame_index += 1
             post_started = time.perf_counter()

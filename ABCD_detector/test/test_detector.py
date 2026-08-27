@@ -32,6 +32,17 @@ def letter_page(letter, size=360):
     return image
 
 
+def rotated_green_block(letter, angle, size=320):
+    background = np.full((size, size, 3), (70, 145, 70), dtype=np.uint8)
+    block = letter_block(letter, size=220)
+    matrix = cv2.getRotationMatrix2D((110, 110), angle, 1.0)
+    rotated = cv2.warpAffine(
+        block, matrix, (220, 220), borderValue=(70, 145, 70)
+    )
+    background[50:270, 50:270] = rotated
+    return background
+
+
 class ABCDDetectorTests(unittest.TestCase):
     def test_main_camera_serif_b_with_narrow_border(self):
         frame = cv2.imread(str(Path(__file__).parent / "fixtures" / "main_serif_b.jpg"))
@@ -79,6 +90,20 @@ class ABCDDetectorTests(unittest.TestCase):
             self.assertEqual(detections[0]["kind"], "letter")
             self.assertEqual(detections[0]["letter"], letter)
             self.assertIsNotNone(detections[0]["distance_cm"])
+
+    def test_task3_rotation_classifier_handles_random_in_plane_angles(self):
+        detector = ABCDDetector()
+        for letter in "ABCD":
+            for angle in (0, 17, 43, 90, 137, 180, 223, 270, 319):
+                with self.subTest(letter=letter, angle=angle):
+                    detections = detector.detect_task3_rotated(
+                        rotated_green_block(letter, angle)
+                    )
+                    self.assertTrue(detections, (letter, angle))
+                    self.assertEqual(detections[0]["letter"], letter)
+                    self.assertGreaterEqual(
+                        detections[0]["classification_margin"], 0.035
+                    )
 
 
 if __name__ == "__main__":
