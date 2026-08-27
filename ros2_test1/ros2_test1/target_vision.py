@@ -276,7 +276,8 @@ TASK3_RING_PLACE_GRIPPER_TIME_MS = 200
 TASK3_RING_PLACE_SLOW_CLOSE_TIME_MS = 2000
 TASK3_RING_PLACE_RELEASE_GRIPPER_TIME_MS = 1000
 TASK3_RING_PLACE_RELEASE_HOLD_MS = 1500
-TASK3_RING_PLACE_RELEASE_ID1_TICK = 590
+TASK3_RING_PLACE_RELEASE_ID1_TICK = 580
+TASK3_RING_PLACE_RELEASE_ID2_TICK = 467
 TASK3_RING_PLACE_RELEASE_ID1_TIME_MS = 1000
 TASK3_RING_PLACE_RELEASE_ID1_HOLD_MS = 1000
 TASK3_RING_PLACE_CONTRACT_AXIS_TIME_MS = 500
@@ -2667,6 +2668,34 @@ class TargetGraspController:
         )
         return max(0.10, float(motion_ms) / 1000.0)
 
+    def _task3_ring_release_pose(self, id1, id2, motion_ms, label):
+        """Move the paired release-confirmation pose in one servo command."""
+
+        bridge = self.servo_bridge
+        previous = getattr(bridge, "arm_time_ms", PLATFORM_ARM_TIME_MS)
+        try:
+            bridge.arm_time_ms = int(motion_ms)
+            if bridge.write_enabled:
+                bridge.send_targets(
+                    id1=int(id1),
+                    id2=int(id2),
+                    id6=int(self.id6),
+                    id4=int(self.id7),
+                )
+                if not bridge.last_command_ok:
+                    raise RuntimeError(bridge.status)
+            self.id1 = int(id1)
+            self.id2 = int(id2)
+        finally:
+            bridge.arm_time_ms = previous
+        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+        print(
+            f"TASK3_RING_PLACE {label} ID1={int(id1)} ID2={int(id2)} "
+            f"time={int(motion_ms)}ms",
+            flush=True,
+        )
+        return max(0.10, float(motion_ms) / 1000.0)
+
     def _task3_ring_gripper(self, position, motion_ms, label):
         """Move task-three ID17 with an explicit duration."""
 
@@ -2996,10 +3025,11 @@ class TargetGraspController:
                 ("ID6_HIGH", self._task3_ring_single,
                  ("id6", TASK3_RING_PLACE_RETURN_HIGH[2],
                   TASK3_RING_PLACE_HIGH_TIME_MS, "return high ID6")),
-                ("ID1_RELEASE_CONFIRM", self._task3_ring_single,
-                 ("id1", TASK3_RING_PLACE_RELEASE_ID1_TICK,
+                ("ID1_ID2_RELEASE_CONFIRM", self._task3_ring_release_pose,
+                 (TASK3_RING_PLACE_RELEASE_ID1_TICK,
+                  TASK3_RING_PLACE_RELEASE_ID2_TICK,
                   TASK3_RING_PLACE_RELEASE_ID1_TIME_MS,
-                  "lower ID1 for release confirmation")),
+                  "move ID1/ID2 for release confirmation")),
                 ("WAIT_AFTER_ID1_RELEASE_CONFIRM", self._task3_ring_wait,
                  (TASK3_RING_PLACE_RELEASE_ID1_HOLD_MS,
                   "wait after ID1 release-confirm position")),
