@@ -22,11 +22,15 @@ class WhiteLineAlignmentDetector:
         self.max_hold_frames = max(0, int(max_hold_frames))
         self._last_measurement = None
         self._missed_frames = 0
+        self._line_edge_history = []
+        self._task2_edge_history = []
 
     def reset_tracking(self):
         """Discard stale geometry when a new white-line phase begins."""
         self._last_measurement = None
         self._missed_frames = 0
+        self._line_edge_history = []
+        self._task2_edge_history = []
 
     @staticmethod
     def _fitted_line(contour, frame_width, frame_height):
@@ -54,6 +58,98 @@ class WhiteLineAlignmentDetector:
         return angle_deg, y_at_center
 
     @staticmethod
+    def _fit_task2_band_edges(contour, bounds, frame_width, frame_height):
+        """Fit the strip's two edges and derive its geometric center line."""
+        x, y, box_width, box_height = bounds
+        if box_width < 20 or box_height < 3:
+            return None
+        component = np.zeros((box_height, box_width), dtype=np.uint8)
+        shifted = contour.copy()
+        shifted[:, :, 0] -= x
+        shifted[:, :, 1] -= y
+        cv2.drawContours(component, [shifted], -1, 255, cv2.FILLED)
+
+        xs = []
+        tops = []
+        bottoms = []
+        for local_x in range(box_width):
+            rows = np.flatnonzero(component[:, local_x])
+            if len(rows) < 2:
+                continue
+            xs.append(float(x + local_x))
+            tops.append(float(y + rows[0]))
+            bottoms.append(float(y + rows[-1]))
+        if len(xs) < max(30, int(box_width * 0.55)):
+            return None
+
+        xs = np.asarray(xs, dtype=np.float64)
+        tops = np.asarray(tops, dtype=np.float64)
+        bottoms = np.asarray(bottoms, dtype=np.float64)
+
+        def robust_fit(values):
+            keep = np.ones(values.shape, dtype=bool)
+            for _ in range(3):
+                if np.count_nonzero(keep) < 12:
+                    return None
+                slope, intercept = np.polyfit(xs[keep], values[keep], 1)
+                residual = np.abs(values - (slope * xs + intercept))
+                median = float(np.median(residual[keep]))
+                mad = float(np.median(np.abs(residual[keep] - median)))
+                limit = max(2.0, median + 3.0 * max(1.0, mad))
+                next_keep = residual <= limit
+                if np.array_equal(next_keep, keep):
+                    break
+                keep = next_keep
+            if np.count_nonzero(keep) < max(24, int(len(xs) * 0.55)):
+                return None
+            slope, intercept = np.polyfit(xs[keep], values[keep], 1)
+            return float(slope), float(intercept), keep
+
+        top_fit = robust_fit(tops)
+        bottom_fit = robust_fit(bottoms)
+        if top_fit is None or bottom_fit is None:
+            return None
+        top_slope, top_intercept, top_keep = top_fit
+        bottom_slope, bottom_intercept, bottom_keep = bottom_fit
+        center_slope = (top_slope + bottom_slope) * 0.5
+        center_intercept = (top_intercept + bottom_intercept) * 0.5
+        center_x = frame_width * 0.5
+        y_at_center = center_slope * center_x + center_intercept
+        top_center = top_slope * center_x + top_intercept
+        bottom_center = bottom_slope * center_x + bottom_intercept
+        thickness = float(np.median(bottoms - tops))
+        if thickness <= 0.0 or bottom_center <= top_center:
+            return None
+        x_left = float(x)
+        x_right = float(x + box_width - 1)
+        return {
+            "angle_deg": float(np.degrees(np.arctan(center_slope))),
+            "y_at_center": float(y_at_center),
+            "thickness": thickness,
+            "top_edge": (
+                top_slope,
+                top_intercept,
+            ),
+            "bottom_edge": (
+                bottom_slope,
+                bottom_intercept,
+            ),
+            "center_line": (
+                (x_left, center_slope * x_left + center_intercept),
+                (x_right, center_slope * x_right + center_intercept),
+            ),
+            "edge_polygon": (
+                (x_left, top_slope * x_left + top_intercept),
+                (x_right, top_slope * x_right + top_intercept),
+                (x_right, bottom_slope * x_right + bottom_intercept),
+                (x_left, bottom_slope * x_left + bottom_intercept),
+            ),
+            "edge_support": int(
+                min(np.count_nonzero(top_keep), np.count_nonzero(bottom_keep))
+            ),
+        }
+
+    @staticmethod
     def _local_contrast(gray, x, y, box_width, box_height):
         """Compare the bright band with narrow strips immediately around it."""
         height, width = gray.shape[:2]
@@ -79,7 +175,7 @@ class WhiteLineAlignmentDetector:
         return float(np.median(band)) - float(np.median(outside_values))
 
     def _candidate_score(self, candidate, gray, width, height):
-        area, contour, rect, bounds = candidate
+        area, contour, rect, bounds, *extra = candidate
         x, y, box_width, box_height = bounds
         length = float(max(rect[1]))
         thickness = float(min(rect[1]))
@@ -117,7 +213,12 @@ class WhiteLineAlignmentDetector:
         if self._last_measurement is not None:
             previous_y = float(self._last_measurement["y_at_center"])
             previous_angle = float(self._last_measurement["angle_deg"])
-            angle, y_at_center = self._fitted_line(contour, width, height)
+            edge_geometry = extra[0] if extra else None
+            if edge_geometry is not None:
+                angle = edge_geometry["angle_deg"]
+                y_at_center = edge_geometry["y_at_center"]
+            else:
+                angle, y_at_center = self._fitted_line(contour, width, height)
             if y_at_center is not None:
                 y_delta = abs(y_at_center - previous_y) / max(1.0, height)
                 angle_delta = abs(angle - previous_angle) / 45.0
@@ -201,9 +302,16 @@ class WhiteLineAlignmentDetector:
             if length / max(1.0, thickness) < 4.0:
                 continue
 
-            angle_deg, y_at_center = self._fitted_line(
-                contour, width, height
+            edge_geometry = self._fit_task2_band_edges(
+                contour, (x, y, box_width, box_height), width, height
             )
+            if edge_geometry is None:
+                angle_deg, y_at_center = self._fitted_line(
+                    contour, width, height
+                )
+            else:
+                angle_deg = edge_geometry["angle_deg"]
+                y_at_center = edge_geometry["y_at_center"]
             if (
                 y_at_center is None
                 or y_at_center < height * 0.28
@@ -375,9 +483,16 @@ class WhiteLineAlignmentDetector:
                 continue
             if box_width > width * 0.55 and fill_ratio > 0.58:
                 continue
-            angle_deg, y_at_center = self._fitted_line(
-                contour, width, height
+            edge_geometry = self._fit_task2_band_edges(
+                contour, (x, y, box_width, box_height), width, height
             )
+            if edge_geometry is None:
+                angle_deg, y_at_center = self._fitted_line(
+                    contour, width, height
+                )
+            else:
+                angle_deg = edge_geometry["angle_deg"]
+                y_at_center = edge_geometry["y_at_center"]
             if (
                 y_at_center is None
                 or not height * 0.22 <= y_at_center < height * 0.94
@@ -385,7 +500,13 @@ class WhiteLineAlignmentDetector:
             ):
                 continue
             candidates.append(
-                (area, contour, rect, (x, y, box_width, box_height))
+                (
+                    area,
+                    contour,
+                    rect,
+                    (x, y, box_width, box_height),
+                    edge_geometry,
+                )
             )
 
         if not candidates:
@@ -403,9 +524,10 @@ class WhiteLineAlignmentDetector:
                 held["held"] = True
                 return held
             self._last_measurement = None
+            self._line_edge_history = []
             return None
 
-        area, contour, rect, bounds = max(
+        area, contour, rect, bounds, edge_geometry = max(
             candidates,
             key=lambda item: self._candidate_score(
                 item, gray, width, height
@@ -417,9 +539,27 @@ class WhiteLineAlignmentDetector:
         center_x = float(moments["m10"] / moments["m00"])
         center_y = float(moments["m01"] / moments["m00"])
         length = float(max(rect[1]))
-        thickness = float(min(rect[1]))
-        angle_deg, y_at_center = self._fitted_line(
-            contour, width, height
+        if edge_geometry is None:
+            thickness = float(min(rect[1]))
+            angle_deg, y_at_center = self._fitted_line(
+                contour, width, height
+            )
+        else:
+            thickness = float(edge_geometry["thickness"])
+            angle_deg = float(edge_geometry["angle_deg"])
+            y_at_center = float(edge_geometry["y_at_center"])
+        self._line_edge_history.append(
+            (y_at_center, angle_deg, thickness, edge_geometry)
+        )
+        self._line_edge_history = self._line_edge_history[-3:]
+        y_at_center = float(
+            np.median([item[0] for item in self._line_edge_history])
+        )
+        angle_deg = float(
+            np.median([item[1] for item in self._line_edge_history])
+        )
+        thickness = float(
+            np.median([item[2] for item in self._line_edge_history])
         )
         if (
             y_at_center is None
@@ -440,6 +580,14 @@ class WhiteLineAlignmentDetector:
             "frame_height": height,
             "held": False,
         }
+        if edge_geometry is not None:
+            measurement.update(
+                {
+                    "center_line": edge_geometry["center_line"],
+                    "edge_polygon": edge_geometry["edge_polygon"],
+                    "edge_support": edge_geometry["edge_support"],
+                }
+            )
         self._missed_frames = 0
         self._last_measurement = measurement
         return measurement
@@ -502,11 +650,13 @@ class WhiteLineAlignmentDetector:
             rect = cv2.minAreaRect(contour)
             length = float(max(rect[1]))
             thickness = float(min(rect[1]))
-            angle_deg, y_at_center = self._fitted_line(
-                contour, width, height
+            edge_geometry = self._fit_task2_band_edges(
+                contour, (x, y, box_width, box_height), width, height
             )
-            if y_at_center is None:
+            if edge_geometry is None:
                 continue
+            angle_deg = edge_geometry["angle_deg"]
+            y_at_center = edge_geometry["y_at_center"]
 
             # The actual task-two strip is below the box and above the arm.
             # These bounds reject both the box edge and lower arm structures.
@@ -567,7 +717,14 @@ class WhiteLineAlignmentDetector:
                 + 1.5 * contrast_score
             )
             candidates.append(
-                (score, contour, rect, (x, y, box_width, box_height), area)
+                (
+                    score,
+                    contour,
+                    rect,
+                    (x, y, box_width, box_height),
+                    area,
+                    edge_geometry,
+                )
             )
 
         if not candidates:
@@ -580,9 +737,10 @@ class WhiteLineAlignmentDetector:
                 held["held"] = True
                 return held
             self._last_measurement = None
+            self._task2_edge_history = []
             return None
 
-        _, contour, rect, bounds, area = max(
+        _, contour, rect, bounds, area, edge_geometry = max(
             candidates, key=lambda candidate: candidate[0]
         )
         moments = cv2.moments(contour)
@@ -591,9 +749,21 @@ class WhiteLineAlignmentDetector:
         center_x = float(moments["m10"] / moments["m00"])
         center_y = float(moments["m01"] / moments["m00"])
         length = float(max(rect[1]))
-        thickness = float(min(rect[1]))
-        angle_deg, y_at_center = self._fitted_line(
-            contour, width, height
+        thickness = float(edge_geometry["thickness"])
+        angle_deg = float(edge_geometry["angle_deg"])
+        y_at_center = float(edge_geometry["y_at_center"])
+        self._task2_edge_history.append(
+            (y_at_center, angle_deg, thickness, edge_geometry)
+        )
+        self._task2_edge_history = self._task2_edge_history[-3:]
+        y_at_center = float(
+            np.median([item[0] for item in self._task2_edge_history])
+        )
+        angle_deg = float(
+            np.median([item[1] for item in self._task2_edge_history])
+        )
+        thickness = float(
+            np.median([item[2] for item in self._task2_edge_history])
         )
         measurement = {
             "center_x": center_x,
@@ -607,6 +777,9 @@ class WhiteLineAlignmentDetector:
             "frame_width": width,
             "frame_height": height,
             "held": False,
+            "center_line": edge_geometry["center_line"],
+            "edge_polygon": edge_geometry["edge_polygon"],
+            "edge_support": edge_geometry["edge_support"],
         }
         self._missed_frames = 0
         self._last_measurement = measurement

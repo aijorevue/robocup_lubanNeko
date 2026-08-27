@@ -637,6 +637,14 @@ def secondary_detection_process_worker(frame):
     return _PROCESS_SECONDARY_DETECTOR.detect(frame), time.perf_counter() - started
 
 
+def secondary_detector_warmup_worker():
+    """Load the secondary detector before task-two preselection starts."""
+    global _PROCESS_SECONDARY_DETECTOR
+    if _PROCESS_SECONDARY_DETECTOR is None:
+        _PROCESS_SECONDARY_DETECTOR = SecondaryLetterDetector()
+    return True
+
+
 class FrameState:
     def __init__(self):
         self.frame = None
@@ -7831,6 +7839,11 @@ def main(argv=None):
         max_workers=1,
         mp_context=multiprocessing.get_context("spawn"),
     )
+    secondary_detection_warmup_future = None
+    if args.secondary_device:
+        secondary_detection_warmup_future = (
+            secondary_detection_executor.submit(secondary_detector_warmup_worker)
+        )
     camera_executor = concurrent.futures.ThreadPoolExecutor(
         max_workers=1,
         thread_name_prefix="camera-open",
@@ -7882,6 +7895,16 @@ def main(argv=None):
         nonlocal secondary_last_frame
         nonlocal secondary_retry_at, secondary_detection_future
         nonlocal secondary_detection_pending_frame
+        nonlocal secondary_detection_warmup_future
+        if (
+            secondary_detection_warmup_future is not None
+            and secondary_detection_warmup_future.done()
+        ):
+            try:
+                secondary_detection_warmup_future.result()
+            except Exception as exc:
+                print(f"secondary detector warmup failed: {exc}", flush=True)
+            secondary_detection_warmup_future = None
         if (
             grasp_controller.chassis_station_stage != "platform_preselect"
             or secondary_reader is None
@@ -8632,6 +8655,11 @@ def main(argv=None):
     finally:
         state.running = False
         detection_executor.shutdown(wait=False, cancel_futures=True)
+        if (
+            secondary_detection_warmup_future is not None
+            and not secondary_detection_warmup_future.done()
+        ):
+            secondary_detection_warmup_future.cancel()
         secondary_detection_executor.shutdown(wait=False, cancel_futures=True)
         if camera_open_future is not None:
             camera_open_future.cancel()
