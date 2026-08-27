@@ -853,7 +853,10 @@ class WhiteLineAlignmentDetector:
         x0 = max(0, int(width * 0.02))
         x1 = min(width, int(width * 0.98))
         y0 = max(int(height * 0.20), int(height * 0.15))
-        y1 = min(height, int(height * 0.72))
+        # Exclude the lower vehicle/arm highlight from the task-three scan.
+        # The formal reference is Y=300 in a 600px frame, so the extra lower
+        # margin is unnecessary and can only admit chassis structure.
+        y1 = min(height, int(height * 0.64))
         if x1 <= x0 or y1 <= y0:
             return None
 
@@ -956,7 +959,7 @@ class WhiteLineAlignmentDetector:
         slope, intercept = np.polyfit(coordinates[:, 0], coordinates[:, 1], 1)
         angle_deg = float(np.degrees(np.arctan(float(slope))))
         y_at_center = float(intercept + slope * (width * 0.5))
-        if not height * 0.20 <= y_at_center <= height * 0.72:
+        if not height * 0.20 <= y_at_center <= height * 0.64:
             return None
         if abs(angle_deg) > 25.0:
             return None
@@ -996,7 +999,25 @@ class WhiteLineAlignmentDetector:
         that still requires a long, thin, continuous bright band and a
         measurable right boundary.
         """
+        # Prefer the task-three scanline geometry before contour candidates.
+        # In the close/mixed view the real strip can be joined to the upper
+        # box in the binary mask, while a lower arm/vehicle highlight remains
+        # a separate, thick contour.  Letting that contour win first produces
+        # a stable but wrong Y/RX result and prevents the existing scanline
+        # recovery from running.
+        scanline = self._task3_scanline_fallback(frame)
+        if scanline is not None:
+            return self._task3_stabilize(scanline)
+
+        height, width = frame.shape[:2]
+        task3_max_line_y = height * 0.64
+
         strict = self.detect_task2(frame)
+        if strict is not None and float(strict.get("y_at_center", 0.0)) > \
+                task3_max_line_y:
+            # The lower vehicle/arm structure can satisfy task-two's wider
+            # vertical gate. It is outside the task-three line search band.
+            strict = None
         if strict is not None and not strict.get("held", False):
             # The strict edge fitter intentionally drops short support runs.
             # That is useful for task two, but at the farther task-three view
@@ -1019,7 +1040,6 @@ class WhiteLineAlignmentDetector:
         if frame is None or frame.size == 0:
             return None
 
-        height, width = frame.shape[:2]
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
@@ -1028,7 +1048,10 @@ class WhiteLineAlignmentDetector:
         x0 = int(width * self.roi_x[0])
         x1 = int(width * self.roi_x[1])
         y0 = int(height * 0.18)
-        y1 = int(height * 0.94)
+        # Keep the lower vehicle body out of the task-three candidate ROI.
+        # The line target is centered at Y=300 in the 600px frame; pixels
+        # below this guard are reserved for the chassis and arm structure.
+        y1 = min(height, int(task3_max_line_y))
         roi_mask = np.zeros((height, width), dtype=np.uint8)
         roi_mask[y0:y1, x0:x1] = 255
         roi_value = value_eq[y0:y1, x0:x1]
@@ -1137,7 +1160,7 @@ class WhiteLineAlignmentDetector:
                 )
             if (
                 y_at_center is None
-                or not height * 0.20 <= y_at_center <= height * (0.68 if using_preferred_window else 0.90)
+                or not height * 0.20 <= y_at_center <= task3_max_line_y
                 or abs(angle_deg) > 32.0
             ):
                 continue
