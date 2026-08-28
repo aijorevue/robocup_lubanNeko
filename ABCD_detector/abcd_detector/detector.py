@@ -24,6 +24,7 @@ ROTATION_COARSE_STEP_DEG = 10
 ROTATION_FINE_RADIUS_DEG = 8
 ROTATION_FINE_STEP_DEG = 1
 ROTATION_MIN_MARGIN = 0.015
+RECTIFIED_ROTATION_ANGLES_DEG = (0, 90, 180, 270)
 DEFAULT_DISTANCE_OFFSET_CM = -1.6072186919749336
 DEFAULT_DISTANCE_SCALE_CM = (
     31.628878020276648 * 2.0 * 30.0 / (42.67 * np.sqrt(np.pi)) * 1.20
@@ -52,6 +53,7 @@ class ABCDDetector:
         self._load_config(config_path)
         self.templates = self._build_templates()
         self.template_bank = self._build_template_bank()
+        self._build_rotation_template_features()
 
     def _load_config(self, config_path):
         """Load optional package config without requiring a workspace path."""
@@ -145,6 +147,57 @@ class ABCDDetector:
                 variants.append(cv2.erode(template, kernel))
             bank[letter] = variants
         return bank
+
+    def _build_rotation_template_features(self):
+        labels = []
+        templates = []
+        for letter in LETTERS:
+            for template in self.template_bank.get(letter, (self.templates[letter],)):
+                labels.append(letter)
+                templates.append(np.asarray(template, dtype=np.uint8))
+        flat = np.stack(templates).reshape(len(templates), -1).astype(np.float32)
+        centered = flat - flat.mean(axis=1, keepdims=True)
+        norms = np.linalg.norm(centered, axis=1, keepdims=True)
+        self._rotation_template_labels = tuple(labels)
+        self._rotation_template_centered = centered / np.maximum(norms, 1e-6)
+        self._rotation_template_binary = (flat > 127).astype(np.float32)
+        self._rotation_template_counts = self._rotation_template_binary.sum(
+            axis=1, keepdims=False
+        )
+
+    def _score_rotation_batch(self, normalized_glyphs):
+        """Score normalized rotations against every template in two matrix ops."""
+        glyphs = np.asarray(normalized_glyphs, dtype=np.uint8)
+        flat = glyphs.reshape(glyphs.shape[0], -1).astype(np.float32)
+        centered = flat - flat.mean(axis=1, keepdims=True)
+        norms = np.linalg.norm(centered, axis=1, keepdims=True)
+        correlations = np.maximum(
+            0.0,
+            (centered / np.maximum(norms, 1e-6))
+            @ self._rotation_template_centered.T,
+        )
+        binary = (flat > 127).astype(np.float32)
+        intersections = binary @ self._rotation_template_binary.T
+        unions = (
+            binary.sum(axis=1, keepdims=True)
+            + self._rotation_template_counts.reshape(1, -1)
+            - intersections
+        )
+        ious = intersections / np.maximum(unions, 1.0)
+        scores = {}
+        for letter in LETTERS:
+            indices = [
+                index
+                for index, label in enumerate(self._rotation_template_labels)
+                if label == letter
+            ]
+            weight_corr, weight_iou = (0.72, 0.28) if letter == "D" else (0.65, 0.35)
+            variant_scores = (
+                weight_corr * correlations[:, indices]
+                + weight_iou * ious[:, indices]
+            )
+            scores[letter] = variant_scores.max(axis=1)
+        return scores
 
     @staticmethod
     def _normalize_glyph(mask):
@@ -307,6 +360,7 @@ class ABCDDetector:
         frame_area = float(height * width)
         edge_margin = max(5, int(min(width, height) * 0.012))
         results = []
+        classified_rects = []
         for contour in sorted(contours, key=cv2.contourArea, reverse=True):
             area = float(cv2.contourArea(contour))
             if area < self.min_candidate_area or area > frame_area * self.max_candidate_area_ratio:
@@ -335,6 +389,25 @@ class ABCDDetector:
                 and x + box_width < width - edge_margin
                 and y + box_height < height - edge_margin
             )
+            if rotation_invariant:
+                candidate_rect = (x, y, x + box_width, y + box_height)
+                duplicate = False
+                for old_x0, old_y0, old_x1, old_y1 in classified_rects:
+                    intersection = (
+                        max(0, min(candidate_rect[2], old_x1) - max(candidate_rect[0], old_x0))
+                        * max(0, min(candidate_rect[3], old_y1) - max(candidate_rect[1], old_y0))
+                    )
+                    union = (
+                        max(1, box_width * box_height)
+                        + max(1, (old_x1 - old_x0) * (old_y1 - old_y0))
+                        - intersection
+                    )
+                    if intersection / float(max(1, union)) >= 0.55:
+                        duplicate = True
+                        break
+                if duplicate:
+                    continue
+                classified_rects.append(candidate_rect)
             rectified = self._rectify(frame, box, 128)
             rotation_angle = None
             margin = None
@@ -583,19 +656,23 @@ class ABCDDetector:
         offset_y = (side - glyph.shape[0]) // 2
         canvas[offset_y:offset_y + glyph.shape[0], offset_x:offset_x + glyph.shape[1]] = glyph
         center = ((side - 1) / 2.0, (side - 1) / 2.0)
-        coarse_scores = {letter: (0.0, 0.0) for letter in LETTERS}
-        for angle in range(0, 360, ROTATION_COARSE_STEP_DEG):
+        coarse_glyphs = []
+        for angle in RECTIFIED_ROTATION_ANGLES_DEG:
             matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
             rotated = cv2.warpAffine(
                 canvas, matrix, (side, side), flags=cv2.INTER_LINEAR,
                 borderMode=cv2.BORDER_CONSTANT, borderValue=0,
             )
-            normalized = self._normalize_glyph(rotated)
-            binary = normalized > 127
-            for letter in LETTERS:
-                score = self._best_template_score(normalized, binary, letter)
-                if score > coarse_scores[letter][0]:
-                    coarse_scores[letter] = (score, float(angle))
+            coarse_glyphs.append(self._normalize_glyph(rotated))
+
+        coarse_batch = self._score_rotation_batch(coarse_glyphs)
+        coarse_scores = {}
+        for letter in LETTERS:
+            best_index = int(np.argmax(coarse_batch[letter]))
+            coarse_scores[letter] = (
+                float(coarse_batch[letter][best_index]),
+                float(RECTIFIED_ROTATION_ANGLES_DEG[best_index]),
+            )
 
         coarse_order = sorted(
             ((score, letter, angle) for letter, (score, angle) in coarse_scores.items()),
@@ -603,7 +680,8 @@ class ABCDDetector:
         )
         best_score, best_letter, best_angle = coarse_order[0]
         runner_up = coarse_order[1][0] if len(coarse_order) > 1 else 0.0
-        fine_best = (best_score, best_angle)
+        fine_angles = []
+        fine_glyphs = []
         for offset in range(
             -ROTATION_FINE_RADIUS_DEG,
             ROTATION_FINE_RADIUS_DEG + 1,
@@ -615,12 +693,14 @@ class ABCDDetector:
                 canvas, matrix, (side, side), flags=cv2.INTER_LINEAR,
                 borderMode=cv2.BORDER_CONSTANT, borderValue=0,
             )
-            normalized = self._normalize_glyph(rotated)
-            score = self._best_template_score(normalized, normalized > 127, best_letter)
-            if score > fine_best[0]:
-                fine_best = (score, angle)
+            fine_angles.append(angle)
+            fine_glyphs.append(self._normalize_glyph(rotated))
 
-        best_score, best_angle = fine_best
+        fine_scores = self._score_rotation_batch(fine_glyphs)[best_letter]
+        fine_index = int(np.argmax(fine_scores))
+        if float(fine_scores[fine_index]) > best_score:
+            best_score = float(fine_scores[fine_index])
+            best_angle = float(fine_angles[fine_index])
         confidence = max(0.0, min(1.0, best_score + 0.18 * (best_score - runner_up)))
         margin = best_score - runner_up
         # Task-three blocks are often seen at an oblique angle or with a

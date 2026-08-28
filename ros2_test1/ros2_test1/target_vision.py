@@ -293,7 +293,7 @@ COLUMN_CATCH_AUX14_TICK, COLUMN_CATCH_AUX15_TICK, COLUMN_CATCH_GRIPPER_CLOSED_TI
 COLUMN_CATCH_SPLITTER_TICK = COLUMN_CATCH_AUX14_TICK
 COLUMN_CATCH_CATCHER_HOME_TICK = COLUMN_CATCH_AUX15_TICK
 COLUMN_CATCH_HOLD_HIGH = (650, 600, 413)
-COLUMN_CATCH_FINAL_ID2_OFFSET_TICKS = -25
+COLUMN_CATCH_FINAL_ID2_OFFSET_TICKS = -30
 COLUMN_CATCH_GRIPPER_OPEN_TICK = PLATFORM_GRIPPER_OPEN
 COLUMN_CATCH_GRIPPER_TIME_MS = PLATFORM_GRIPPER_TIME_MS
 COLUMN_CATCH_CENTER_DEADBAND_PX = PLATFORM_CENTER_DEADBAND_PX
@@ -302,7 +302,7 @@ COLUMN_CATCH_ID6_CENTER_RANGE = PLATFORM_CENTER_ID6_RANGE
 COLUMN_CATCH_ID2_CENTER_STEP_TICKS = PLATFORM_CENTER_ID2_STEP_TICKS
 COLUMN_CATCH_ID6_CENTER_STEP_TICKS = PLATFORM_CENTER_ID6_STEP_TICKS
 TASK3_RING_PLACE_HIGH = (650, 550, 413)
-TASK3_RING_PLACE_RETURN_HIGH = (610, 460, 413)
+TASK3_RING_PLACE_RETURN_HIGH = (620, 440, 413)
 TASK3_RING_PLACE_POSE = (470, 350, 171)
 TASK3_RING_PLACE_AXIS_TIME_MS = 500
 TASK3_RING_PLACE_ID1_TIME_MS = 700
@@ -313,8 +313,8 @@ TASK3_RING_PLACE_GRIPPER_TIME_MS = 200
 TASK3_RING_PLACE_SLOW_CLOSE_TIME_MS = 2000
 TASK3_RING_PLACE_RELEASE_GRIPPER_TIME_MS = 1000
 TASK3_RING_PLACE_RELEASE_HOLD_MS = 1500
-TASK3_RING_PLACE_RELEASE_ID1_TICK = 590
-TASK3_RING_PLACE_RELEASE_ID2_TICK = 441
+TASK3_RING_PLACE_RELEASE_ID1_TICK = 605
+TASK3_RING_PLACE_RELEASE_ID2_TICK = 433
 TASK3_RING_PLACE_RELEASE_ID1_TIME_MS = 1000
 TASK3_RING_PLACE_RELEASE_ID1_HOLD_MS = 1000
 TASK3_RING_PLACE_CONTRACT_AXIS_TIME_MS = 500
@@ -7762,6 +7762,7 @@ class TargetDetector:
         # Loading the ABCD model is unnecessary during task-one ball search.
         # Create it only when a letter-capable mode is actually selected.
         self.letter_detector = None
+        self._task3_roi_detection_count = 0
 
     def _detect_letters(self, frame):
         if self.letter_detector is None:
@@ -7795,12 +7796,15 @@ class TargetDetector:
                     np.asarray(detection["box"], dtype=np.int32)
                     + np.asarray((x0, y0), dtype=np.int32)
                 )
-        # During centering the locked block can leave the old ROI for a few
-        # frames, or its white border can split under perspective. Always add
-        # a full-frame pass while a block is locked. The station controller
-        # still applies the locked block and label filters, so an unrelated
-        # letter cannot authorize a grasp; the extra candidates only make
-        # same-block reacquisition possible after the ROI becomes stale.
+        # Keep normal centering on the current block ROI. A periodic full-frame
+        # pass preserves same-block recovery when the ROI becomes stale without
+        # paying for two rotation searches on every camera frame.
+        self._task3_roi_detection_count += 1
+        run_full_frame_recovery = (
+            not detections or self._task3_roi_detection_count % 5 == 0
+        )
+        if not run_full_frame_recovery:
+            return detections
         full_frame_detections = self.letter_detector.detect_task3_rotated(
             frame, frame_shape=frame.shape
         )
