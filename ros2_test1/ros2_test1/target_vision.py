@@ -149,6 +149,10 @@ COLUMN_BLOCK_MIN_EDGE_WHITE_RATIO = 0.30
 COLUMN_BLOCK_MIN_CORNER_WHITE_RATIO = 0.18
 COLUMN_BLOCK_MIN_INNER_NONWHITE_RATIO = 0.15
 COLUMN_BLOCK_MAX_CIRCULARITY = 0.88
+# A rotated glyph can split the axis-aligned white border into short fragments.
+# This relaxed floor is used only after the task-three letter classifier has
+# found a complete rotated A/B/C/D candidate; the green and interior gates stay.
+COLUMN_BLOCK_INFERRED_MIN_EDGE_WHITE_RATIO = 0.10
 # Keep H7 stopped long enough to classify the fresh letter inside the locked
 # white-block ROI. A selected letter then gets a separate bounded tracking
 # grace period while the arm centers; a brief detector gap must not skip it.
@@ -225,9 +229,9 @@ TASK1_ID14_FIELD_TICK = 500
 TASK1_ID14_YELLOW_TICK = 180
 TASK1_ID14_TIME_MS = 35
 TASK1_ID15_RETRACT_TICK = 510
-TASK1_ID15_OPEN_TICK = 650
+TASK1_ID15_OPEN_TICK = 620
 TASK1_AUX_TIME_MS = 100
-SPLITTER_RETRACT_TICK = 300
+SPLITTER_RETRACT_TICK = 100
 CATCHER_HOME_TICK = 510
 CATCHER_RELEASE_READY_TICK = TASK1_ID15_OPEN_TICK
 POST_GRAB_ID2_RETREAT_TICK = 100
@@ -243,8 +247,8 @@ DISC_CATCH_TARGET_TIMEOUT_S = 4.0
 # Formal task-one physical HTD85 ID17 gripper contract.
 # Keep both field-specific values separate from the shared task-two/task-three
 # gripper values.
-DISC_CATCH_RED_GRIPPER_OPEN_TICK = 480
-DISC_CATCH_BLUE_GRIPPER_OPEN_TICK = 480
+DISC_CATCH_RED_GRIPPER_OPEN_TICK = 500
+DISC_CATCH_BLUE_GRIPPER_OPEN_TICK = 500
 DISC_CATCH_BLUE_GRIPPER_CLOSED_TICK = 265
 # Task-one ball trigger window in the original 800x600 main-camera frame.
 # This gate is applied after field-color filtering and is not used by tasks 2/3.
@@ -8006,7 +8010,7 @@ class TargetDetector:
         the same white patch, so requiring every axis-aligned edge band to be
         25% white can reject a real block that is otherwise safe to track.
         Keep the independent shape, visibility, white-interior, and green
-        support gates, but use a 14% edge-fragment floor for this proxy.
+        support gates, but use a 10% edge-fragment floor for this proxy.
         """
         if letter.get("kind") != "letter" or not letter.get("fully_visible", True):
             return None
@@ -8049,7 +8053,7 @@ class TargetDetector:
             cv2.countNonZero(white[y:y + box_height, x:x + edge_band]) / float(max(1, box_height * edge_band)),
             cv2.countNonZero(white[y:y + box_height, x + box_width - edge_band:x + box_width]) / float(max(1, box_height * edge_band)),
         )
-        if min(edge_ratios) < 0.14:
+        if min(edge_ratios) < COLUMN_BLOCK_INFERRED_MIN_EDGE_WHITE_RATIO:
             return None
         margin_x = max(4, int(round(box_width * 0.16)))
         margin_y = max(4, int(round(box_height * 0.16)))

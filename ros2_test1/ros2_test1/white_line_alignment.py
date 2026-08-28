@@ -6,6 +6,13 @@ import cv2
 import numpy as np
 
 
+TASK3_ABSOLUTE_WHITE_VALUE_MIN = 180
+TASK3_ABSOLUTE_WHITE_SATURATION_MAX = 100
+TASK3_SCANLINE_MIN_ABSOLUTE_WHITE_RATIO = 0.08
+TASK3_MIN_ABSOLUTE_WHITE_PIXEL_RATIO = 0.06
+TASK3_MIN_ABSOLUTE_WHITE_COLUMN_RATIO = 0.20
+
+
 class WhiteLineAlignmentDetector:
     def __init__(
         self,
@@ -1008,8 +1015,14 @@ class WhiteLineAlignmentDetector:
             group_bottom = min(y1 - 1, candidate[-1][0] + 3)
             sample = hsv[group_top:group_bottom + 1, group_left:group_right + 1]
             absolute_white_ratio = float(np.mean(
-                (sample[:, :, 2] >= 180) & (sample[:, :, 1] <= 100)
+                (sample[:, :, 2] >= TASK3_ABSOLUTE_WHITE_VALUE_MIN)
+                & (sample[:, :, 1] <= TASK3_ABSOLUTE_WHITE_SATURATION_MAX)
             )) if sample.size else 0.0
+            if (
+                absolute_white_ratio < TASK3_SCANLINE_MIN_ABSOLUTE_WHITE_RATIO
+                or len(terminal_rows) < 3
+            ):
+                return -1.0e6
             y_score = max(
                 -1.0,
                 1.0 - abs(group_y - reference_y) / max(1.0, height * 0.30),
@@ -1260,6 +1273,59 @@ class WhiteLineAlignmentDetector:
             "right_edge_x": right_edge_x,
         }
 
+    @staticmethod
+    def _task3_has_absolute_white_support(frame, measurement):
+        """Require continuous true-white pixels along the fitted strip."""
+        if frame is None or frame.size == 0 or measurement is None:
+            return False
+        bounds = measurement.get("bounds")
+        center_line = measurement.get("center_line")
+        if bounds is None or center_line is None:
+            return False
+
+        height, width = frame.shape[:2]
+        x, y, box_width, box_height = [int(round(value)) for value in bounds]
+        x0 = max(0, x)
+        y0 = max(0, y)
+        x1 = min(width, x + box_width)
+        y1 = min(height, y + box_height)
+        if x1 - x0 < max(60, int(width * 0.08)) or y1 <= y0:
+            return False
+
+        hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
+        absolute_white = (
+            (hsv[:, :, 2] >= TASK3_ABSOLUTE_WHITE_VALUE_MIN)
+            & (hsv[:, :, 1] <= TASK3_ABSOLUTE_WHITE_SATURATION_MAX)
+        )
+        line_mask = np.zeros((y1 - y0, x1 - x0), dtype=np.uint8)
+        (line_x0, line_y0), (line_x1, line_y1) = center_line
+        thickness = float(measurement.get("thickness", box_height))
+        support_thickness = int(np.clip(max(7.0, thickness * 1.3), 7, 37))
+        cv2.line(
+            line_mask,
+            (int(round(line_x0)) - x0, int(round(line_y0)) - y0),
+            (int(round(line_x1)) - x0, int(round(line_y1)) - y0),
+            255,
+            support_thickness,
+        )
+        support = line_mask > 0
+        supported_columns = np.any(support, axis=0)
+        support_column_count = int(np.count_nonzero(supported_columns))
+        if support_column_count <= 0:
+            return False
+        white_support = absolute_white & support
+        white_column_ratio = float(
+            np.count_nonzero(np.any(white_support, axis=0))
+            / support_column_count
+        )
+        white_pixel_ratio = float(
+            np.count_nonzero(white_support) / max(1, np.count_nonzero(support))
+        )
+        return (
+            white_column_ratio >= TASK3_MIN_ABSOLUTE_WHITE_COLUMN_RATIO
+            and white_pixel_ratio >= TASK3_MIN_ABSOLUTE_WHITE_PIXEL_RATIO
+        )
+
     def _task3_measurement_is_continuous(self, measurement):
         """Reject implausible frame-to-frame jumps to another bright object."""
         previous = self._task3_last_measurement
@@ -1287,6 +1353,11 @@ class WhiteLineAlignmentDetector:
 
     def _task3_accept_measurement(self, frame, measurement):
         """Accept only continuous geometry or recover the last valid strip."""
+        if (
+            measurement is not None
+            and not self._task3_has_absolute_white_support(frame, measurement)
+        ):
+            measurement = None
         if measurement is None:
             return self._task3_recover_last()
         if self._task3_measurement_is_continuous(measurement):
@@ -1357,6 +1428,11 @@ class WhiteLineAlignmentDetector:
                 task3_max_line_y:
             # The lower vehicle/arm structure can satisfy task-two's wider
             # vertical gate. It is outside the task-three line search band.
+            strict = None
+        if (
+            strict is not None
+            and not self._task3_has_absolute_white_support(frame, strict)
+        ):
             strict = None
         if strict is not None and not strict.get("held", False):
             # The strict edge fitter intentionally drops short support runs.
@@ -1472,6 +1548,19 @@ class WhiteLineAlignmentDetector:
             shifted[:, :, 0] -= x
             shifted[:, :, 1] -= y
             cv2.drawContours(component, [shifted], -1, 255, cv2.FILLED)
+            absolute_white = (
+                (hsv[y:y + box_height, x:x + box_width, 2]
+                 >= TASK3_ABSOLUTE_WHITE_VALUE_MIN)
+                & (hsv[y:y + box_height, x:x + box_width, 1]
+                   <= TASK3_ABSOLUTE_WHITE_SATURATION_MAX)
+            )
+            component_pixels = component > 0
+            absolute_white_ratio = float(
+                np.count_nonzero(absolute_white & component_pixels)
+                / max(1, np.count_nonzero(component_pixels))
+            )
+            if absolute_white_ratio < TASK3_SCANLINE_MIN_ABSOLUTE_WHITE_RATIO:
+                continue
             horizontal_coverage = float(
                 np.count_nonzero(np.any(component > 0, axis=0)) /
                 max(1.0, box_width)
