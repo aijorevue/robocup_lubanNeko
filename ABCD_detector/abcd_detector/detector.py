@@ -54,6 +54,7 @@ class ABCDDetector:
         self.templates = self._build_templates()
         self.template_bank = self._build_template_bank()
         self._build_rotation_template_features()
+        self._rotation_matrices = {}
 
     def _load_config(self, config_path):
         """Load optional package config without requiring a workspace path."""
@@ -658,11 +659,16 @@ class ABCDDetector:
         center = ((side - 1) / 2.0, (side - 1) / 2.0)
         coarse_glyphs = []
         for angle in RECTIFIED_ROTATION_ANGLES_DEG:
-            matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
-            rotated = cv2.warpAffine(
-                canvas, matrix, (side, side), flags=cv2.INTER_LINEAR,
-                borderMode=cv2.BORDER_CONSTANT, borderValue=0,
-            )
+            # These rotations map integer pixels exactly: avoid affine
+            # interpolation for the four quarter-turn coarse candidates.
+            if angle == 0:
+                rotated = canvas
+            elif angle == 90:
+                rotated = cv2.rotate(canvas, cv2.ROTATE_90_COUNTERCLOCKWISE)
+            elif angle == 180:
+                rotated = cv2.rotate(canvas, cv2.ROTATE_180)
+            else:
+                rotated = cv2.rotate(canvas, cv2.ROTATE_90_CLOCKWISE)
             coarse_glyphs.append(self._normalize_glyph(rotated))
 
         coarse_batch = self._score_rotation_batch(coarse_glyphs)
@@ -688,12 +694,21 @@ class ABCDDetector:
             ROTATION_FINE_STEP_DEG,
         ):
             angle = (best_angle + offset) % 360.0
-            matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
+            fine_angles.append(angle)
+            if offset == 0:
+                fine_glyphs.append(coarse_glyphs[
+                    RECTIFIED_ROTATION_ANGLES_DEG.index(int(best_angle))
+                ])
+                continue
+            matrix_key = (side, angle)
+            matrix = self._rotation_matrices.get(matrix_key)
+            if matrix is None:
+                matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
+                self._rotation_matrices[matrix_key] = matrix
             rotated = cv2.warpAffine(
                 canvas, matrix, (side, side), flags=cv2.INTER_LINEAR,
                 borderMode=cv2.BORDER_CONSTANT, borderValue=0,
             )
-            fine_angles.append(angle)
             fine_glyphs.append(self._normalize_glyph(rotated))
 
         fine_scores = self._score_rotation_batch(fine_glyphs)[best_letter]

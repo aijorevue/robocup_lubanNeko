@@ -734,6 +734,46 @@ def detection_process_worker(
         )
     return result, time.perf_counter() - detect_started
 
+
+def task3_detection_thread_worker(
+    detect_frame,
+    source_shape,
+    detection_scale,
+    detection_mode,
+    field_name,
+    target_letters=(),
+    *,
+    task3_roi=None,
+):
+    """Detect on the already-scaled task-three frame and restore source coordinates."""
+    source_height, source_width = source_shape[:2]
+    detect_height, detect_width = detect_frame.shape[:2]
+    detect_roi = None
+    if task3_roi is not None and len(task3_roi) >= 4:
+        x, y, roi_width, roi_height = (float(value) for value in task3_roi[:4])
+        detect_roi = (
+            int(round(x * detection_scale)),
+            int(round(y * detection_scale)),
+            int(round(roi_width * detection_scale)),
+            int(round(roi_height * detection_scale)),
+        )
+    result, elapsed = detection_process_worker(
+        detect_frame,
+        1.0,
+        detection_mode,
+        field_name,
+        target_letters,
+        task3_roi=detect_roi,
+    )
+    return (
+        scale_detections(
+            result,
+            source_width / float(detect_width),
+            source_height / float(detect_height),
+        ),
+        elapsed,
+    )
+
 _PROCESS_SECONDARY_DETECTOR = None
 
 
@@ -9098,6 +9138,14 @@ def main(argv=None):
         max_workers=1,
         mp_context=multiprocessing.get_context("spawn"),
     )
+    # Task three is CPU-only OpenCV/NumPy work. A dedicated single thread
+    # preserves the latest-frame/no-queue contract while avoiding the formal
+    # process worker's 800x600 frame serialization. Tasks one and two remain
+    # on the existing process executor and retain their current behavior.
+    task3_detection_executor = concurrent.futures.ThreadPoolExecutor(
+        max_workers=1,
+        thread_name_prefix="task3-detection",
+    )
     secondary_detection_executor = concurrent.futures.ProcessPoolExecutor(
         max_workers=1,
         mp_context=multiprocessing.get_context("spawn"),
@@ -9872,19 +9920,51 @@ def main(argv=None):
                         int(bw) + pad_x * 2,
                         int(bh) + pad_y * 2,
                     )
-                detection_future = detection_executor.submit(
-                    detection_process_worker,
-                    detection_pending_frame,
-                    detection_scale,
-                    requested_detection_mode,
-                    grasp_controller.field_mode.value,
-                    tuple(
-                        grasp_controller.platform_selected_letters
-                        if requested_detection_mode == DETECTION_MODE_PLATFORM_TARGETS
-                        else target_letters
-                    ),
-                    task3_roi=task3_roi,
+                active_detection_executor = (
+                    task3_detection_executor
+                    if requested_detection_mode in {
+                        DETECTION_MODE_COLUMN_BLOCKS,
+                        DETECTION_MODE_COLUMN_ROTATED_LETTERS,
+                    }
+                    else detection_executor
                 )
+                detection_target_letters = tuple(
+                    grasp_controller.platform_selected_letters
+                    if requested_detection_mode == DETECTION_MODE_PLATFORM_TARGETS
+                    else target_letters
+                )
+                if active_detection_executor is task3_detection_executor:
+                    detect_width = max(
+                        1, int(round(detection_pending_frame.shape[1] * detection_scale))
+                    )
+                    detect_height = max(
+                        1, int(round(detection_pending_frame.shape[0] * detection_scale))
+                    )
+                    task3_detect_frame = cv2.resize(
+                        detection_pending_frame,
+                        (detect_width, detect_height),
+                        interpolation=cv2.INTER_AREA,
+                    )
+                    detection_future = active_detection_executor.submit(
+                        task3_detection_thread_worker,
+                        task3_detect_frame,
+                        detection_pending_frame.shape,
+                        detection_scale,
+                        requested_detection_mode,
+                        grasp_controller.field_mode.value,
+                        detection_target_letters,
+                        task3_roi=task3_roi,
+                    )
+                else:
+                    detection_future = active_detection_executor.submit(
+                        detection_process_worker,
+                        detection_pending_frame,
+                        detection_scale,
+                        requested_detection_mode,
+                        grasp_controller.field_mode.value,
+                        detection_target_letters,
+                        task3_roi=task3_roi,
+                    )
             detection_frame_index += 1
             post_started = time.perf_counter()
             active_target_letters = (
@@ -10111,6 +10191,7 @@ def main(argv=None):
     finally:
         state.running = False
         detection_executor.shutdown(wait=False, cancel_futures=True)
+        task3_detection_executor.shutdown(wait=False, cancel_futures=True)
         if (
             secondary_detection_warmup_future is not None
             and not secondary_detection_warmup_future.done()
