@@ -236,9 +236,11 @@ DISC_CATCH_CATCHER_READY_TICK = TASK1_ID15_OPEN_TICK
 DISC_CATCH_PREP_SPLITTER_TICK = TASK1_ID14_RETRACT_TICK
 DISC_CATCH_SPLITTER_READY_TICK = TASK1_ID14_RETRACT_TICK
 DISC_CATCH_TARGET_TIMEOUT_S = 4.0
-# Formal BLUE task-one physical HTD85 ID17 gripper contract.
-# Keep this separate from the shared task-two/task-three gripper values.
-DISC_CATCH_BLUE_GRIPPER_OPEN_TICK = 450
+# Formal task-one physical HTD85 ID17 gripper contract.
+# Keep both field-specific values separate from the shared task-two/task-three
+# gripper values.
+DISC_CATCH_RED_GRIPPER_OPEN_TICK = 435
+DISC_CATCH_BLUE_GRIPPER_OPEN_TICK = 480
 DISC_CATCH_BLUE_GRIPPER_CLOSED_TICK = 265
 # Task-one ball trigger window in the original 800x600 main-camera frame.
 # This gate is applied after field-color filtering and is not used by tasks 2/3.
@@ -3373,7 +3375,7 @@ class TargetGraspController:
     def _disc_catch_gripper_open_tick(self):
         if self.field_mode == FieldMode.BLUE:
             return DISC_CATCH_BLUE_GRIPPER_OPEN_TICK
-        return self.id7_open
+        return DISC_CATCH_RED_GRIPPER_OPEN_TICK
 
     def _disc_catch_gripper_closed_tick(self):
         if self.field_mode == FieldMode.BLUE:

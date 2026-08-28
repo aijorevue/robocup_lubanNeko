@@ -367,7 +367,17 @@ class WhiteLineAlignmentDetector:
                 np.count_nonzero(np.any(component > 0, axis=0)) /
                 max(1.0, box_width)
             )
-            if horizontal_coverage < 0.55 or fill_ratio > 0.82:
+            if horizontal_coverage < 0.55:
+                continue
+            # A clean field strip can become almost fully filled after the
+            # morphology pass. Keep that thin, long geometry while still
+            # rejecting solid bright boxes and chassis structures.
+            is_solid_reference_strip = (
+                box_height <= height * 0.06
+                and length / max(1.0, thickness) >= 12.0
+                and horizontal_coverage >= 0.80
+            )
+            if fill_ratio > 0.82 and not is_solid_reference_strip:
                 continue
 
             contrast = self._local_contrast(
@@ -466,17 +476,46 @@ class WhiteLineAlignmentDetector:
             rect = cv2.minAreaRect(contour)
             length = float(max(rect[1]))
             thickness = float(min(rect[1]))
+            local_contrast = self._local_contrast(
+                gray, x, y, box_width, box_height
+            )
+            edge_geometry = self._fit_task2_band_edges(
+                contour, (x, y, box_width, box_height), width, height
+            )
+            has_embedded_reference_strip = bool(
+                edge_geometry is not None
+                and box_width >= width * 0.45
+                and height * 0.005 <= edge_geometry["thickness"] <= height * 0.06
+                and height * 0.22 <= edge_geometry["y_at_center"] < height * 0.94
+                and abs(edge_geometry["angle_deg"]) <= 25.0
+                and local_contrast >= 12.0
+            )
+            effective_thickness = (
+                float(edge_geometry["thickness"])
+                if has_embedded_reference_strip
+                else thickness
+            )
             if length < width * 0.25:
                 continue
-            if thickness < height * 0.005 or thickness > height * 0.10:
+            if (
+                effective_thickness < height * 0.005
+                or effective_thickness > height * 0.10
+            ):
                 continue
             # Reject bright structures attached to the top of the search ROI.
             # This is geometric, so it remains valid when the line moves in Y.
-            if y <= y0 + height * 0.04 and box_height > height * 0.06:
+            if (
+                not has_embedded_reference_strip
+                and y <= y0 + height * 0.04
+                and box_height > height * 0.06
+            ):
                 continue
             # A large bright box can be long and rectangular too, but it is
             # substantially thicker and more solid than the field strip.
-            if box_height > height * 0.12:
+            if (
+                not has_embedded_reference_strip
+                and box_height > height * 0.12
+            ):
                 continue
             component = np.zeros((box_height, box_width), dtype=np.uint8)
             shifted = contour.copy()
@@ -485,15 +524,17 @@ class WhiteLineAlignmentDetector:
             cv2.drawContours(component, [shifted], -1, 255, cv2.FILLED)
             fill_ratio = float(np.count_nonzero(component) /
                                max(1.0, box_width * box_height))
-            if box_height > height * 0.07 and fill_ratio > 0.68:
+            if (
+                not has_embedded_reference_strip
+                and box_height > height * 0.07
+                and fill_ratio > 0.68
+            ):
                 continue
-            if length / max(1.0, thickness) < 4.5:
+            if length / max(1.0, effective_thickness) < 4.5:
                 continue
             if area < width * height * 0.0015:
                 continue
-            if self._local_contrast(
-                gray, x, y, box_width, box_height
-            ) < 12.0:
+            if local_contrast < 12.0:
                 continue
             # The field strip is a long, continuous band crossing most of
             # the lower view. Short bright seams and the upper white box do
@@ -515,11 +556,21 @@ class WhiteLineAlignmentDetector:
             )
             if horizontal_coverage < 0.65:
                 continue
-            if box_width > width * 0.55 and fill_ratio > 0.58:
-                continue
-            edge_geometry = self._fit_task2_band_edges(
-                contour, (x, y, box_width, box_height), width, height
+            # Do not reject a genuinely clean white strip merely because its
+            # thresholded contour is solid. Large bright structures remain
+            # excluded by their height/aspect geometry and the ROI checks.
+            is_solid_reference_strip = (
+                box_height <= height * 0.06
+                and length / max(1.0, thickness) >= 12.0
+                and horizontal_coverage >= 0.80
+                and local_contrast >= 12.0
             )
+            if (
+                box_width > width * 0.55
+                and fill_ratio > 0.58
+                and not is_solid_reference_strip
+            ):
+                continue
             if edge_geometry is None:
                 angle_deg, y_at_center = self._fitted_line(
                     contour, width, height
