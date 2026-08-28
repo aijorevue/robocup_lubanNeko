@@ -236,6 +236,16 @@ DISC_CATCH_CATCHER_READY_TICK = TASK1_ID15_OPEN_TICK
 DISC_CATCH_PREP_SPLITTER_TICK = TASK1_ID14_RETRACT_TICK
 DISC_CATCH_SPLITTER_READY_TICK = TASK1_ID14_RETRACT_TICK
 DISC_CATCH_TARGET_TIMEOUT_S = 4.0
+# Formal BLUE task-one physical HTD85 ID17 gripper contract.
+# Keep this separate from the shared task-two/task-three gripper values.
+DISC_CATCH_BLUE_GRIPPER_OPEN_TICK = 450
+DISC_CATCH_BLUE_GRIPPER_CLOSED_TICK = 265
+# Task-one ball trigger window in the original 800x600 main-camera frame.
+# This gate is applied after field-color filtering and is not used by tasks 2/3.
+DISC_CATCH_WINDOW_X_MIN = 290
+DISC_CATCH_WINDOW_X_MAX = 790
+DISC_CATCH_WINDOW_Y_MIN = 100
+DISC_CATCH_WINDOW_Y_MAX = 500
 DISC_CATCH_SPLITTER_FIELD_TICK = TASK1_ID14_FIELD_TICK
 DISC_CATCH_SPLITTER_YELLOW_TICK = TASK1_ID14_YELLOW_TICK
 DISC_CATCH_SPLITTER_RESET_TICK = TASK1_ID14_RETRACT_TICK
@@ -2331,15 +2341,16 @@ class TargetGraspController:
         previous_splitter = self.splitter_id4
         previous_id5 = self.id5
         previous_id7 = self.id7
+        gripper_open_tick = self._disc_catch_gripper_open_tick()
         splitter_target = int(splitter_target)
         catcher_target = int(catcher_target)
-        self.arm_preview.set_targets(self.id1, self.id2, self.id7_open, self.id6)
+        self.arm_preview.set_targets(self.id1, self.id2, gripper_open_tick, self.id6)
         self.arm_preview.publish(reason)
         print(
             f"DISC OPEN reason={reason} ID1={self.id1} ID2={self.id2} ID6={self.id6} "
             f"ID14={previous_splitter}->{splitter_target} "
             f"ID15={previous_id5}->{catcher_target} "
-            f"ID17={previous_id7}->{self.id7_open}",
+            f"ID17={previous_id7}->{gripper_open_tick}",
             flush=True,
         )
         previous_gripper_time = getattr(
@@ -2351,7 +2362,7 @@ class TargetGraspController:
             self.status = self.servo_bridge.send_targets(
                 splitter_id4=splitter_target,
                 id5=catcher_target,
-                id4=self.id7_open,
+                id4=gripper_open_tick,
                 aux_time_ms=TASK1_AUX_TIME_MS,
                 splitter_time_ms=TASK1_ID14_TIME_MS,
             )
@@ -2372,7 +2383,7 @@ class TargetGraspController:
             return self.status
         self.splitter_id4 = splitter_target
         self.id5 = catcher_target
-        self.id7 = self.id7_open
+        self.id7 = gripper_open_tick
         self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
         return (
             f"{reason}: ID14={self.splitter_id4} ID15={self.id5} "
@@ -3359,6 +3370,35 @@ class TargetGraspController:
     def _disc_catch_allowed_colors(self):
         return self.target_policy.disc_colors
 
+    def _disc_catch_gripper_open_tick(self):
+        if self.field_mode == FieldMode.BLUE:
+            return DISC_CATCH_BLUE_GRIPPER_OPEN_TICK
+        return self.id7_open
+
+    def _disc_catch_gripper_closed_tick(self):
+        if self.field_mode == FieldMode.BLUE:
+            return DISC_CATCH_BLUE_GRIPPER_CLOSED_TICK
+        return self.id7_closed
+
+    @staticmethod
+    def _disc_catch_detection_center(det):
+        center = det.get("center")
+        if center is not None and len(center) >= 2:
+            try:
+                return float(center[0]), float(center[1])
+            except (TypeError, ValueError):
+                pass
+        bbox = det.get("bbox")
+        if bbox is not None and len(bbox) >= 4:
+            try:
+                return (
+                    float(bbox[0]) + float(bbox[2]) * 0.5,
+                    float(bbox[1]) + float(bbox[3]) * 0.5,
+                )
+            except (TypeError, ValueError):
+                pass
+        return None
+
     def _disc_catch_ball_visible(self, detections):
         allowed_colors = self._disc_catch_allowed_colors()
         allowed = []
@@ -3368,6 +3408,15 @@ class TargetGraspController:
                 continue
             color = det.get("color")
             if color in allowed_colors:
+                center = self._disc_catch_detection_center(det)
+                if center is None:
+                    continue
+                center_x, center_y = center
+                if not (
+                    DISC_CATCH_WINDOW_X_MIN <= center_x <= DISC_CATCH_WINDOW_X_MAX
+                    and DISC_CATCH_WINDOW_Y_MIN <= center_y <= DISC_CATCH_WINDOW_Y_MAX
+                ):
+                    continue
                 allowed.append(det)
             elif color in {"red", "blue", "yellow"}:
                 rejected.append(color)
@@ -4428,6 +4477,8 @@ class TargetGraspController:
         if station != "DISC_CATCH" or self.chassis_station_stage is None:
             return None
         now = time.monotonic()
+        disc_open_tick = self._disc_catch_gripper_open_tick()
+        disc_closed_tick = self._disc_catch_gripper_closed_tick()
         ball = self._disc_catch_ball_visible(detections) if detection_fresh else None
         if detection_fresh and ball is not None:
             self.chassis_station_no_target_deadline = (
@@ -4538,7 +4589,7 @@ class TargetGraspController:
                 self.disc_pulse_done = True
                 self.splitter_id4 = splitter_target
                 self.id5 = catcher_target
-                self.id7 = self.id7_open
+                self.id7 = disc_open_tick
                 self.chassis_station_stage = "disc_open_wait"
                 self.chassis_station_deadline = now + self._disc_open_hold_s()
                 self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
@@ -4561,13 +4612,13 @@ class TargetGraspController:
         if self.chassis_station_stage == "disc_open":
             self.state = "DISC_CATCH open claw"
             if not self.servo_bridge.write_enabled:
-                self.id7 = self.id7_open
+                self.id7 = disc_open_tick
                 self.chassis_station_stage = "disc_open_wait"
                 self.chassis_station_deadline = now + self._disc_open_hold_s()
                 self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
                 return "preview DISC_CATCH open ID7 pulse"
             status = self._send_gripper_id7(
-                self.id7_open,
+                disc_open_tick,
                 "DISC_CATCH open ID7 pulse",
                 motion_ms=(DISC_CATCH_GRIPPER_TIME_MS if self.disc_fast_blue_cycle else None),
             )
@@ -4586,13 +4637,13 @@ class TargetGraspController:
         if self.chassis_station_stage == "disc_close":
             self.state = "DISC_CATCH close claw"
             if not self.servo_bridge.write_enabled:
-                self.id7 = self.id7_closed
+                self.id7 = disc_closed_tick
                 self.chassis_station_stage = "disc_close_confirm"
                 self.chassis_station_deadline = now + DISC_CATCH_CLOSE_CONFIRM_DELAY_S
                 self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
                 return "preview DISC_CATCH close ID7 pulse"
             status = self._send_gripper_id7(
-                self.id7_closed,
+                disc_closed_tick,
                 "DISC_CATCH close ID7 pulse",
                 motion_ms=(DISC_CATCH_GRIPPER_TIME_MS if self.disc_fast_blue_cycle else None),
             )
@@ -4615,7 +4666,7 @@ class TargetGraspController:
                 self.chassis_station_deadline = now + self._disc_gripper_motion_s()
                 return "preview DISC_CATCH close ID7 confirm"
             status = self._send_gripper_id7(
-                self.id7_closed,
+                disc_closed_tick,
                 "DISC_CATCH close ID7 confirm",
                 motion_ms=(DISC_CATCH_GRIPPER_TIME_MS if self.disc_fast_blue_cycle else None),
             )
