@@ -151,9 +151,9 @@ class Fixture:
 
 
 class TestPlatformTask(unittest.TestCase):
-    def test_ring_center_deadband_is_10px_while_letters_stay_at_45px(self):
+    def test_ring_center_deadband_is_30px_while_letters_stay_at_45px(self):
         self.assertEqual(CENTER_DEADBAND_PX, 45)
-        self.assertEqual(RING_CENTER_DEADBAND_PX, 10)
+        self.assertEqual(RING_CENTER_DEADBAND_PX, 30)
 
         # At 40 px from center, the ring still needs a correction, while a
         # letter is already centered under the existing 45 px contract.
@@ -249,8 +249,8 @@ class TestPlatformTask(unittest.TestCase):
                 )
                 self.assertEqual(f.task.done, 'PICKED_' + kind.upper())
 
-    def test_center_window_requires_500px_and_80_percent_bbox_overlap(self):
-        self.assertEqual(TARGET_WINDOW_SIZE_PX, 500)
+    def test_center_window_requires_400px_and_80_percent_bbox_overlap(self):
+        self.assertEqual(TARGET_WINDOW_SIZE_PX, 400)
         self.assertEqual(TARGET_WINDOW_MIN_AREA_FRACTION, 0.80)
         self.assertTrue(_target_in_center_window(
             letter(center=(400, 300)), (600, 800, 3)))
@@ -278,18 +278,18 @@ class TestPlatformTask(unittest.TestCase):
         f.task.tick()
         self.assertEqual(f.task.done, 'PRESELECT_DONE:A:C')
 
-    def test_secondary_pair_locks_after_two_consecutive_frames(self):
+    def test_secondary_pair_locks_after_one_frame_after_warmup(self):
         f = Fixture()
         f.task.begin_preselect()
-        self.assertEqual(SECONDARY_PAIR_REQUIRED_FRAMES, 2)
+        self.assertEqual(SECONDARY_PAIR_REQUIRED_FRAMES, 1)
         # The first camera frame is intentionally discarded as the one-frame
-        # preheat frame; only the following two frames count toward locking.
+        # preheat frame; the following valid pair locks immediately.
         f.task.preselect([letter('C', (100, 200)), letter('D', (600, 200))])
         self.assertFalse(f.writes)
         f.task.preselect([letter('C', (100, 200)), letter('D', (600, 200))])
         f.task.preselect([letter('C', (100, 200)), letter('D', (600, 200))])
         self.assertEqual(f.task.selected, ('C', 'D'))
-        self.assertEqual(f.task.preselect_lock_source, 'PAIR_2_FRAME')
+        self.assertEqual(f.task.preselect_lock_source, 'PAIR_1_FRAME')
 
     def test_secondary_history_fallback_chooses_two_distinct_labels(self):
         f = Fixture()
@@ -372,7 +372,8 @@ class TestPlatformTask(unittest.TestCase):
                     [
                         ('ring_high_id1', 650), ('ring_high_id2', 600),
                         ('ring_high_id6', 415), ('ring_id2', 400),
-                        ('ring_id6', 171), ('ring_id1_id2', 520, 345),
+                        ('ring_id6', 171),
+                        ('ring_id1_id2', RING_PLACE[0], RING_PLACE[1]),
                         ('gripper', PLATFORM_GRIPPER_OPEN),
                         ('gripper', PLATFORM_GRIPPER_CLOSED),
                         ('pose', INTERMEDIATE_HIGH, True),
@@ -479,11 +480,11 @@ class TestPlatformTask(unittest.TestCase):
 
     def test_formal_id2_adjustment_applies_to_letters_and_rings_7_to_13cm(self):
         cases = [
-            ('letter', 7.0, 630, 590, 570),
-            ('letter', 9.0, 610, 580, 570),
-            ('letter', 10.0, 600, 500, 570),
-            ('letter', 11.0, 590, 520, 570),
-            ('letter', 13.0, 570, 560, 570),
+            ('letter', 7.0, 630, 600, 570),
+            ('letter', 9.0, 610, 590, 570),
+            ('letter', 10.0, 600, 510, 570),
+            ('letter', 11.0, 590, 530, 570),
+            ('letter', 13.0, 570, 570, 570),
             ('ring', 7.0, 630, 572, 520),
             ('ring', 9.0, 610, 562, 520),
             ('ring', 10.0, 600, 482, 520),
@@ -684,7 +685,7 @@ class TestControllerAndProtocol(unittest.TestCase):
             for _ in range(28):
                 c.update_platform_preselect([letter('A', (100, 200)), letter('C', (600, 200))])
         self.assertIsNone(c.consume_chassis_station_done())
-        self.assertEqual((c.id1, c.id2, c.id6, c.id5, c.splitter_id4), (650, 600, 415, 600, 300))
+        self.assertEqual((c.id1, c.id2, c.id6, c.id5, c.splitter_id4), (650, 600, 415, 510, 300))
         c.platform_task.deadline = 0
         c.update_chassis_station('PLATFORM_PICK', [], (600, 800, 3), False)
         self.assertEqual(c.consume_chassis_station_done(), 'PRESELECT_DONE:A:C')

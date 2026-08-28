@@ -239,7 +239,7 @@ DISC_CATCH_TARGET_TIMEOUT_S = 4.0
 # Formal task-one physical HTD85 ID17 gripper contract.
 # Keep both field-specific values separate from the shared task-two/task-three
 # gripper values.
-DISC_CATCH_RED_GRIPPER_OPEN_TICK = 435
+DISC_CATCH_RED_GRIPPER_OPEN_TICK = 480
 DISC_CATCH_BLUE_GRIPPER_OPEN_TICK = 480
 DISC_CATCH_BLUE_GRIPPER_CLOSED_TICK = 265
 # Task-one ball trigger window in the original 800x600 main-camera frame.
@@ -313,10 +313,12 @@ COLUMN_CATCH_LETTER_PLACE_TIME_MS = 500
 # Formal BLUE task-three only: one fixed recovery grab before releasing the
 # post-orbit H7 hold when the selected letter pair still has a quota gap.
 TASK3_SUPPLEMENT_OPEN_HOLD_MS = 1000
-TASK3_SUPPLEMENT_EXPANDED_HIGH = (650, 600, 450)
+TASK3_SUPPLEMENT_EXPANDED_HIGH = (650, 610, 410)
 TASK3_SUPPLEMENT_DESCEND_ID1_TICK = 580
 TASK3_SUPPLEMENT_DESCEND_TIME_MS = 800
 TASK3_SUPPLEMENT_GRIPPER_TIME_MS = 200
+TASK3_SUPPLEMENT_GRIPPER_OPEN_TICK = 450
+TASK3_SUPPLEMENT_GRIPPER_CLOSED_TICK = 275
 TASK3_SUPPLEMENT_HIGH = (
     COLUMN_CATCH_READY_ID1_TICK,
     COLUMN_CATCH_READY_ID2_TICK,
@@ -4188,7 +4190,7 @@ class TargetGraspController:
             *pose,
             f"COLUMN_CATCH SUPPLEMENT {label}",
             raising=raising,
-            id7=COLUMN_CATCH_GRIPPER_CLOSED_TICK,
+            id7=TASK3_SUPPLEMENT_GRIPPER_CLOSED_TICK,
             id5=COLUMN_CATCH_CATCHER_HOME_TICK,
             splitter_id4=COLUMN_CATCH_SPLITTER_TICK,
         )
@@ -4221,7 +4223,7 @@ class TargetGraspController:
                         "id1": TASK3_SUPPLEMENT_EXPANDED_HIGH[0],
                         "id2": TASK3_SUPPLEMENT_EXPANDED_HIGH[1],
                         "id6": TASK3_SUPPLEMENT_EXPANDED_HIGH[2],
-                        "id7": COLUMN_CATCH_GRIPPER_OPEN_TICK,
+                        "id7": TASK3_SUPPLEMENT_GRIPPER_OPEN_TICK,
                     },
                 ),
                 (
@@ -4240,7 +4242,7 @@ class TargetGraspController:
                     "CLOSE_ID17",
                     self._task3_supplement_gripper,
                     (
-                        COLUMN_CATCH_GRIPPER_CLOSED_TICK,
+                        TASK3_SUPPLEMENT_GRIPPER_CLOSED_TICK,
                         TASK3_SUPPLEMENT_GRIPPER_TIME_MS,
                         "close ID17",
                     ),
@@ -4262,7 +4264,7 @@ class TargetGraspController:
                     "OPEN_RELEASE",
                     self._task3_supplement_gripper,
                     (
-                        COLUMN_CATCH_GRIPPER_OPEN_TICK,
+                        TASK3_SUPPLEMENT_GRIPPER_OPEN_TICK,
                         TASK3_SUPPLEMENT_GRIPPER_TIME_MS,
                         "release block",
                     ),
@@ -4272,7 +4274,7 @@ class TargetGraspController:
                     "CLOSE_RELEASE",
                     self._task3_supplement_gripper,
                     (
-                        COLUMN_CATCH_GRIPPER_CLOSED_TICK,
+                        TASK3_SUPPLEMENT_GRIPPER_CLOSED_TICK,
                         TASK3_SUPPLEMENT_GRIPPER_TIME_MS,
                         "close after release",
                     ),
