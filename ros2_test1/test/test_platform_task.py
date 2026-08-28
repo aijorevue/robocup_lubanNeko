@@ -283,8 +283,8 @@ class TestPlatformTask(unittest.TestCase):
                 )
                 self.assertEqual(f.task.done, 'PICKED_' + kind.upper())
 
-    def test_center_window_requires_400px_and_80_percent_bbox_overlap(self):
-        self.assertEqual(TARGET_WINDOW_SIZE_PX, 400)
+    def test_center_window_requires_420px_and_80_percent_bbox_overlap(self):
+        self.assertEqual(TARGET_WINDOW_SIZE_PX, 420)
         self.assertEqual(TARGET_WINDOW_MIN_AREA_FRACTION, 0.80)
         self.assertTrue(_target_in_center_window(
             letter(center=(400, 300)), (600, 800, 3)))
@@ -295,8 +295,8 @@ class TestPlatformTask(unittest.TestCase):
         self.assertTrue(_target_in_center_window(
             letter(center=(650, 300)), (600, 800, 3), full_frame=True))
 
-    def test_only_slots_three_through_six_use_full_frame_observation(self):
-        self.assertEqual(PLATFORM_FULLSCREEN_SLOTS, frozenset({3, 4, 5, 6}))
+    def test_only_slots_four_and_five_use_full_frame_observation(self):
+        self.assertEqual(PLATFORM_FULLSCREEN_SLOTS, frozenset({4, 5}))
         edge_target = letter(center=(50, 300))
         for slot in range(1, 9):
             with self.subTest(slot=slot):
@@ -796,8 +796,8 @@ class TestPlatformTask(unittest.TestCase):
 
 
 class TestControllerAndProtocol(unittest.TestCase):
-    def test_task3_column_final_id2_offset_is_task3_only_minus_25(self):
-        self.assertEqual(COLUMN_CATCH_FINAL_ID2_OFFSET_TICKS, -25)
+    def test_task3_column_final_id2_offset_is_task3_only_minus_30(self):
+        self.assertEqual(COLUMN_CATCH_FINAL_ID2_OFFSET_TICKS, -30)
 
     def make_controller(self):
         bridge = Mock(enabled=True, write_enabled=True, assumed_feedback=True,
