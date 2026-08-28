@@ -7858,7 +7858,15 @@ class TargetDetector:
         return blocks
 
     def _infer_column_block_from_letter(self, frame, letter):
-        """Build a local white-block candidate when the glyph splits the border."""
+        """Build a local block anchor from a valid rotated-letter detection.
+
+        A rotated C/D often leaves only short white edge fragments after
+        thresholding.  The letter detector has already rectified and scored
+        the same white patch, so requiring every axis-aligned edge band to be
+        25% white can reject a real block that is otherwise safe to track.
+        Keep the independent shape, visibility, white-interior, and green
+        support gates, but use a 14% edge-fragment floor for this proxy.
+        """
         if letter.get("kind") != "letter" or not letter.get("fully_visible", True):
             return None
         bbox = letter.get("bbox", ())
@@ -7868,8 +7876,11 @@ class TargetDetector:
         x, y, box_width, box_height = (int(value) for value in bbox[:4])
         if min(box_width, box_height) < COLUMN_BLOCK_MIN_SIDE:
             return None
-        edge_x = int(width * COLUMN_BLOCK_EDGE_MARGIN_RATIO)
-        edge_y = int(height * COLUMN_BLOCK_EDGE_MARGIN_RATIO)
+        # The rotated detector's own 1.2% margin is the visibility contract.
+        # The old 5% margin was appropriate for a raw contour, but rejected a
+        # valid block while it was still recoverable by centering.
+        edge_x = max(5, int(round(width * 0.012)))
+        edge_y = max(5, int(round(height * 0.012)))
         if x < edge_x or y < edge_y or x + box_width > width - edge_x or y + box_height > height - edge_y:
             return None
         aspect = box_width / float(max(1, box_height))
@@ -7897,7 +7908,7 @@ class TargetDetector:
             cv2.countNonZero(white[y:y + box_height, x:x + edge_band]) / float(max(1, box_height * edge_band)),
             cv2.countNonZero(white[y:y + box_height, x + box_width - edge_band:x + box_width]) / float(max(1, box_height * edge_band)),
         )
-        if min(edge_ratios) < 0.25:
+        if min(edge_ratios) < 0.14:
             return None
         margin_x = max(4, int(round(box_width * 0.16)))
         margin_y = max(4, int(round(box_height * 0.16)))
@@ -7921,8 +7932,9 @@ class TargetDetector:
             box = np.asarray(((x, y), (x + box_width, y), (x + box_width, y + box_height), (x, y + box_height)), dtype=np.int32)
         return {
             "kind": "column_block",
+            "letter": str(letter.get("letter", "")).upper(),
             "color": "white_edge",
-            "source": "column_letter_box_inferred_geometry",
+            "source": "column_rotated_letter_inferred_geometry",
             "center": tuple(map(int, letter.get("center", (x + box_width // 2, y + box_height // 2)))),
             "box": box.reshape(4, 2),
             "bbox": (x, y, box_width, box_height),
@@ -7933,6 +7945,9 @@ class TargetDetector:
             "angle": round(angle, 1),
             "parallel": True,
             "orientation_agnostic": True,
+            "rotation_angle_deg": letter.get("rotation_angle_deg"),
+            "classification_margin": letter.get("classification_margin"),
+            "classification_confidence": letter.get("confidence"),
         }
 
     def detect(
@@ -7983,7 +7998,20 @@ class TargetDetector:
             ]
             return [*blocks, *inferred, *letters]
         elif mode == DETECTION_MODE_COLUMN_BLOCKS:
-            return self._detect_column_blocks(frame)
+            blocks = self._detect_column_blocks(frame)
+            if blocks:
+                return blocks
+            # A valid rotated letter can survive while the white border is
+            # split into fragments.  Use it only as a task-three acquisition
+            # fallback; after PAUSE the controller still reclassifies the
+            # same block and applies the selected-letter/quota gates.
+            letters = self._detect_task3_rotated_letters(frame)
+            inferred = [
+                block for item in letters
+                for block in [self._infer_column_block_from_letter(frame, item)]
+                if block is not None
+            ]
+            return inferred
         elif mode == DETECTION_MODE_COLUMN_ROTATED_LETTERS:
             letters = self._detect_task3_rotated_letters(frame, task3_roi)
             blocks = self._detect_column_blocks(frame)
