@@ -73,10 +73,8 @@ from .platform_task import (
     PLATFORM_RETURN_HIGH_TIME_MS,
     PLATFORM_GRIPPER_CLOSED,
     PLATFORM_GRIPPER_OPEN,
-    PLATFORM_GRIPPER_CLOSE_TIME_MS,
     PLATFORM_GRIPPER_TIME_MS,
     PLATFORM_LETTER_PLACE_TIME_MS,
-    PLATFORM_PLACE_GRIPPER_TIME_MS,
     PLATFORM_LETTER_SUCCESS_QUOTA,
     PLATFORM_RING_AXIS_TIME_MS,
     PLATFORM_RING_PLACE_TIME_MS,
@@ -202,13 +200,13 @@ HTD85_GRIPPER_ID = 17
 # Task-one auxiliary calibration. Keep these separate from task-two/three
 # high-pose values because the same physical bus IDs have different jobs.
 TASK1_ID3_RETRACT_TICK = 300
-TASK1_ID3_RETRACT_TIME_MS = 500
+TASK1_ID3_RETRACT_TIME_MS = 600
 TASK1_ID14_RETRACT_TICK = 300
 TASK1_ID14_FIELD_TICK = 700
 TASK1_ID14_YELLOW_TICK = 300
-TASK1_ID14_TIME_MS = 40
-TASK1_ID15_RETRACT_TICK = 600
-TASK1_ID15_OPEN_TICK = 730
+TASK1_ID14_TIME_MS = 35
+TASK1_ID15_RETRACT_TICK = 590
+TASK1_ID15_OPEN_TICK = 700
 TASK1_AUX_TIME_MS = 100
 SPLITTER_RETRACT_TICK = 300
 CATCHER_HOME_TICK = 600
@@ -228,26 +226,15 @@ DISC_CATCH_SPLITTER_YELLOW_TICK = TASK1_ID14_YELLOW_TICK
 DISC_CATCH_SPLITTER_RESET_TICK = TASK1_ID14_RETRACT_TICK
 DISC_CATCH_CATCHER_FIELD_TICK = TASK1_ID15_OPEN_TICK
 DISC_CATCH_CATCHER_YELLOW_TICK = TASK1_ID15_OPEN_TICK
-# All formal RK flows use the same physical ID17 calibration.
-DISC_CATCH_GRIPPER_OPEN_TICK = 420
 DISC_CATCH_YELLOW_COOLDOWN_S = 0.5
 DISC_CATCH_OPEN_HOLD_MARGIN_S = 0.1
 DISC_CATCH_CLOSE_CONFIRM_DELAY_S = 0.05
 DISC_CATCH_GRIPPER_TIME_MS = 80
-DISC_CATCH_NORMAL_GRIPPER_TIME_MS = 150
-# Task-one disc trigger window in the original 800x600 main-camera frame.
-# Only a ball whose detected center is inside this window may trigger the
-# splitter/catcher/gripper action.  This is intentionally local to DISC_CATCH;
-# task-two and task-three target detectors do not use it.
-DISC_CATCH_WINDOW_X_MIN = 280
-DISC_CATCH_WINDOW_X_MAX = 720
-DISC_CATCH_WINDOW_Y_MIN = 100
-DISC_CATCH_WINDOW_Y_MAX = 500
 # Blue-field ID14 must remain on the detected ball's channel for a full
 # half-second before preparing the other channel for the next target.
 DISC_CATCH_BLUE_CHANNEL_HOLD_S = 0.5
 DISC_CATCH_BLUE_CLEAR_FRAMES = 3
-ARM_JOINT_SEQUENCE_DELAY_S = 0.15
+ARM_JOINT_SEQUENCE_DELAY_S = 0.2
 ARM_TUNE_COMMAND_PATH = Path("/home/cat/ros2_ws/arm_tune_command.txt")
 ARM_TUNE_RESULT_PATH = Path("/home/cat/ros2_ws/arm_tune_result.txt")
 ARM_TUNE_POLL_INTERVAL_S = 0.10
@@ -269,7 +256,7 @@ COLUMN_CATCH_READY_ID6_TICK = 413
 COLUMN_CATCH_AUX14_TICK, COLUMN_CATCH_AUX15_TICK, COLUMN_CATCH_GRIPPER_CLOSED_TICK = HTD85_AUX_HIGH
 COLUMN_CATCH_SPLITTER_TICK = COLUMN_CATCH_AUX14_TICK
 COLUMN_CATCH_CATCHER_HOME_TICK = COLUMN_CATCH_AUX15_TICK
-COLUMN_CATCH_HOLD_HIGH = (650, 600, 413)
+COLUMN_CATCH_BLUE_HOLD_HIGH = (650, 600, 413)
 COLUMN_CATCH_GRIPPER_OPEN_TICK = PLATFORM_GRIPPER_OPEN
 COLUMN_CATCH_GRIPPER_TIME_MS = PLATFORM_GRIPPER_TIME_MS
 COLUMN_CATCH_CENTER_DEADBAND_PX = PLATFORM_CENTER_DEADBAND_PX
@@ -278,10 +265,9 @@ COLUMN_CATCH_ID6_CENTER_RANGE = PLATFORM_CENTER_ID6_RANGE
 COLUMN_CATCH_ID2_CENTER_STEP_TICKS = PLATFORM_CENTER_ID2_STEP_TICKS
 COLUMN_CATCH_ID6_CENTER_STEP_TICKS = PLATFORM_CENTER_ID6_STEP_TICKS
 TASK3_RING_PLACE_HIGH = (650, 550, 413)
-TASK3_RING_PLACE_RETURN_HIGH = (600, 480, 413)
+TASK3_RING_PLACE_RETURN_HIGH = (620, 450, 413)
 TASK3_RING_PLACE_POSE = (470, 350, 171)
 TASK3_RING_PLACE_AXIS_TIME_MS = 500
-TASK3_RING_PLACE_INITIAL_HIGH_TIME_MS = 900
 TASK3_RING_PLACE_ID1_TIME_MS = 700
 TASK3_RING_PLACE_HIGH_TIME_MS = 1000
 TASK3_RING_PLACE_GRIPPER_OPEN_TICK = PLATFORM_GRIPPER_OPEN
@@ -289,31 +275,26 @@ TASK3_RING_PLACE_GRIPPER_CLOSED_TICK = PLATFORM_GRIPPER_CLOSED
 TASK3_RING_PLACE_GRIPPER_TIME_MS = 200
 TASK3_RING_PLACE_SLOW_CLOSE_TIME_MS = 2000
 TASK3_RING_PLACE_RELEASE_GRIPPER_TIME_MS = 1000
-TASK3_RING_PLACE_RELEASE_HIGH_TIME_MS = 500
-TASK3_RING_PLACE_RELEASE_HOLD_MS = 1000
-TASK3_RING_PLACE_RELEASE_ID1_TICK = 580
-TASK3_RING_PLACE_RELEASE_ID2_TICK = 467
+TASK3_RING_PLACE_RELEASE_HOLD_MS = 1500
+TASK3_RING_PLACE_RELEASE_ID1_TICK = 610
+TASK3_RING_PLACE_RELEASE_ID2_TICK = 440
 TASK3_RING_PLACE_RELEASE_ID1_TIME_MS = 1000
 TASK3_RING_PLACE_RELEASE_ID1_HOLD_MS = 1000
 TASK3_RING_PLACE_CONTRACT_AXIS_TIME_MS = 500
 COLUMN_CATCH_LETTER_PLACE = (530, 350, 670)
 COLUMN_CATCH_LETTER_PLACE_TIME_MS = 500
-COLUMN_CATCH_CENTER_TIME_MS = 100
 # Formal BLUE task-three only: one fixed recovery grab before releasing the
 # post-orbit H7 hold when the selected letter pair still has a quota gap.
-TASK3_SUPPLEMENT_OPEN_HOLD_MS = 500
+TASK3_SUPPLEMENT_OPEN_HOLD_MS = 1000
 TASK3_SUPPLEMENT_DESCEND_ID1_TICK = 580
 TASK3_SUPPLEMENT_DESCEND_TIME_MS = 800
 TASK3_SUPPLEMENT_GRIPPER_TIME_MS = 200
-TASK3_SUPPLEMENT_AXIS_TIME_MS = 500
-TASK3_SUPPLEMENT_RETURN_HIGH_TIME_MS = 200
-TASK3_SUPPLEMENT_PLACE_TIME_MS = 300
 TASK3_SUPPLEMENT_HIGH = (
     COLUMN_CATCH_READY_ID1_TICK,
     COLUMN_CATCH_READY_ID2_TICK,
     COLUMN_CATCH_READY_ID6_TICK,
 )
-TASK3_SUPPLEMENT_PLACE = (545, 365, 600)
+TASK3_SUPPLEMENT_PLACE = COLUMN_CATCH_LETTER_PLACE
 RING_DISTANCE_OFFSET_CM = BALL_DISTANCE_OFFSET_CM + RING_DISTANCE_EXTRA_CM
 RING_DISTANCE_SCALE_CM = (
     BALL_DISTANCE_SCALE_CM
@@ -984,7 +965,7 @@ class HiwonderSingleBusServoBridge:
         self.baudrate = int(baudrate)
         self.enabled = bool(enabled)
         self.write_enabled = bool(enabled and write_enabled)
-        self.arm_time_ms = int(kwargs.get("arm_time_ms", PLATFORM_ARM_TIME_MS))
+        self.arm_time_ms = int(kwargs.get("arm_time_ms", 600))
         self.gripper_time_ms = int(kwargs.get("gripper_time_ms", 200))
         self.splitter_time_ms = int(kwargs.get("splitter_time_ms", 200))
         self.aux_time_ms = int(kwargs.get("aux_time_ms", 200))
@@ -1377,9 +1358,15 @@ class TargetGraspController:
         self.task3_ring_place_actions = deque()
         self.task3_supplement_actions = deque()
         self.task3_supplement_label = None
-        self.task3_supplement_active = False
+        self._task3_supplement_pending = False
         self.task3_supplement_done = False
-        self.task3_supplement_hold_completed = False
+        # H7 may retransmit HOLD while the fixed supplement is running. Keep
+        # the formal sequence id so a retransmission is acknowledged without
+        # restarting the arm queue.
+        self._task3_hold_sequence = None
+        self._task3_hold_initialized = False
+        self._task3_hold_completion_required = False
+        self._task3_hold_completion_sent = False
         self.disc_pulse_done = False
         self.disc_last_pulsed_color = None
         self.disc_last_pulsed_center = None
@@ -1411,10 +1398,6 @@ class TargetGraspController:
             self._platform_gripper,
             self._platform_center,
             retreat_pose=self._platform_retreat_pose,
-            gripper_open=self._platform_gripper_open,
-            gripper_close=self._platform_gripper_close,
-            place_open=self._platform_place_open,
-            place_close=self._platform_place_close,
             ring_place_id6=self._platform_ring_place_id6,
             ring_place_id2=self._platform_ring_place_id2,
             ring_place_id1=self._platform_ring_place_id1,
@@ -1495,7 +1478,7 @@ class TargetGraspController:
         return max(-self.max_step_ticks, min(self.max_step_ticks, int(round(delta))))
 
     def _arm_settle_s(self):
-        return max(0.15, getattr(self.servo_bridge, "arm_time_ms", PLATFORM_ARM_TIME_MS) / 1000.0 + 0.12)
+        return max(0.15, getattr(self.servo_bridge, "arm_time_ms", 700) / 1000.0 + 0.12)
 
     def _aux_settle_s(self):
         return max(0.12, getattr(self.servo_bridge, "aux_time_ms", 200) / 1000.0 + 0.08)
@@ -1503,22 +1486,22 @@ class TargetGraspController:
     def _gripper_settle_s(self):
         return max(
             0.12,
-            getattr(self.servo_bridge, "gripper_time_ms", PLATFORM_GRIPPER_TIME_MS) / 1000.0 + 0.05,
+            getattr(self.servo_bridge, "gripper_time_ms", 450) / 1000.0 + 0.05,
         )
 
     def _gripper_motion_s(self):
         return max(
             0.10,
-            getattr(self.servo_bridge, "gripper_time_ms", PLATFORM_GRIPPER_TIME_MS) / 1000.0,
+            getattr(self.servo_bridge, "gripper_time_ms", 450) / 1000.0,
         )
 
     def _disc_low_pose_settle_s(self):
         return max(
             0.15,
             max(
-                getattr(self.servo_bridge, "arm_time_ms", PLATFORM_ARM_TIME_MS),
+                getattr(self.servo_bridge, "arm_time_ms", 700),
                 getattr(self.servo_bridge, "aux_time_ms", 200),
-                getattr(self.servo_bridge, "gripper_time_ms", PLATFORM_GRIPPER_TIME_MS),
+                getattr(self.servo_bridge, "gripper_time_ms", 450),
             )
             / 1000.0
             + 0.15,
@@ -1528,7 +1511,7 @@ class TargetGraspController:
         gripper_time_ms = (
             DISC_CATCH_GRIPPER_TIME_MS
             if self.disc_fast_blue_cycle
-            else DISC_CATCH_NORMAL_GRIPPER_TIME_MS
+            else getattr(self.servo_bridge, "gripper_time_ms", 200)
         )
         return max(
             0.12,
@@ -1539,7 +1522,7 @@ class TargetGraspController:
         gripper_time_ms = (
             DISC_CATCH_GRIPPER_TIME_MS
             if self.disc_fast_blue_cycle
-            else DISC_CATCH_NORMAL_GRIPPER_TIME_MS
+            else getattr(self.servo_bridge, "gripper_time_ms", 200)
         )
         return max(0.10, gripper_time_ms / 1000.0)
 
@@ -2082,9 +2065,6 @@ class TargetGraspController:
         splitter_id4=None,
         aux_time_ms=None,
         splitter_time_ms=None,
-        joint_sequence_delay_s=None,
-        first_arm_time_ms=None,
-        second_arm_time_ms=None,
     ):
         """Move fixed poses without letting ID1 and ID2 load each other."""
 
@@ -2101,11 +2081,6 @@ class TargetGraspController:
         target_id5 = self.id5 if id5 is None else int(id5)
         target_splitter = (
             self.splitter_id4 if splitter_id4 is None else int(splitter_id4)
-        )
-        sequence_delay_s = (
-            ARM_JOINT_SEQUENCE_DELAY_S
-            if joint_sequence_delay_s is None
-            else max(0.0, float(joint_sequence_delay_s))
         )
 
         if not self.servo_bridge.write_enabled:
@@ -2156,43 +2131,31 @@ class TargetGraspController:
         self.arm_preview.publish(f"{reason} phase 1 {first_label}")
         print(
             f"ARM STAGED reason={reason} phase=1 joint={first_label} "
-            f"time_ms={int(first_arm_time_ms or self.servo_bridge.arm_time_ms)} "
-            f"delay_ms={int(sequence_delay_s * 1000)}",
+            f"delay_ms={int(ARM_JOINT_SEQUENCE_DELAY_S * 1000)}",
             flush=True,
         )
-        previous_arm_time = getattr(
-            self.servo_bridge, "arm_time_ms", PLATFORM_ARM_TIME_MS
-        )
-        try:
-            if first_arm_time_ms is not None:
-                self.servo_bridge.arm_time_ms = int(first_arm_time_ms)
-            first_status = self.servo_bridge.send_targets(**first_targets)
-            self.last_command_time = time.monotonic()
-            if not self.servo_bridge.last_command_ok:
-                self.status = f"{reason} phase 1 {first_label} failed: {first_status}"
-                return self.status
+        first_status = self.servo_bridge.send_targets(**first_targets)
+        self.last_command_time = time.monotonic()
+        if not self.servo_bridge.last_command_ok:
+            self.status = f"{reason} phase 1 {first_label} failed: {first_status}"
+            return self.status
 
-            time.sleep(sequence_delay_s)
-            self.id1 = target_id1
-            self.id2 = target_id2
-            self.id6 = target_id6
-            self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
-            self.arm_preview.publish(f"{reason} phase 2 {second_label}")
-            if second_arm_time_ms is not None:
-                self.servo_bridge.arm_time_ms = int(second_arm_time_ms)
-            print(
-                f"ARM STAGED reason={reason} phase=2 joint={second_label} "
-                f"time_ms={int(second_arm_time_ms or previous_arm_time)} "
-                f"after_ms={int(sequence_delay_s * 1000)}",
-                flush=True,
-            )
-            second_status = self.servo_bridge.send_targets(**second_targets)
-            self.last_command_time = time.monotonic()
-            if not self.servo_bridge.last_command_ok:
-                self.status = f"{reason} phase 2 {second_label} failed: {second_status}"
-                return self.status
-        finally:
-            self.servo_bridge.arm_time_ms = previous_arm_time
+        time.sleep(ARM_JOINT_SEQUENCE_DELAY_S)
+        self.id1 = target_id1
+        self.id2 = target_id2
+        self.id6 = target_id6
+        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
+        self.arm_preview.publish(f"{reason} phase 2 {second_label}")
+        print(
+            f"ARM STAGED reason={reason} phase=2 joint={second_label} "
+            f"after_ms={int(ARM_JOINT_SEQUENCE_DELAY_S * 1000)}",
+            flush=True,
+        )
+        second_status = self.servo_bridge.send_targets(**second_targets)
+        self.last_command_time = time.monotonic()
+        if not self.servo_bridge.last_command_ok:
+            self.status = f"{reason} phase 2 {second_label} failed: {second_status}"
+            return self.status
 
         self.status = (
             f"{reason} staged={first_label}->{second_label} "
@@ -2353,30 +2316,25 @@ class TargetGraspController:
         previous_id7 = self.id7
         splitter_target = int(splitter_target)
         catcher_target = int(catcher_target)
-        self.arm_preview.set_targets(
-            self.id1, self.id2, DISC_CATCH_GRIPPER_OPEN_TICK, self.id6
-        )
+        self.arm_preview.set_targets(self.id1, self.id2, self.id7_open, self.id6)
         self.arm_preview.publish(reason)
         print(
             f"DISC OPEN reason={reason} ID1={self.id1} ID2={self.id2} ID6={self.id6} "
             f"ID14={previous_splitter}->{splitter_target} "
             f"ID15={previous_id5}->{catcher_target} "
-            f"ID17={previous_id7}->{DISC_CATCH_GRIPPER_OPEN_TICK}",
+            f"ID17={previous_id7}->{self.id7_open}",
             flush=True,
         )
         previous_gripper_time = getattr(
             self.servo_bridge, "gripper_time_ms", None
         )
         try:
-            self.servo_bridge.gripper_time_ms = (
-                DISC_CATCH_GRIPPER_TIME_MS
-                if self.disc_fast_blue_cycle
-                else DISC_CATCH_NORMAL_GRIPPER_TIME_MS
-            )
+            if self.disc_fast_blue_cycle:
+                self.servo_bridge.gripper_time_ms = DISC_CATCH_GRIPPER_TIME_MS
             self.status = self.servo_bridge.send_targets(
                 splitter_id4=splitter_target,
                 id5=catcher_target,
-                id4=DISC_CATCH_GRIPPER_OPEN_TICK,
+                id4=self.id7_open,
                 aux_time_ms=TASK1_AUX_TIME_MS,
                 splitter_time_ms=TASK1_ID14_TIME_MS,
             )
@@ -2397,7 +2355,7 @@ class TargetGraspController:
             return self.status
         self.splitter_id4 = splitter_target
         self.id5 = catcher_target
-        self.id7 = DISC_CATCH_GRIPPER_OPEN_TICK
+        self.id7 = self.id7_open
         self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
         return (
             f"{reason}: ID14={self.splitter_id4} ID15={self.id5} "
@@ -2589,7 +2547,6 @@ class TargetGraspController:
                 *pose, "PLATFORM_PICK pose", raising=raising,
                 id7=self.id7, id5=HTD85_AUX_HIGH[1],
                 splitter_id4=HTD85_AUX_HIGH[0],
-                joint_sequence_delay_s=0.10,
             )
         finally:
             (
@@ -2634,13 +2591,10 @@ class TargetGraspController:
 
     def _platform_gripper(self, pulse):
         # Formal task two uses the standalone task-two gripper calibration.
-        return self._platform_gripper_timed(pulse, PLATFORM_GRIPPER_TIME_MS)
-
-    def _platform_gripper_timed(self, pulse, motion_ms):
         bridge = self.servo_bridge
         previous = getattr(bridge, "gripper_time_ms", PLATFORM_GRIPPER_TIME_MS)
         try:
-            bridge.gripper_time_ms = int(motion_ms)
+            bridge.gripper_time_ms = PLATFORM_GRIPPER_TIME_MS
             self.id7 = pulse
             if bridge.write_enabled:
                 bridge.send_targets(id4=pulse)  # Legacy id4 keyword = physical ID7.
@@ -2649,19 +2603,7 @@ class TargetGraspController:
         finally:
             bridge.gripper_time_ms = previous
         self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
-        return int(motion_ms) / 1000.0 + 0.05
-
-    def _platform_gripper_open(self, pulse):
-        return self._platform_gripper_timed(pulse, PLATFORM_GRIPPER_TIME_MS)
-
-    def _platform_gripper_close(self, pulse):
-        return self._platform_gripper_timed(pulse, PLATFORM_GRIPPER_CLOSE_TIME_MS)
-
-    def _platform_place_open(self, pulse):
-        return self._platform_gripper_timed(pulse, PLATFORM_PLACE_GRIPPER_TIME_MS)
-
-    def _platform_place_close(self, pulse):
-        return self._platform_gripper_timed(pulse, PLATFORM_PLACE_GRIPPER_TIME_MS)
+        return PLATFORM_GRIPPER_TIME_MS / 1000.0 + 0.05
 
     def _platform_center(self, id2, id6):
         bridge = self.servo_bridge
@@ -2773,36 +2715,6 @@ class TargetGraspController:
         print(
             f"TASK3_RING_PLACE {label} ID1={int(id1)} ID2={int(id2)} "
             f"time={int(motion_ms)}ms",
-            flush=True,
-        )
-        return max(0.10, float(motion_ms) / 1000.0)
-
-    def _task3_ring_release_high(self, motion_ms, label):
-        """Return all task-three end-ring joints to the station high pose."""
-
-        bridge = self.servo_bridge
-        previous = getattr(bridge, "arm_time_ms", PLATFORM_ARM_TIME_MS)
-        id1, id2, id6 = TASK3_RING_PLACE_HIGH
-        try:
-            bridge.arm_time_ms = int(motion_ms)
-            if bridge.write_enabled:
-                bridge.send_targets(
-                    id1=int(id1),
-                    id2=int(id2),
-                    id6=int(id6),
-                    id4=int(self.id7),
-                )
-                if not bridge.last_command_ok:
-                    raise RuntimeError(bridge.status)
-            self.id1 = int(id1)
-            self.id2 = int(id2)
-            self.id6 = int(id6)
-        finally:
-            bridge.arm_time_ms = previous
-        self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
-        print(
-            f"TASK3_RING_PLACE {label} ID1={self.id1} ID2={self.id2} "
-            f"ID6={self.id6} time={int(motion_ms)}ms",
             flush=True,
         )
         return max(0.10, float(motion_ms) / 1000.0)
@@ -3019,7 +2931,7 @@ class TargetGraspController:
         bridge = self.servo_bridge
         previous = getattr(bridge, "arm_time_ms", PLATFORM_ARM_TIME_MS)
         try:
-            bridge.arm_time_ms = COLUMN_CATCH_CENTER_TIME_MS
+            bridge.arm_time_ms = PLATFORM_CENTER_TIME_MS
             return self._send_center_correction(
                 reason,
                 send_id2=send_id2,
@@ -3066,7 +2978,7 @@ class TargetGraspController:
             getattr(bridge, "splitter_time_ms", PLATFORM_AUX_TIME_MS),
         )
         try:
-            bridge.arm_time_ms = TASK3_RING_PLACE_INITIAL_HIGH_TIME_MS
+            bridge.arm_time_ms = TASK3_RING_PLACE_HIGH_TIME_MS
             bridge.aux_time_ms = TASK3_RING_PLACE_GRIPPER_TIME_MS
             bridge.gripper_time_ms = TASK3_RING_PLACE_GRIPPER_TIME_MS
             bridge.splitter_time_ms = PLATFORM_AUX_TIME_MS
@@ -3077,9 +2989,6 @@ class TargetGraspController:
                 id7=TASK3_RING_PLACE_GRIPPER_CLOSED_TICK,
                 id5=COLUMN_CATCH_CATCHER_HOME_TICK,
                 splitter_id4=COLUMN_CATCH_SPLITTER_TICK,
-                joint_sequence_delay_s=0.10,
-                first_arm_time_ms=TASK3_RING_PLACE_INITIAL_HIGH_TIME_MS,
-                second_arm_time_ms=TASK3_RING_PLACE_INITIAL_HIGH_TIME_MS,
             )
         finally:
             (
@@ -3094,7 +3003,7 @@ class TargetGraspController:
             self.chassis_station_error_reason = "TASK3_RING_PLACE_HIGH_FAILED"
             return self.status
         self.chassis_station_deadline = time.monotonic() + max(
-            self._arm_settle_s(), TASK3_RING_PLACE_INITIAL_HIGH_TIME_MS / 1000.0
+            self._arm_settle_s(), TASK3_RING_PLACE_HIGH_TIME_MS / 1000.0
         )
         self.status = (
             f"TASK3_RING_PLACE high ID1={self.id1} ID2={self.id2} "
@@ -3148,11 +3057,8 @@ class TargetGraspController:
                  (TASK3_RING_PLACE_RELEASE_ID1_HOLD_MS,
                   "wait after ID1 release-confirm position")),
                 ("OPEN_ID17_AGAIN", self._task3_ring_gripper,
-                (TASK3_RING_PLACE_GRIPPER_OPEN_TICK,
+                 (TASK3_RING_PLACE_GRIPPER_OPEN_TICK,
                   TASK3_RING_PLACE_RELEASE_GRIPPER_TIME_MS, "open ID17 again")),
-                ("RETURN_HIGH_BEFORE_CLOSE", self._task3_ring_release_high,
-                 (TASK3_RING_PLACE_RELEASE_HIGH_TIME_MS,
-                  "return high before final close")),
                 ("CLOSE_ID17_AGAIN", self._task3_ring_gripper,
                 (TASK3_RING_PLACE_GRIPPER_CLOSED_TICK,
                   TASK3_RING_PLACE_RELEASE_GRIPPER_TIME_MS, "close ID17 again")),
@@ -3281,9 +3187,6 @@ class TargetGraspController:
             splitter_id4=self.splitter_id4,
             aux_time_ms=TASK1_AUX_TIME_MS,
             splitter_time_ms=TASK1_ID14_TIME_MS,
-            joint_sequence_delay_s=0.10,
-            first_arm_time_ms=500,
-            second_arm_time_ms=500,
         )
         if not self.servo_bridge.last_command_ok:
             self.state = "fault"
@@ -3345,9 +3248,6 @@ class TargetGraspController:
             splitter_id4=self.splitter_id4,
             aux_time_ms=TASK1_AUX_TIME_MS,
             splitter_time_ms=TASK1_ID14_TIME_MS,
-            joint_sequence_delay_s=0.20,
-            first_arm_time_ms=500,
-            second_arm_time_ms=600,
         )
         if not self.servo_bridge.last_command_ok:
             self.chassis_station_stage = None
@@ -3370,9 +3270,12 @@ class TargetGraspController:
     def _begin_column_catch_station(self):
         self.task3_supplement_actions.clear()
         self.task3_supplement_label = None
-        self.task3_supplement_active = False
+        self._task3_supplement_pending = False
         self.task3_supplement_done = False
-        self.task3_supplement_hold_completed = False
+        self._task3_hold_sequence = None
+        self._task3_hold_initialized = False
+        self._task3_hold_completion_required = False
+        self._task3_hold_completion_sent = False
         self.id7 = COLUMN_CATCH_GRIPPER_CLOSED_TICK
         self.id5 = COLUMN_CATCH_CATCHER_HOME_TICK
         self.splitter_id4 = COLUMN_CATCH_SPLITTER_TICK
@@ -3442,42 +3345,14 @@ class TargetGraspController:
         allowed_colors = self._disc_catch_allowed_colors()
         allowed = []
         rejected = []
-        rejected_outside_window = []
         for det in detections:
             if det.get("kind") != "ball":
                 continue
             color = det.get("color")
-            if color not in allowed_colors:
-                if color in {"red", "blue", "yellow"}:
-                    rejected.append(color)
-                continue
-            center = det.get("center")
-            if not isinstance(center, (tuple, list)) or len(center) < 2:
-                rejected_outside_window.append(color)
-                continue
-            try:
-                center_x = float(center[0])
-                center_y = float(center[1])
-            except (TypeError, ValueError):
-                rejected_outside_window.append(color)
-                continue
-            if not (
-                DISC_CATCH_WINDOW_X_MIN <= center_x <= DISC_CATCH_WINDOW_X_MAX
-                and DISC_CATCH_WINDOW_Y_MIN <= center_y <= DISC_CATCH_WINDOW_Y_MAX
-            ):
-                rejected_outside_window.append(
-                    f"{color}@({center_x:.0f},{center_y:.0f})"
-                )
-                continue
-            allowed.append(det)
-        if rejected_outside_window:
-            print(
-                "CHASSIS STATION DISC_CATCH ignored target(s) outside "
-                f"window X={DISC_CATCH_WINDOW_X_MIN}..{DISC_CATCH_WINDOW_X_MAX} "
-                f"Y={DISC_CATCH_WINDOW_Y_MIN}..{DISC_CATCH_WINDOW_Y_MAX}: "
-                f"{rejected_outside_window}",
-                flush=True,
-            )
+            if color in allowed_colors:
+                allowed.append(det)
+            elif color in {"red", "blue", "yellow"}:
+                rejected.append(color)
         if rejected:
             print(
                 "CHASSIS STATION DISC_CATCH ignored "
@@ -3816,6 +3691,10 @@ class TargetGraspController:
         self.disc_fast_blue_cycle = False
         self.disc_blue_channel_hold_deadline = 0.0
         self.disc_prep_high_active = False
+        self._task3_hold_sequence = None
+        self._task3_hold_initialized = False
+        self._task3_hold_completion_required = False
+        self._task3_hold_completion_sent = False
         self.platform_high_hold = False
         self.platform_high_pose_sent = False
         self.column_target_armed = True
@@ -3853,59 +3732,80 @@ class TargetGraspController:
         self.task3_ring_place_actions.clear()
         if self.active_chassis_station != station:
             return f"chassis station {station} stop ignored; active={self.active_chassis_station}"
-        if station == "COLUMN_CATCH":
-            return self.hold_formal_task3_arm()
+        if station == "COLUMN_CATCH" and self.field_mode == FieldMode.BLUE:
+            return self.hold_blue_task3_arm(
+                self._task3_hold_sequence
+            )
         return self._finish_chassis_station_after_retract("STOPPED_BY_CHASSIS")
 
-    def hold_formal_task3_arm(self):
-        """Hold the formal task-three arm high until H7 requests retract."""
-        if self.active_chassis_station != "COLUMN_CATCH":
-            self.chassis_station_error_reason = "TASK3_HOLD_WITHOUT_COLUMN_CATCH"
-            return "task-three hold ignored; no active COLUMN_CATCH"
-        # H7 may retransmit HOLD while the supplement is running. Keep the
-        # current action queue intact; restarting it would replay OPEN_HIGH
-        # forever and prevent the descend/close/place steps from running.
-        if self.task3_supplement_active:
-            return "HOLD_EXPANDED_HIGH; supplement in progress"
-        if self.task3_supplement_hold_completed:
-            return "HOLD_EXPANDED_HIGH; supplement already complete"
+    def hold_blue_task3_arm(self, sequence=None):
+        """Hold the blue task-three arm high without generic STOP cleanup."""
+        if (
+            self.active_chassis_station != "COLUMN_CATCH"
+            or self.field_mode != FieldMode.BLUE
+        ):
+            self.chassis_station_error_reason = "BLUE_HOLD_WITHOUT_COLUMN_CATCH"
+            return "blue task-three hold ignored; no active blue COLUMN_CATCH"
+        normalized_sequence = None
+        if sequence is not None:
+            try:
+                normalized_sequence = int(sequence)
+            except (TypeError, ValueError):
+                normalized_sequence = str(sequence)
+        if (
+            normalized_sequence is not None
+            and normalized_sequence == self._task3_hold_sequence
+        ):
+            if self._task3_hold_completion_sent:
+                return (
+                    "HOLD_DUPLICATE_IGNORED; COLUMN_CATCH HOLD_DONE already sent"
+                )
+            if self._task3_supplement_pending:
+                return (
+                    "HOLD_DUPLICATE_IGNORED; fixed supplement already in progress"
+                )
+            return "HOLD_DUPLICATE_IGNORED; COLUMN_CATCH arm already held"
+        if normalized_sequence is None and self._task3_hold_initialized:
+            return "HOLD_DUPLICATE_IGNORED; COLUMN_CATCH arm already held"
+
+        # Only the first HOLD for a new formal sequence may initialize the
+        # high pose and optional supplement queue.
+        self._task3_hold_sequence = normalized_sequence
+        self._task3_hold_initialized = True
+        self._task3_hold_completion_required = False
+        self._task3_hold_completion_sent = False
         self.platform_task.reset()
         self.task3_ring_place_actions.clear()
         status = self._column_pose(
-            *COLUMN_CATCH_HOLD_HIGH,
-            "COLUMN_CATCH orbit boundary; hold expanded high",
+            *COLUMN_CATCH_BLUE_HOLD_HIGH,
+            "COLUMN_CATCH blue orbit boundary; hold expanded high",
             raising=True,
             id7=COLUMN_CATCH_GRIPPER_CLOSED_TICK,
             id5=COLUMN_CATCH_CATCHER_HOME_TICK,
             splitter_id4=COLUMN_CATCH_SPLITTER_TICK,
         )
         if self.servo_bridge.write_enabled and not self.servo_bridge.last_command_ok:
-            self.chassis_station_error_reason = "TASK3_HOLD_HIGH_FAILED"
-            return f"COLUMN_CATCH hold high failed: {status}"
-        self.id1, self.id2, self.id6 = COLUMN_CATCH_HOLD_HIGH
+            self.chassis_station_error_reason = "BLUE_HOLD_HIGH_FAILED"
+            return f"COLUMN_CATCH blue hold high failed: {status}"
+        self.id1, self.id2, self.id6 = COLUMN_CATCH_BLUE_HOLD_HIGH
         self.platform_high_hold = True
         self.platform_high_pose_sent = True
-        self.task3_supplement_label = (
-            self._task3_supplement_label()
-            if self.field_mode == FieldMode.BLUE
-            else None
-        )
+        self.task3_supplement_label = self._task3_supplement_label()
         self.task3_supplement_done = False
         if self.task3_supplement_label is not None:
-            self.task3_supplement_active = True
-            self.task3_supplement_hold_completed = False
+            self._task3_supplement_pending = True
             self.task3_supplement_actions.clear()
             self.chassis_station_stage = "task3_supplement_start"
         else:
-            self.task3_supplement_active = False
-            self.task3_supplement_hold_completed = True
+            self._task3_supplement_pending = False
             self.chassis_station_stage = None
+            self._task3_hold_completion_required = True
         # Keep COLUMN_CATCH active until H7 sends RETRACT after white-line
         # alignment. No generic station cleanup is allowed in this state.
         self.chassis_station_done_reason = None
         self.chassis_station_error_reason = None
         self.status = (
-            "COLUMN_CATCH arm held expanded "
+            "COLUMN_CATCH blue arm held expanded "
             f"ID1={self.id1} ID2={self.id2} ID6={self.id6}"
         )
         if self.task3_supplement_label is not None:
@@ -3915,13 +3815,6 @@ class TargetGraspController:
             )
         self.arm_preview.publish(self.status)
         return f"HOLD_EXPANDED_HIGH; {status}"
-
-    def hold_blue_task3_arm(self):
-        """Backward-compatible entry point for existing BLUE callers/tests."""
-        if self.field_mode != FieldMode.BLUE:
-            self.chassis_station_error_reason = "BLUE_HOLD_WITHOUT_COLUMN_CATCH"
-            return "blue task-three hold ignored outside BLUE field"
-        return self.hold_formal_task3_arm()
 
     def _task3_supplement_label(self):
         """Choose one deficient letter from the locked secondary-camera pair."""
@@ -3952,7 +3845,17 @@ class TargetGraspController:
         )
 
     def task3_supplement_pending(self):
-        return bool(self.task3_supplement_active)
+        return bool(self._task3_supplement_pending)
+
+    def task3_hold_completion_required(self):
+        return bool(self._task3_hold_completion_required)
+
+    def task3_hold_completion_sent(self):
+        return bool(self._task3_hold_completion_sent)
+
+    def mark_task3_hold_completed(self):
+        self._task3_hold_completion_required = False
+        self._task3_hold_completion_sent = True
 
     def consume_task3_supplement_done(self):
         if not self.task3_supplement_done:
@@ -4049,11 +3952,17 @@ class TargetGraspController:
                     self._task3_supplement_command,
                     ("open high", TASK3_SUPPLEMENT_OPEN_HOLD_MS),
                     {
-                        "id1": COLUMN_CATCH_HOLD_HIGH[0],
-                        "id2": COLUMN_CATCH_HOLD_HIGH[1],
-                        "id6": COLUMN_CATCH_HOLD_HIGH[2],
+                        "id1": COLUMN_CATCH_BLUE_HOLD_HIGH[0],
+                        "id2": COLUMN_CATCH_BLUE_HOLD_HIGH[1],
+                        "id6": COLUMN_CATCH_BLUE_HOLD_HIGH[2],
                         "id7": COLUMN_CATCH_GRIPPER_OPEN_TICK,
                     },
+                ),
+                (
+                    "WAIT_OPEN_HIGH",
+                    self._task3_supplement_wait,
+                    (TASK3_SUPPLEMENT_OPEN_HOLD_MS, "open high"),
+                    {},
                 ),
                 (
                     "DESCEND_ID1",
@@ -4072,40 +3981,16 @@ class TargetGraspController:
                     {},
                 ),
                 (
-                    "RETURN_HIGH_ID1",
-                    self._task3_supplement_command,
-                    ("return regular high ID1", TASK3_SUPPLEMENT_RETURN_HIGH_TIME_MS),
-                    {"id1": TASK3_SUPPLEMENT_HIGH[0]},
+                    "RETURN_HIGH",
+                    self._task3_supplement_pose,
+                    (TASK3_SUPPLEMENT_HIGH, "return regular high"),
+                    {"raising": True},
                 ),
                 (
-                    "RETURN_HIGH_ID2",
-                    self._task3_supplement_command,
-                    ("return regular high ID2", TASK3_SUPPLEMENT_RETURN_HIGH_TIME_MS),
-                    {"id2": TASK3_SUPPLEMENT_HIGH[1]},
-                ),
-                (
-                    "RETURN_HIGH_ID6",
-                    self._task3_supplement_command,
-                    ("return regular high ID6", TASK3_SUPPLEMENT_RETURN_HIGH_TIME_MS),
-                    {"id6": TASK3_SUPPLEMENT_HIGH[2]},
-                ),
-                (
-                    "PLACE_WORK_ID6",
-                    self._task3_supplement_command,
-                    ("place block ID6", TASK3_SUPPLEMENT_PLACE_TIME_MS),
-                    {"id6": TASK3_SUPPLEMENT_PLACE[2]},
-                ),
-                (
-                    "PLACE_WORK_ID2",
-                    self._task3_supplement_command,
-                    ("place block ID2", TASK3_SUPPLEMENT_PLACE_TIME_MS),
-                    {"id2": TASK3_SUPPLEMENT_PLACE[1]},
-                ),
-                (
-                    "PLACE_WORK_ID1",
-                    self._task3_supplement_command,
-                    ("place block ID1", TASK3_SUPPLEMENT_PLACE_TIME_MS),
-                    {"id1": TASK3_SUPPLEMENT_PLACE[0]},
+                    "PLACE_WORK",
+                    self._task3_supplement_pose,
+                    (TASK3_SUPPLEMENT_PLACE, "place block"),
+                    {"raising": False},
                 ),
                 (
                     "OPEN_RELEASE",
@@ -4128,22 +4013,10 @@ class TargetGraspController:
                     {},
                 ),
                 (
-                    "FINAL_HIGH_ID1",
-                    self._task3_supplement_command,
-                    ("final regular high ID1", TASK3_SUPPLEMENT_AXIS_TIME_MS),
-                    {"id1": TASK3_SUPPLEMENT_HIGH[0]},
-                ),
-                (
-                    "FINAL_HIGH_ID2",
-                    self._task3_supplement_command,
-                    ("final regular high ID2", TASK3_SUPPLEMENT_AXIS_TIME_MS),
-                    {"id2": TASK3_SUPPLEMENT_HIGH[1]},
-                ),
-                (
-                    "FINAL_HIGH_ID6",
-                    self._task3_supplement_command,
-                    ("final regular high ID6", TASK3_SUPPLEMENT_AXIS_TIME_MS),
-                    {"id6": TASK3_SUPPLEMENT_HIGH[2]},
+                    "FINAL_HIGH",
+                    self._task3_supplement_pose,
+                    (TASK3_SUPPLEMENT_HIGH, "final regular high"),
+                    {"raising": True},
                 ),
             ])
             self.chassis_station_stage = "task3_supplement_actions"
@@ -4168,9 +4041,9 @@ class TargetGraspController:
                     f"{PLATFORM_LETTER_SUCCESS_QUOTA}",
                     flush=True,
                 )
-            self.task3_supplement_active = False
+            self._task3_supplement_pending = False
             self.task3_supplement_done = True
-            self.task3_supplement_hold_completed = True
+            self._task3_hold_completion_required = True
             self.chassis_station_stage = None
             self.status = (
                 "COLUMN_CATCH supplement complete; arm high and closed; "
@@ -4185,7 +4058,7 @@ class TargetGraspController:
                 raise RuntimeError("servo write failed")
         except Exception as exc:
             self.task3_supplement_actions.clear()
-            self.task3_supplement_active = False
+            self._task3_supplement_pending = False
             self.chassis_station_stage = None
             self.chassis_station_error_reason = f"TASK3_SUPPLEMENT_{label}_FAILED"
             self.state = self.algorithm_stage = "fault"
@@ -4196,44 +4069,42 @@ class TargetGraspController:
         self.status = f"COLUMN_CATCH supplement {label} dispatched"
         return self.status
 
-    def retract_formal_task3_arm(self):
+    def retract_blue_task3_arm(self):
         self.task3_supplement_actions.clear()
         self.task3_supplement_label = None
-        self.task3_supplement_active = False
+        self._task3_supplement_pending = False
         self.task3_supplement_done = False
-        self.task3_supplement_hold_completed = False
+        self._task3_hold_sequence = None
+        self._task3_hold_initialized = False
+        self._task3_hold_completion_required = False
+        self._task3_hold_completion_sent = False
         self.platform_high_hold = False
         status = self.shutdown_contract()
         success = not self.servo_bridge.write_enabled or self.servo_bridge.last_command_ok
         self.active_chassis_station = None
         self.chassis_station_stage = None
         self.chassis_station_done_reason = None
-        self.chassis_station_error_reason = (
-            None if success else "TASK3_RETRACT_FAILED"
-        )
+        self.chassis_station_error_reason = None if success else "BLUE_RETRACT_FAILED"
         return success, status
 
-    def retract_blue_task3_arm(self):
-        """Backward-compatible BLUE wrapper around the formal retract path."""
-        if self.field_mode != FieldMode.BLUE:
-            return False, "blue task-three retract ignored outside BLUE field"
-        return self.retract_formal_task3_arm()
-
-    def freeze_formal_task3_arm(self, reason="H7_HOLD_FAILED"):
-        """Keep the task-three arm high if H7 reports a hold failure."""
-        if self.active_chassis_station != "COLUMN_CATCH":
-            return f"task-three freeze ignored; active={self.active_chassis_station}"
+    def freeze_blue_task3_arm(self, reason="H7_HOLD_FAILED"):
+        """Keep BLUE task-three arm high while H7 reports a hold failure."""
+        if (
+            self.active_chassis_station != "COLUMN_CATCH"
+            or self.field_mode != FieldMode.BLUE
+        ):
+            return f"blue task-three freeze ignored; active={self.active_chassis_station}"
         self.platform_task.reset()
         self.task3_ring_place_actions.clear()
         status = self._column_pose(
-            *COLUMN_CATCH_HOLD_HIGH,
-            f"COLUMN_CATCH hold failure; freeze high ({reason})",
+            *COLUMN_CATCH_BLUE_HOLD_HIGH,
+            f"COLUMN_CATCH blue hold failure; freeze high ({reason})",
             raising=True,
             id7=COLUMN_CATCH_GRIPPER_CLOSED_TICK,
             id5=COLUMN_CATCH_CATCHER_HOME_TICK,
             splitter_id4=COLUMN_CATCH_SPLITTER_TICK,
         )
-        self.id1, self.id2, self.id6 = COLUMN_CATCH_HOLD_HIGH
+        self.id1, self.id2, self.id6 = COLUMN_CATCH_BLUE_HOLD_HIGH
         self.platform_high_hold = True
         self.platform_high_pose_sent = True
         self.chassis_station_stage = None
@@ -4244,38 +4115,32 @@ class TargetGraspController:
         self.column_target_armed = False
         self.column_capture_authorized = False
         self.status = (
-            "COLUMN_CATCH arm frozen expanded after H7 hold failure "
+            "COLUMN_CATCH blue arm frozen expanded after H7 hold failure "
             f"ID1={self.id1} ID2={self.id2} ID6={self.id6}"
         )
         self.arm_preview.publish(self.status)
         return f"FROZEN_EXPANDED_HIGH; {status}"
 
-    def freeze_blue_task3_arm(self, reason="H7_HOLD_FAILED"):
-        """Backward-compatible BLUE wrapper around the formal freeze path."""
-        if self.field_mode != FieldMode.BLUE:
-            return f"blue task-three freeze ignored outside BLUE field"
-        return self.freeze_formal_task3_arm(reason)
-
     def _hold_platform_high_pose(self):
-        """Keep the already-issued formal task-three high pose unchanged.
+        """Keep the already-issued BLUE task-three high pose unchanged.
 
         The H7 route remains in COLUMN_CATCH while it travels to the white
         line. This branch must not run the generic target-search fallback,
         because that fallback intentionally changes the arm pose.
         """
-        self.id1, self.id2, self.id6 = COLUMN_CATCH_HOLD_HIGH
+        self.id1, self.id2, self.id6 = COLUMN_CATCH_BLUE_HOLD_HIGH
         self.id7 = COLUMN_CATCH_GRIPPER_CLOSED_TICK
         self.id5 = COLUMN_CATCH_CATCHER_HOME_TICK
         self.splitter_id4 = COLUMN_CATCH_SPLITTER_TICK
         if not self.platform_high_pose_sent:
             self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
             self.arm_preview.publish(
-                "COLUMN_CATCH arm hold high "
+                "COLUMN_CATCH blue arm hold high "
                 f"ID1={self.id1} ID2={self.id2} ID6={self.id6}"
             )
             self.platform_high_pose_sent = True
         return (
-            "COLUMN_CATCH arm held expanded "
+            "COLUMN_CATCH blue arm held expanded "
             f"ID1={self.id1} ID2={self.id2} ID6={self.id6}"
         )
 
@@ -4455,7 +4320,7 @@ class TargetGraspController:
                 self.disc_pulse_done = True
                 self.splitter_id4 = splitter_target
                 self.id5 = catcher_target
-                self.id7 = DISC_CATCH_GRIPPER_OPEN_TICK
+                self.id7 = self.id7_open
                 self.chassis_station_stage = "disc_open_wait"
                 self.chassis_station_deadline = now + self._disc_open_hold_s()
                 self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
@@ -4478,19 +4343,15 @@ class TargetGraspController:
         if self.chassis_station_stage == "disc_open":
             self.state = "DISC_CATCH open claw"
             if not self.servo_bridge.write_enabled:
-                self.id7 = DISC_CATCH_GRIPPER_OPEN_TICK
+                self.id7 = self.id7_open
                 self.chassis_station_stage = "disc_open_wait"
                 self.chassis_station_deadline = now + self._disc_open_hold_s()
                 self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
                 return "preview DISC_CATCH open ID7 pulse"
             status = self._send_gripper_id7(
-                DISC_CATCH_GRIPPER_OPEN_TICK,
+                self.id7_open,
                 "DISC_CATCH open ID7 pulse",
-                motion_ms=(
-                    DISC_CATCH_GRIPPER_TIME_MS
-                    if self.disc_fast_blue_cycle
-                    else DISC_CATCH_NORMAL_GRIPPER_TIME_MS
-                ),
+                motion_ms=(DISC_CATCH_GRIPPER_TIME_MS if self.disc_fast_blue_cycle else None),
             )
             if self.servo_bridge.last_command_ok:
                 self.chassis_station_stage = "disc_open_wait"
@@ -4515,11 +4376,7 @@ class TargetGraspController:
             status = self._send_gripper_id7(
                 self.id7_closed,
                 "DISC_CATCH close ID7 pulse",
-                motion_ms=(
-                    DISC_CATCH_GRIPPER_TIME_MS
-                    if self.disc_fast_blue_cycle
-                    else DISC_CATCH_NORMAL_GRIPPER_TIME_MS
-                ),
+                motion_ms=(DISC_CATCH_GRIPPER_TIME_MS if self.disc_fast_blue_cycle else None),
             )
             if self.servo_bridge.last_command_ok:
                 self.chassis_station_stage = "disc_close_confirm"
@@ -4542,11 +4399,7 @@ class TargetGraspController:
             status = self._send_gripper_id7(
                 self.id7_closed,
                 "DISC_CATCH close ID7 confirm",
-                motion_ms=(
-                    DISC_CATCH_GRIPPER_TIME_MS
-                    if self.disc_fast_blue_cycle
-                    else DISC_CATCH_NORMAL_GRIPPER_TIME_MS
-                ),
+                motion_ms=(DISC_CATCH_GRIPPER_TIME_MS if self.disc_fast_blue_cycle else None),
             )
             if self.servo_bridge.last_command_ok:
                 self.chassis_station_stage = "disc_close_wait"
@@ -5496,15 +5349,7 @@ class TargetGraspController:
             f"ID7={self.id7}",
             flush=True,
         )
-        previous_gripper_time = getattr(
-            self.servo_bridge, "gripper_time_ms", PLATFORM_GRIPPER_TIME_MS
-        )
-        try:
-            if task1_contract:
-                self.servo_bridge.gripper_time_ms = DISC_CATCH_NORMAL_GRIPPER_TIME_MS
-            claw_status = self.servo_bridge.send_targets(id4=self.id7)
-        finally:
-            self.servo_bridge.gripper_time_ms = previous_gripper_time
+        claw_status = self.servo_bridge.send_targets(id4=self.id7)
         self.last_command_time = time.monotonic()
         if not self.servo_bridge.last_command_ok:
             self.status = f"shutdown contract close claw failed: {claw_status}"
@@ -5526,9 +5371,6 @@ class TargetGraspController:
                     if splitter_target is None
                     else int(splitter_target)
                 ),
-                joint_sequence_delay_s=0.10 if task1_contract else None,
-                first_arm_time_ms=500 if task1_contract else None,
-                second_arm_time_ms=500 if task1_contract else None,
                 **aux_timing,
             )
             if not self.servo_bridge.last_command_ok:
@@ -5549,24 +5391,17 @@ class TargetGraspController:
             "wait_ms=200",
             flush=True,
         )
-        previous_arm_time = getattr(
-            self.servo_bridge, "arm_time_ms", PLATFORM_ARM_TIME_MS
+        id2_id6_status = self.servo_bridge.send_targets(
+            id2=self.id2,
+            id6=self.id6,
         )
-        try:
-            self.servo_bridge.arm_time_ms = PLATFORM_ARM_TIME_MS
-            id2_id6_status = self.servo_bridge.send_targets(
-                id2=self.id2,
-                id6=self.id6,
-            )
-        finally:
-            self.servo_bridge.arm_time_ms = previous_arm_time
         self.last_command_time = time.monotonic()
         if not self.servo_bridge.last_command_ok:
             self.status = f"shutdown contract ID2/ID6 failed: {id2_id6_status}"
             self.arm_preview.publish(self.status)
             print(self.status, flush=True)
             return self.status
-        time.sleep(0.10 if task1_contract else ARM_JOINT_SEQUENCE_DELAY_S)
+        time.sleep(ARM_JOINT_SEQUENCE_DELAY_S)
 
         self.id1 = HOME_ID1_TICK
         self.id6 = BASE_YAW_HOME_TICK
@@ -5588,22 +5423,15 @@ class TargetGraspController:
             f"ID5={self.id5} ID6={self.id6} ID7={self.id7}",
             flush=True,
         )
-        previous_arm_time = getattr(
-            self.servo_bridge, "arm_time_ms", PLATFORM_ARM_TIME_MS
+        status = self.servo_bridge.send_targets(
+            id1=self.id1,
+            id3=TASK1_ID3_RETRACT_TICK,
+            id4=self.id7,
+            id6=self.id6,
+            id5=self.id5,
+            splitter_id4=self.splitter_id4,
+            **aux_timing,
         )
-        try:
-            self.servo_bridge.arm_time_ms = PLATFORM_ARM_TIME_MS
-            status = self.servo_bridge.send_targets(
-                id1=self.id1,
-                id3=TASK1_ID3_RETRACT_TICK,
-                id4=self.id7,
-                id6=self.id6,
-                id5=self.id5,
-                splitter_id4=self.splitter_id4,
-                **aux_timing,
-            )
-        finally:
-            self.servo_bridge.arm_time_ms = previous_arm_time
         self.last_command_time = time.monotonic()
         if not self.servo_bridge.last_command_ok:
             self.status = f"shutdown contract failed: {status}"
@@ -8372,7 +8200,7 @@ def build_arg_parser():
         help="the single Hiwonder HTD85 bus for physical IDs 1/2/3/6/14/15/17",
     )
     parser.add_argument("--htd85-baud", type=int, default=int(os.environ.get("HTD85_BAUD", "115200")))
-    parser.add_argument("--htd85-arm-time-ms", type=int, default=int(os.environ.get("HTD85_ARM_TIME_MS", "500")))
+    parser.add_argument("--htd85-arm-time-ms", type=int, default=int(os.environ.get("HTD85_ARM_TIME_MS", "600")))
     parser.add_argument("--htd85-gripper-time-ms", type=int, default=int(os.environ.get("HTD85_GRIPPER_TIME_MS", "200")))
     parser.add_argument("--htd85-aux-time-ms", type=int, default=int(os.environ.get("HTD85_AUX_TIME_MS", "200")))
     parser.add_argument("--htd85-repeat", type=int, default=int(os.environ.get("HTD85_REPEAT", "1")))
@@ -8851,14 +8679,17 @@ def main(argv=None):
         """Release H7 only after the optional fixed BLUE recovery grab ends."""
         if (
             chassis_link.active_task != "COLUMN_CATCH"
-            or not grasp_controller.consume_task3_supplement_done()
+            or not grasp_controller.task3_supplement_done
         ):
             return info
-        chassis_link.complete_column_catch_hold(
+        sent = chassis_link.complete_column_catch_hold(
             "COLUMN_CATCH",
             reason="ARM_STOP_DONE_AFTER_SUPPLEMENT",
             success=True,
         )
+        if sent:
+            grasp_controller.consume_task3_supplement_done()
+            grasp_controller.mark_task3_hold_completed()
         return f"{info}; H7 HOLD_DONE sent after supplement"
 
     def _process_white_line_queries(frame, reason):
@@ -8870,8 +8701,6 @@ def main(argv=None):
         phase = getattr(chassis_link, "white_line_phase", None)
         task2_phase = phase == "TASK2_AFTER_SECONDARY_SHIFT"
         task3_blue_phase = phase == "TASK3_BLUE_WHITE_LINE_ALIGN"
-        task3_red_phase = phase == "TASK3_RED_WHITE_LINE_ALIGN"
-        task3_phase = task3_blue_phase or task3_red_phase
         if (
             query_sequence != white_line_last_query_sequence
             or phase != white_line_last_phase
@@ -8904,7 +8733,7 @@ def main(argv=None):
             )
         if task2_phase:
             line_measurement = task2_white_line_detector.detect_task2(white_line_frame)
-        elif task3_phase:
+        elif task3_blue_phase:
             line_measurement = task3_blue_white_line_detector.detect_task3(white_line_frame)
         else:
             line_measurement = white_line_detector.detect(white_line_frame)
@@ -9099,7 +8928,9 @@ def main(argv=None):
                     # controller itself keeps its required pose-settle stage.
                     chassis_link.restart_target_watch()
             for hold in chassis_link.consume_holds():
-                hold_status = grasp_controller.hold_formal_task3_arm()
+                hold_status = grasp_controller.hold_blue_task3_arm(
+                    getattr(chassis_link, "active_sequence", None)
+                )
                 hold_success = (
                     grasp_controller.chassis_station_error_reason is None
                     and (
@@ -9107,33 +8938,56 @@ def main(argv=None):
                         or grasp_controller.servo_bridge.last_command_ok
                     )
                 )
-                if hold_success and not grasp_controller.task3_supplement_pending():
-                    chassis_link.complete_column_catch_hold(
+                if (
+                    hold_success
+                    and not grasp_controller.task3_supplement_pending()
+                    and grasp_controller.task3_hold_completion_required()
+                ):
+                    sent = chassis_link.complete_column_catch_hold(
                         hold,
                         reason=hold_status,
                         success=True,
                     )
+                    if sent:
+                        grasp_controller.mark_task3_hold_completed()
                 elif not hold_success:
                     chassis_link.complete_column_catch_hold(
                         hold,
                         reason=hold_status,
                         success=False,
                     )
-                else:
+                elif (
+                    hold_success
+                    and grasp_controller.task3_hold_completion_sent()
+                ):
+                    # Replay the terminal ACK for a lost UART response, but
+                    # never re-run the arm or supplement state machine.
+                    chassis_link.complete_column_catch_hold(
+                        hold,
+                        reason="HOLD_DONE_REPLAY",
+                        success=True,
+                    )
+                elif grasp_controller.task3_supplement_pending():
                     print(
-                        "CHASSIS TASK3 HOLD deferred until fixed supplement "
+                        "CHASSIS BLUE TASK3 HOLD deferred until fixed supplement "
                         "grab/place completes",
                         flush=True,
                     )
+                else:
+                    print(
+                        "CHASSIS BLUE TASK3 HOLD duplicate acknowledged; "
+                        "no arm action restarted",
+                        flush=True,
+                    )
                 print(
-                    f"CHASSIS TASK3 HOLD success={'yes' if hold_success else 'no'} | "
+                    f"CHASSIS BLUE TASK3 HOLD success={'yes' if hold_success else 'no'} | "
                     f"{hold_status}",
                     flush=True,
                 )
             for hold_failure in chassis_link.consume_hold_failures():
-                failure_status = grasp_controller.freeze_formal_task3_arm()
+                failure_status = grasp_controller.freeze_blue_task3_arm()
                 print(
-                    "CHASSIS TASK3 HOLD FAILURE frozen high | "
+                    "CHASSIS BLUE TASK3 HOLD FAILURE frozen high | "
                     f"{failure_status}",
                     flush=True,
                 )
@@ -9150,9 +9004,9 @@ def main(argv=None):
                 station_status = grasp_controller.stop_chassis_station(station)
                 if (
                     station == "COLUMN_CATCH"
+                    and grasp_controller.field_mode == FieldMode.BLUE
                     and chassis_link.active_task == "COLUMN_CATCH"
                     and grasp_controller.chassis_station_error_reason is None
-                    and not grasp_controller.task3_supplement_pending()
                 ):
                     chassis_link.complete_column_catch_hold(
                         station, reason="ARM_STOP_DONE"
@@ -9164,12 +9018,10 @@ def main(argv=None):
                     flush=True,
                 )
             for retract in chassis_link.consume_retracts():
-                retract_success, retract_status = (
-                    grasp_controller.retract_formal_task3_arm()
-                )
+                retract_success, retract_status = grasp_controller.retract_blue_task3_arm()
                 chassis_link.complete_retract(retract, retract_success, retract_status)
                 print(
-                    f"CHASSIS TASK3 RETRACT seq={retract.get('sequence')} "
+                    f"CHASSIS BLUE TASK3 RETRACT seq={retract.get('sequence')} "
                     f"success={'yes' if retract_success else 'no'} | {retract_status}",
                     flush=True,
                 )

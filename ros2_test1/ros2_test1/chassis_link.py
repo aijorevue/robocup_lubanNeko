@@ -423,7 +423,6 @@ class ChassisArmLink:
                 "TASK1_AFTER_ARC",
                 "TASK2_AFTER_SECONDARY_SHIFT",
                 "TASK3_BLUE_WHITE_LINE_ALIGN",
-                "TASK3_RED_WHITE_LINE_ALIGN",
             }:
                 self.send_line(
                     "RK,VISION,WHITE_LINE,ERR,REASON,INVALID_PHASE"
@@ -728,12 +727,9 @@ class ChassisArmLink:
 
         if len(parts) >= 3 and parts[0] == "ARM" and parts[2] == "HOLD":
             task = parts[1]
-            if task != "COLUMN_CATCH" or self.field_mode not in {
-                FieldMode.RED,
-                FieldMode.BLUE,
-            }:
+            if task != "COLUMN_CATCH" or self.field_mode != FieldMode.BLUE:
                 self._send_task_state(
-                    task, "ERR", sequence, "REASON", "FORMAL_TASK3_HOLD_ONLY",
+                    task, "ERR", sequence, "REASON", "BLUE_HOLD_ONLY",
                     "FIELD", self.field_mode.wire_name,
                 )
                 return
@@ -794,10 +790,10 @@ class ChassisArmLink:
             and parts[2] == "RETRACT"
         ):
             requested = self._field_from_parts(parts[3:])
-            if requested is None or requested != self.field_mode:
+            if requested != FieldMode.BLUE or self.field_mode != FieldMode.BLUE:
                 self._send_task_state(
                     "COLUMN_CATCH", "ERR", sequence,
-                    "REASON", "FIELD_MISMATCH", "FIELD", self.field_mode.wire_name,
+                    "REASON", "BLUE_ONLY", "FIELD", self.field_mode.wire_name,
                 )
                 return
             if self.active_task != "COLUMN_CATCH":
@@ -942,6 +938,10 @@ class ChassisArmLink:
             "FIELD", self.field_mode.wire_name,
         )
 
+    # Keep older target_vision builds from crashing if a stale install copy
+    # calls the former BLUE-specific method name during a rolling update.
+    complete_blue_column_hold = complete_column_catch_hold
+
     def consume_retracts(self):
         retracts = self.pending_retracts
         self.pending_retracts = []
@@ -1028,7 +1028,6 @@ class ChassisArmLink:
         if self.white_line_phase in {
             "TASK2_AFTER_SECONDARY_SHIFT",
             "TASK3_BLUE_WHITE_LINE_ALIGN",
-            "TASK3_RED_WHITE_LINE_ALIGN",
         }:
             result += f",RX,{int(round(measurement.get('right_edge_x', -1.0)))}"
         return self.send_line(result)
