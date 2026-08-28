@@ -284,6 +284,7 @@ COLUMN_CATCH_AUX14_TICK, COLUMN_CATCH_AUX15_TICK, COLUMN_CATCH_GRIPPER_CLOSED_TI
 COLUMN_CATCH_SPLITTER_TICK = COLUMN_CATCH_AUX14_TICK
 COLUMN_CATCH_CATCHER_HOME_TICK = COLUMN_CATCH_AUX15_TICK
 COLUMN_CATCH_HOLD_HIGH = (650, 600, 413)
+COLUMN_CATCH_FINAL_ID2_OFFSET_TICKS = -20
 COLUMN_CATCH_GRIPPER_OPEN_TICK = PLATFORM_GRIPPER_OPEN
 COLUMN_CATCH_GRIPPER_TIME_MS = PLATFORM_GRIPPER_TIME_MS
 COLUMN_CATCH_CENTER_DEADBAND_PX = PLATFORM_CENTER_DEADBAND_PX
@@ -5394,7 +5395,11 @@ class TargetGraspController:
             if self.locked_plan is None:
                 return self._column_abort("NO_VALID_IK_PLAN")
             target_id1 = self._clamp(self.locked_plan["id1"], self.id1_limits)
-            target_id2 = self._clamp(self.locked_plan["id2"], self.id2_limits)
+            solved_id2 = int(self.locked_plan["id2"])
+            target_id2 = self._clamp(
+                solved_id2 + COLUMN_CATCH_FINAL_ID2_OFFSET_TICKS,
+                self.id2_limits,
+            )
             target_id6 = self._clamp(self.id6, COLUMN_CATCH_ID6_CENTER_RANGE)
             status = self._column_pose(
                 target_id1,
@@ -5415,7 +5420,12 @@ class TargetGraspController:
             else:
                 self.state = "fault"
                 self.algorithm_stage = "fault"
-            return f"COLUMN_CATCH descend endpoint | {status}"
+            return (
+                "COLUMN_CATCH descend endpoint "
+                f"ID2_SOLVED={solved_id2} "
+                f"ID2_OFFSET={COLUMN_CATCH_FINAL_ID2_OFFSET_TICKS:+d} "
+                f"ID2_TARGET={target_id2} ID2_SENT={self.id2} | {status}"
+            )
 
         if self.chassis_station_stage == "column_descend_wait":
             self.state = "COLUMN_CATCH descend wait"
