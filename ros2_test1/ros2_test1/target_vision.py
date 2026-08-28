@@ -260,7 +260,7 @@ DISC_CATCH_CATCHER_YELLOW_TICK = TASK1_ID15_OPEN_TICK
 DISC_CATCH_YELLOW_COOLDOWN_S = 0.5
 DISC_CATCH_OPEN_HOLD_MARGIN_S = 0.1
 DISC_CATCH_CLOSE_CONFIRM_DELAY_S = 0.05
-DISC_CATCH_GRIPPER_TIME_MS = 80
+DISC_CATCH_GRIPPER_TIME_MS = 50
 # Both fields keep ID14 on the detected ball's channel for a full half-second
 # before preparing the other channel for the next target.
 DISC_CATCH_BLUE_CHANNEL_HOLD_S = 0.5

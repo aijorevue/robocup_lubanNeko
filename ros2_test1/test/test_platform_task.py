@@ -214,20 +214,34 @@ class TestPlatformTask(unittest.TestCase):
         raw_id1, raw_id2 = calibrated_grasp_ticks(
             22.83, id1_offset_ticks=40, target_kind="ring",
         )
-        self.assertEqual((raw_id1 - 20, raw_id2 + 30), (474, 499))
+        self.assertEqual((raw_id1 - 30, raw_id2 + 30), (464, 499))
 
         f = Fixture(); f.ready(); f.writes.clear(); f.task.begin_slot('red')
         f.feed(dict(letter(depth=22.83), kind='ring', color='red', score=.9))
         f.finish()
         self.assertEqual(f.writes[2][0], 'pose')
-        self.assertEqual(f.writes[2][1][0:2], (474, 499))
+        self.assertEqual(f.writes[2][1][0:2], (464, 499))
 
     def test_formal_long_range_final_id2_increase_applies_to_letters_and_rings(self):
-        for kind, expected in (("letter", (474, 484)), ("ring", (474, 499))):
+        for kind, expected in (("letter", (474, 484)), ("ring", (464, 499))):
             with self.subTest(kind=kind):
                 f = Fixture(); f.ready(); f.writes.clear(); f.task.begin_slot('red')
                 target = dict(letter(depth=22.83), kind=kind, color='red', score=.9)
                 f.feed(target)
+                f.finish()
+                self.assertEqual(f.writes[2][1][0:2], expected)
+
+    def test_formal_long_range_ring_id1_minus_10_is_boundary_scoped(self):
+        cases = (
+            (20.49, (470, 450)),
+            (20.50, (499, 510)),
+            (25.00, (432, 488)),
+            (25.01, (403, 450)),
+        )
+        for depth, expected in cases:
+            with self.subTest(depth=depth):
+                f = Fixture(); f.ready(); f.writes.clear(); f.task.begin_slot('red')
+                f.feed(dict(letter(depth=depth), kind='ring', color='red', score=.9))
                 f.finish()
                 self.assertEqual(f.writes[2][1][0:2], expected)
 
@@ -485,11 +499,11 @@ class TestPlatformTask(unittest.TestCase):
             ('letter', 10.0, 600, 510, 570),
             ('letter', 11.0, 590, 530, 570),
             ('letter', 13.0, 570, 570, 570),
-            ('ring', 7.0, 630, 572, 520),
-            ('ring', 9.0, 610, 562, 520),
-            ('ring', 10.0, 600, 482, 520),
-            ('ring', 11.0, 590, 502, 550),
-            ('ring', 13.0, 570, 542, 550),
+            ('ring', 7.0, 630, 577, 520),
+            ('ring', 9.0, 610, 567, 520),
+            ('ring', 10.0, 600, 487, 520),
+            ('ring', 11.0, 590, 507, 550),
+            ('ring', 13.0, 570, 547, 550),
         ]
         for kind, depth, expected_descent_id1, expected_descent_id2, expected_retreat_id2 in cases:
             with self.subTest(kind=kind, depth=depth):
