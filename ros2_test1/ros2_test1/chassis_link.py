@@ -423,6 +423,7 @@ class ChassisArmLink:
                 "TASK1_AFTER_ARC",
                 "TASK2_AFTER_SECONDARY_SHIFT",
                 "TASK3_BLUE_WHITE_LINE_ALIGN",
+                "TASK3_RED_WHITE_LINE_ALIGN",
             }:
                 self.send_line(
                     "RK,VISION,WHITE_LINE,ERR,REASON,INVALID_PHASE"
@@ -1028,6 +1029,7 @@ class ChassisArmLink:
         if self.white_line_phase in {
             "TASK2_AFTER_SECONDARY_SHIFT",
             "TASK3_BLUE_WHITE_LINE_ALIGN",
+            "TASK3_RED_WHITE_LINE_ALIGN",
         }:
             result += f",RX,{int(round(measurement.get('right_edge_x', -1.0)))}"
         return self.send_line(result)

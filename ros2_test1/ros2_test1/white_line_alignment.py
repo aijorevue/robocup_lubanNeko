@@ -969,25 +969,17 @@ class WhiteLineAlignmentDetector:
         if not row_runs:
             return None
 
-        # The strip's terminal edge is stable over several adjacent rows.
-        # Selecting that plateau rejects the upper box's broad but slanted
-        # bright area even when both regions touch in the binary mask.
-        maximum_end = max(item[3] for item in row_runs)
-        edge_tolerance = max(12, int(width * 0.03))
-        terminal_rows = [
-            item for item in row_runs
-            if item[3] >= maximum_end - edge_tolerance
-        ]
+        # Build groups before selecting the terminal edge.  A dark-cloth
+        # reflection can extend farther right than the real strip, so a
+        # frame-global terminal-edge preference is unsafe here.
         groups = []
-        for item in terminal_rows:
+        for item in row_runs:
             if not groups or item[0] - groups[-1][-1][0] > 2:
                 groups.append([item])
             else:
                 groups[-1].append(item)
-        groups = [
-            group for group in groups
-            if group[-1][0] - group[0][0] + 1 <= max(24, int(height * 0.14))
-        ]
+        max_group_height = max(24, int(height * 0.14))
+        groups = [group for group in groups if group]
         if not groups:
             return None
         reference_y = height * 0.50
@@ -997,26 +989,74 @@ class WhiteLineAlignmentDetector:
             )
 
         def group_score(candidate):
-            group_y = float(np.median([item[0] for item in candidate]))
-            max_width = max(item[1] for item in candidate)
+            # Long merged groups occur where the white strip touches the
+            # wooden box.  Use the rows at the group's terminal plateau for
+            # geometry, while using the complete group for white validation.
+            maximum_end = max(item[3] for item in candidate)
+            edge_tolerance = max(12, int(width * 0.03))
+            terminal_rows = [
+                item for item in candidate
+                if item[3] >= maximum_end - edge_tolerance
+            ]
+            if not terminal_rows:
+                terminal_rows = candidate
+            group_y = float(np.median([item[0] for item in terminal_rows]))
+            max_width = max(item[1] for item in terminal_rows)
+            group_left = max(0, int(np.percentile([item[2] for item in candidate], 10)))
+            group_right = min(width - 1, int(np.percentile([item[3] for item in candidate], 90)))
+            group_top = max(y0, candidate[0][0] - 3)
+            group_bottom = min(y1 - 1, candidate[-1][0] + 3)
+            sample = hsv[group_top:group_bottom + 1, group_left:group_right + 1]
+            absolute_white_ratio = float(np.mean(
+                (sample[:, :, 2] >= 180) & (sample[:, :, 1] <= 100)
+            )) if sample.size else 0.0
             y_score = max(
                 -1.0,
                 1.0 - abs(group_y - reference_y) / max(1.0, height * 0.30),
             )
             width_score = min(1.0, max_width / max(1.0, width * 0.45))
-            row_score = min(1.0, len(candidate) / max(1.0, height * 0.03))
-            return 4.0 * y_score + 1.4 * width_score + 0.3 * row_score
+            row_score = min(1.0, len(terminal_rows) / max(1.0, height * 0.03))
+            white_score = float(np.clip(
+                (absolute_white_ratio - 0.08) / 0.22, 0.0, 1.0
+            ))
+            # Absolute HSV evidence is deliberately dominant: the black
+            # cloth reflection passes the enhanced-gray mask but has no
+            # pixels in this white band, while the real strip does.
+            return (
+                4.0 * white_score
+                + 2.2 * y_score
+                + 1.4 * width_score
+                + 0.3 * row_score
+            )
 
         # Prefer the strip near the formal reference or the last accepted
         # geometry over a wider but unrelated bright structure above it.
-        group = max(groups, key=group_score)
-        if max(item[1] for item in group) < width * 0.18:
+        scored_groups = [
+            (group_score(group), group) for group in groups
+        ]
+        scored_groups = [
+            item for item in scored_groups
+            if item[0] > 0.0
+        ]
+        if not scored_groups:
+            return None
+        _, group = max(scored_groups, key=lambda item: item[0])
+
+        maximum_end = max(item[3] for item in group)
+        edge_tolerance = max(12, int(width * 0.03))
+        terminal_rows = [
+            item for item in group
+            if item[3] >= maximum_end - edge_tolerance
+        ]
+        if not terminal_rows:
+            terminal_rows = group
+        if max(item[1] for item in terminal_rows) < width * 0.18:
             return None
 
-        band_top = max(y0, group[0][0] - 3)
-        band_bottom = min(y1 - 1, group[-1][0] + 3)
-        right_edge_x = float(np.median([item[3] for item in group]))
-        left_edge_x = float(np.median([item[2] for item in group]))
+        band_top = max(y0, terminal_rows[0][0] - 3)
+        band_bottom = min(y1 - 1, terminal_rows[-1][0] + 3)
+        right_edge_x = float(np.median([item[3] for item in terminal_rows]))
+        left_edge_x = float(np.median([item[2] for item in terminal_rows]))
         if right_edge_x - left_edge_x < width * 0.15:
             return None
 

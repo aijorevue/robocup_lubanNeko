@@ -9136,7 +9136,10 @@ def main(argv=None):
         query_sequence = pending_white_line_queries[-1]
         phase = getattr(chassis_link, "white_line_phase", None)
         task2_phase = phase == "TASK2_AFTER_SECONDARY_SHIFT"
-        task3_blue_phase = phase == "TASK3_BLUE_WHITE_LINE_ALIGN"
+        task3_phase = phase in {
+            "TASK3_BLUE_WHITE_LINE_ALIGN",
+            "TASK3_RED_WHITE_LINE_ALIGN",
+        }
         if (
             query_sequence != white_line_last_query_sequence
             or phase != white_line_last_phase
@@ -9169,7 +9172,7 @@ def main(argv=None):
             )
         if task2_phase:
             line_measurement = task2_white_line_detector.detect_task2(white_line_frame)
-        elif task3_blue_phase:
+        elif task3_phase:
             line_measurement = task3_blue_white_line_detector.detect_task3(white_line_frame)
         else:
             line_measurement = white_line_detector.detect(white_line_frame)
