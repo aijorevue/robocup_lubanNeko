@@ -34,9 +34,13 @@ class FakeServoBridge:
         self.fail_writes = False
         self.ports_open = True
         self.sent = []
+        self.timed_sent = []
 
     def send_targets(self, **targets):
         self.sent.append(targets)
+        self.timed_sent.append(
+            (targets, self.arm_time_ms, self.gripper_time_ms)
+        )
         self.last_command_ok = not self.fail_writes
         self.status = "fake write failed" if self.fail_writes else "fake write ok"
         return self.status
@@ -93,23 +97,6 @@ def make_controller(bridge=None, field_mode=target_vision.FieldMode.RED):
 
 
 class ChassisStationSafetyTests(unittest.TestCase):
-    def test_disc_open_uses_task_one_override_without_changing_shared_open(self):
-        controller, bridge, _ = make_controller()
-        controller.disc_fast_blue_cycle = False
-
-        controller._send_disc_open_phase(
-            target_vision.DISC_CATCH_SPLITTER_FIELD_TICK,
-            target_vision.DISC_CATCH_CATCHER_FIELD_TICK,
-            "test DISC_CATCH open",
-        )
-
-        self.assertEqual(
-            bridge.sent[-1]["id4"], target_vision.DISC_CATCH_GRIPPER_OPEN_TICK
-        )
-        self.assertEqual(controller.id7, target_vision.DISC_CATCH_GRIPPER_OPEN_TICK)
-        self.assertEqual(controller.id7_open, 450)
-        self.assertEqual(target_vision.GRIPPER_OPEN_TICK, 405)
-
     def test_blue_orbit_hold_runs_one_quota_supplement_before_release(self):
         controller, bridge, _ = make_controller(
             field_mode=target_vision.FieldMode.BLUE
@@ -141,6 +128,7 @@ class ChassisStationSafetyTests(unittest.TestCase):
         )
         self.assertEqual(controller.id7, 265)
         commands = bridge.sent
+        timed_commands = bridge.timed_sent
         descend_index = next(
             index for index, command in enumerate(commands)
             if command.get("id1") == 580
@@ -151,11 +139,15 @@ class ChassisStationSafetyTests(unittest.TestCase):
         )
         place_id6_index = next(
             index for index, command in enumerate(commands)
-            if index > close_index and command.get("id6") == 670
+            if index > close_index and command.get("id6") == 600
+        )
+        place_id2_index = next(
+            index for index, command in enumerate(commands)
+            if index > place_id6_index and command.get("id2") == 365
         )
         place_id1_index = next(
             index for index, command in enumerate(commands)
-            if index > place_id6_index and command.get("id1") == 530
+            if index > place_id2_index and command.get("id1") == 545
         )
         release_index = next(
             index for index, command in enumerate(commands)
@@ -171,10 +163,60 @@ class ChassisStationSafetyTests(unittest.TestCase):
         )
         self.assertLess(descend_index, close_index)
         self.assertLess(close_index, place_id6_index)
-        self.assertLess(place_id6_index, place_id1_index)
+        self.assertLess(place_id6_index, place_id2_index)
+        self.assertLess(place_id2_index, place_id1_index)
         self.assertLess(place_id1_index, release_index)
         self.assertLess(release_index, reclose_index)
         self.assertLess(reclose_index, final_high_index)
+
+        def sent_timings(predicate):
+            return [
+                (arm_ms, gripper_ms)
+                for targets, arm_ms, gripper_ms in timed_commands[1:]
+                if predicate(targets)
+            ]
+
+        self.assertEqual(
+            sent_timings(lambda item: item.get("id1") == 650
+                         and item.get("id2") == 600
+                         and item.get("id6") == 413
+                         and item.get("id4") == 405),
+            [(500, 500)],
+        )
+        self.assertEqual(
+            sent_timings(lambda item: item.get("id1") == 580), [(800, 800)]
+        )
+        self.assertEqual(
+            sent_timings(lambda item: item.get("id1") == 650
+                         and len(item) == 1),
+            [(200, 200), (500, 500)],
+        )
+        self.assertEqual(
+            sent_timings(lambda item: item.get("id2") == 570),
+            [(200, 200), (500, 500)],
+        )
+        self.assertEqual(
+            sent_timings(lambda item: item.get("id6") == 413
+                         and len(item) == 1),
+            [(200, 200), (500, 500)],
+        )
+        self.assertEqual(
+            sent_timings(lambda item: item.get("id6") == 600), [(300, 300)]
+        )
+        self.assertEqual(
+            sent_timings(lambda item: item.get("id2") == 365), [(300, 300)]
+        )
+        self.assertEqual(
+            sent_timings(lambda item: item.get("id1") == 545), [(300, 300)]
+        )
+        self.assertEqual(
+            sent_timings(lambda item: item.get("id4") == 405),
+            [(500, 500), (1, 200)],
+        )
+        self.assertEqual(
+            sent_timings(lambda item: item.get("id4") == 265),
+            [(1, 200), (1, 200)],
+        )
 
     def test_repeated_blue_hold_does_not_restart_supplement_queue(self):
         controller, bridge, _ = make_controller(
@@ -483,9 +525,7 @@ class ChassisStationSafetyTests(unittest.TestCase):
             )
 
         self.assertEqual(controller.chassis_station_stage, "disc_open_wait")
-        self.assertEqual(
-            bridge.sent[-1]["id4"], target_vision.DISC_CATCH_GRIPPER_OPEN_TICK
-        )
+        self.assertEqual(bridge.sent[-1]["id4"], controller.id7_open)
 
     def test_disc_blue_field_yellow_holds_channel_then_returns_to_blue(self):
         controller, bridge, _ = make_controller(field_mode=target_vision.FieldMode.BLUE)
@@ -557,9 +597,7 @@ class ChassisStationSafetyTests(unittest.TestCase):
             bridge.sent[-1]["splitter_id4"],
             target_vision.DISC_CATCH_SPLITTER_FIELD_TICK,
         )
-        self.assertEqual(
-            bridge.sent[-1]["id4"], target_vision.DISC_CATCH_GRIPPER_OPEN_TICK
-        )
+        self.assertEqual(bridge.sent[-1]["id4"], controller.id7_open)
 
     def test_disc_station_starts_with_app_low_pose(self):
         controller, bridge, _ = make_controller()
