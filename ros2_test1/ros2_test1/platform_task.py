@@ -47,8 +47,29 @@ FORMAL_ID2_FINAL_CORRECTION_TICKS = 70
 FORMAL_LETTER_ID2_REDUCTION_TICKS = 40
 FORMAL_LETTER_7_13_ID2_INCREASE_TICKS = 0
 FORMAL_RING_ID2_REDUCTION_TICKS = 40
-FORMAL_RING_NEAR_ID2_EXTRA_REDUCTION_TICKS = 38
-FORMAL_RING_7_13_ID2_INCREASE_TICKS = 6
+FORMAL_RING_7_13_FINAL_ID2_ANCHORS = (
+    (7.0, 558),
+    (8.0, 553),
+    (9.0, 548),
+    (13.0, 528),
+)
+# Keep the current 13 cm endpoints from the smoothed 7..13 curves and the
+# existing 15 cm final poses, then interpolate both target kinds across 13..15
+# so leaving the 7..13 band cannot create a depth-boundary jump.
+FORMAL_TASK2_13_15_SMOOTH_MIN_CM = 13.0
+FORMAL_TASK2_13_15_SMOOTH_MAX_CM = 15.0
+FORMAL_TASK2_13_15_LETTER_ANCHORS = (
+    (13.0, 570, 560),
+    (15.0, 517, 503),
+)
+FORMAL_TASK2_13_15_RING_ANCHORS = (
+    (13.0, 570, 528),
+    (15.0, 517, 513),
+)
+# Task-two rings use one final caller-only ID2 reduction across both the
+# 7..13 cm curve and the 13..15 cm bridge. Apply it after all segment solves
+# so the shared calibration, task-two letters, and task three stay unchanged.
+FORMAL_TASK2_RING_7_15_FINAL_ID2_REDUCTION_TICKS = 30
 FORMAL_RING_MID_MIN_DISTANCE_CM = 15.0
 FORMAL_RING_MID_MAX_DISTANCE_CM = 19.0
 FORMAL_RING_MID_ID2_INCREASE_TICKS = 50
@@ -80,6 +101,33 @@ PLATFORM_FULLSCREEN_SLOTS = frozenset({3, 4, 5, 6})
 SECONDARY_PAIR_REQUIRED_FRAMES = 1
 SECONDARY_PRESELECT_TIMEOUT_S = 9.0
 SECONDARY_PRESELECT_FALLBACK_WINDOW_S = 2.0
+
+
+def _formal_ring_7_13_final_id2(depth_cm):
+    """Interpolate the task-two ring-only final ID2 calibration."""
+    anchors = FORMAL_RING_7_13_FINAL_ID2_ANCHORS
+    for (left_depth, left_ticks), (right_depth, right_ticks) in zip(
+            anchors, anchors[1:]):
+        if depth_cm <= right_depth:
+            ratio = (depth_cm - left_depth) / (right_depth - left_depth)
+            return int(round(left_ticks + ratio * (right_ticks - left_ticks)))
+    return anchors[-1][1]
+
+
+def _formal_task2_13_15_final_pose(depth_cm, target_kind):
+    """Smoothly bridge the current 13 cm and 15 cm task-two final poses."""
+    anchors = (
+        FORMAL_TASK2_13_15_RING_ANCHORS
+        if str(target_kind).strip().lower() == "ring"
+        else FORMAL_TASK2_13_15_LETTER_ANCHORS
+    )
+    left_depth, left_id1, left_id2 = anchors[0]
+    right_depth, right_id1, right_id2 = anchors[1]
+    ratio = (float(depth_cm) - left_depth) / (right_depth - left_depth)
+    return (
+        int(round(left_id1 + ratio * (right_id1 - left_id1))),
+        int(round(left_id2 + ratio * (right_id2 - left_id2))),
+    )
 
 
 def _target_in_center_window(target, frame_shape, *, full_frame=False):
@@ -519,15 +567,11 @@ class PlatformTask:
         if key[0] == "ring":
             if (FORMAL_ID2_CORRECTION_MIN_DISTANCE_CM <= depth
                     <= FORMAL_ID2_CORRECTION_MAX_DISTANCE_CM):
-                id2 = max(
-                    CENTER_ID2_RANGE[0],
-                    id2 - FORMAL_RING_ID2_REDUCTION_TICKS
-                    - FORMAL_RING_NEAR_ID2_EXTRA_REDUCTION_TICKS,
-                )
-                id2 = min(
-                    CENTER_ID2_RANGE[1],
-                    id2 + FORMAL_RING_7_13_ID2_INCREASE_TICKS,
-                )
+                target_id2 = _formal_ring_7_13_final_id2(depth)
+                ring_segment_correction = target_id2 - id2
+                id2 = max(CENTER_ID2_RANGE[0], min(
+                    CENTER_ID2_RANGE[1], id2 + ring_segment_correction,
+                ))
             elif (FORMAL_RING_LONG_RANGE_MIN_DISTANCE_CM <= depth
                   <= FORMAL_RING_LONG_RANGE_MAX_DISTANCE_CM):
                 id1 -= FORMAL_RING_LONG_RANGE_ID1_REDUCTION_TICKS
@@ -558,6 +602,16 @@ class PlatformTask:
                 and FORMAL_RING_LONG_RANGE_MIN_DISTANCE_CM <= depth
                 <= FORMAL_RING_LONG_RANGE_MAX_DISTANCE_CM):
             id2 = min(CENTER_ID2_RANGE[1], id2 + FORMAL_LONG_RANGE_FINAL_ID2_INCREASE_TICKS)
+        if (FORMAL_TASK2_13_15_SMOOTH_MIN_CM <= depth
+                <= FORMAL_TASK2_13_15_SMOOTH_MAX_CM):
+            id1, id2 = _formal_task2_13_15_final_pose(depth, key[0])
+        if (key[0] == "ring"
+                and FORMAL_ID2_CORRECTION_MIN_DISTANCE_CM <= depth
+                <= FORMAL_TASK2_13_15_SMOOTH_MAX_CM):
+            id2 = max(
+                CENTER_ID2_RANGE[0],
+                id2 - FORMAL_TASK2_RING_7_15_FINAL_ID2_REDUCTION_TICKS,
+            )
         self.high_ready = False
         placement = LETTER_PLACE if key[0] == "letter" else RING_PLACE
         print(f"PLATFORM_PICK TARGET kind={key[0]} label={key[1]} depth_cm={depth:.2f} "

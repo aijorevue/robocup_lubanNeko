@@ -180,6 +180,22 @@ class TestPlatformTask(unittest.TestCase):
             calibrated_grasp_ticks(20, id1_offset_ticks=40), (478, 483),
         )
 
+    def test_shared_near_calibration_template_remains_unchanged(self):
+        from ros2_test1.grasp_calibration import calibrated_grasp_ticks
+
+        expected = {
+            7.0: (620, 540),
+            8.0: (610, 535),
+            9.0: (600, 530),
+            10.0: (590, 450),
+            11.0: (580, 470),
+            12.0: (570, 490),
+            13.0: (560, 510),
+        }
+        for depth, ticks in expected.items():
+            with self.subTest(depth=depth):
+                self.assertEqual(calibrated_grasp_ticks(depth), ticks)
+
     def test_id1_correction_and_ring_extra_are_limited_to_20_5_through_25_cm(self):
         from ros2_test1.grasp_calibration import calibrated_grasp_ticks
 
@@ -561,11 +577,13 @@ class TestPlatformTask(unittest.TestCase):
             ('letter', 10.0, 600, 500, 570),
             ('letter', 11.0, 590, 520, 570),
             ('letter', 13.0, 570, 560, 570),
-            ('ring', 7.0, 630, 558, 520),
-            ('ring', 9.0, 610, 548, 520),
-            ('ring', 10.0, 600, 468, 520),
-            ('ring', 11.0, 590, 488, 550),
-            ('ring', 13.0, 570, 528, 550),
+            ('ring', 7.0, 630, 528, 520),
+            ('ring', 8.0, 620, 523, 520),
+            ('ring', 9.0, 610, 518, 520),
+            ('ring', 10.0, 600, 513, 520),
+            ('ring', 11.0, 590, 508, 550),
+            ('ring', 12.0, 580, 503, 550),
+            ('ring', 13.0, 570, 498, 550),
         ]
         for kind, depth, expected_descent_id1, expected_descent_id2, expected_retreat_id2 in cases:
             with self.subTest(kind=kind, depth=depth):
@@ -583,8 +601,48 @@ class TestPlatformTask(unittest.TestCase):
                 ))
                 self.assertIn(('gripper', PLATFORM_GRIPPER_CLOSED), f.writes)
 
+    def test_ring_7_13_final_id2_is_continuous_across_shared_template_break(self):
+        expected = ((9.99, 513), (10.0, 513), (10.01, 513))
+        for depth, expected_id2 in expected:
+            with self.subTest(depth=depth):
+                f = Fixture(); f.ready(); f.writes.clear(); f.task.begin_slot('red')
+                f.feed(dict(letter(depth=depth), kind='ring', color='red', score=.9))
+                descend = next(args[0] for name, callback, args in f.task.actions
+                               if name == 'DESCEND')
+                self.assertEqual(descend[1], expected_id2)
+
+    def test_ring_final_id2_reduction_continues_into_13_15cm_bridge(self):
+        f = Fixture(); f.ready(); f.writes.clear(); f.task.begin_slot('red')
+        f.feed(dict(letter(depth=13.01), kind='ring', color='red', score=.9))
+        descend = next(args[0] for name, callback, args in f.task.actions
+                       if name == 'DESCEND')
+        self.assertEqual(descend[1], 498)
+
+    def test_task2_13_to_15_final_poses_are_smooth_for_letters_and_rings(self):
+        cases = (
+            ('letter', 13.0, (570, 560)),
+            ('letter', 14.0, (544, 532)),
+            ('letter', 14.99, (517, 503)),
+            ('letter', 15.0, (517, 503)),
+            ('ring', 13.0, (570, 498)),
+            ('ring', 14.0, (544, 490)),
+            ('ring', 14.99, (517, 483)),
+            ('ring', 15.0, (517, 483)),
+        )
+        for kind, depth, expected in cases:
+            with self.subTest(kind=kind, depth=depth):
+                f = Fixture(); f.ready(); f.writes.clear()
+                f.task.begin_slot('red')
+                target = letter(depth=depth) if kind == 'letter' else dict(
+                    letter(depth=depth), kind='ring', color='red', score=.9,
+                )
+                f.feed(target)
+                descend = next(args[0] for name, callback, args in f.task.actions
+                               if name == 'DESCEND')
+                self.assertEqual(descend, (*expected, HIGH[2]))
+
     def test_ring_mid_depth_final_pose_boundaries_both_fields(self):
-        cases = ((14.99, 517, 463), (15, 517, 513),
+        cases = ((14.99, 517, 483), (15, 517, 483),
                  (17.4751410607385, 500, 504), (18.5, 500, 500),
                  (19, 493, 500), (19.01, 493, 450))
         for field in ('red', 'blue'):
