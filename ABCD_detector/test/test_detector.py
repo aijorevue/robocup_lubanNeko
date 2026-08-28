@@ -4,7 +4,11 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from abcd_detector.detector import ABCDDetector
+from abcd_detector.detector import (
+    ABCDDetector,
+    TASK2_B_CENTER_BAR_MIN_RATIO,
+    TASK3_MAX_CENTER_Y_RATIO,
+)
 
 
 ASSET_DIR = Path(__file__).resolve().parents[1] / "abcd_detector" / "assets" / "letters"
@@ -44,6 +48,98 @@ def rotated_green_block(letter, angle, size=320):
 
 
 class ABCDDetectorTests(unittest.TestCase):
+    def test_task2_center_bar_corrects_ambiguous_b_without_changing_ordinary(self):
+        class AmbiguousBDDetector(ABCDDetector):
+            def _best_template_score(self, glyph, glyph_binary, letter):
+                return {"A": 0.18, "B": 0.50, "C": 0.22, "D": 0.54}[letter]
+
+        detector = AmbiguousBDDetector()
+        rectified = cv2.resize(
+            cv2.imread(str(ASSET_DIR / "B.png")),
+            (128, 128),
+            interpolation=cv2.INTER_AREA,
+        )
+        ordinary, _, _ = detector._classify(rectified, inset=2)
+        task2, _, _ = detector._classify(
+            rectified, inset=2, task2_bd_check=True
+        )
+        self.assertEqual(ordinary, "D")
+        self.assertEqual(task2, "B")
+
+    def test_task2_center_bar_rejects_true_d_shape(self):
+        detector = ABCDDetector()
+        self.assertGreaterEqual(
+            detector._task2_center_bar_ratio(detector.templates["B"] > 127),
+            TASK2_B_CENTER_BAR_MIN_RATIO,
+        )
+        self.assertLess(
+            detector._task2_center_bar_ratio(detector.templates["D"] > 127),
+            TASK2_B_CENTER_BAR_MIN_RATIO,
+        )
+
+    def test_task2_detects_each_letter_without_changing_task3_path(self):
+        detector = ABCDDetector()
+        for letter in "ABCD":
+            task2_detections = detector.detect_task2(letter_block(letter))
+            task3_detections = detector.detect_task3_rotated(
+                rotated_green_block(letter, 17)
+            )
+            self.assertEqual(task2_detections[0]["letter"], letter)
+            self.assertEqual(task3_detections[0]["letter"], letter)
+
+    def test_task3_bd_structure_correction_is_bidirectional(self):
+        class AmbiguousBDetector(ABCDDetector):
+            def _score_rotation_batch(self, normalized_glyphs):
+                count = len(normalized_glyphs)
+                return {
+                    "A": np.full(count, 0.18, dtype=np.float32),
+                    "B": np.full(count, 0.54, dtype=np.float32),
+                    "C": np.full(count, 0.22, dtype=np.float32),
+                    "D": np.full(count, 0.58, dtype=np.float32),
+                }
+
+        class AmbiguousDDetector(ABCDDetector):
+            def _score_rotation_batch(self, normalized_glyphs):
+                count = len(normalized_glyphs)
+                return {
+                    "A": np.full(count, 0.18, dtype=np.float32),
+                    "B": np.full(count, 0.58, dtype=np.float32),
+                    "C": np.full(count, 0.22, dtype=np.float32),
+                    "D": np.full(count, 0.54, dtype=np.float32),
+                }
+
+        b_rectified = cv2.resize(
+            cv2.imread(str(ASSET_DIR / "B.png")),
+            (128, 128),
+            interpolation=cv2.INTER_AREA,
+        )
+        d_rectified = cv2.resize(
+            cv2.imread(str(ASSET_DIR / "D.png")),
+            (128, 128),
+            interpolation=cv2.INTER_AREA,
+        )
+        b_letter, _, _, _, _ = AmbiguousBDetector()._classify_rotation_invariant(
+            b_rectified, inset=2
+        )
+        d_letter, _, _, _, _ = AmbiguousDDetector()._classify_rotation_invariant(
+            d_rectified, inset=2
+        )
+        self.assertEqual(b_letter, "B")
+        self.assertEqual(d_letter, "D")
+
+    def test_task3_rejects_candidate_below_global_view_limit(self):
+        detector = ABCDDetector()
+        frame = rotated_green_block("B", 17)
+        local_center_y = frame.shape[0] // 2
+        full_height = 600
+        origin_y = int(full_height * TASK3_MAX_CENTER_Y_RATIO) - local_center_y + 1
+        detections = detector.detect_task3_rotated(
+            frame,
+            frame_shape=(full_height, frame.shape[1], 3),
+            frame_origin=(0, origin_y),
+        )
+        self.assertEqual(detections, [])
+
     def test_main_camera_serif_b_with_narrow_border(self):
         frame = cv2.imread(str(Path(__file__).parent / "fixtures" / "main_serif_b.jpg"))
         self.assertIsNotNone(frame)

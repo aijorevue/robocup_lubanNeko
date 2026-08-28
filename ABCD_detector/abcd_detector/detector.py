@@ -25,6 +25,12 @@ ROTATION_FINE_RADIUS_DEG = 8
 ROTATION_FINE_STEP_DEG = 1
 ROTATION_MIN_MARGIN = 0.015
 RECTIFIED_ROTATION_ANGLES_DEG = (0, 90, 180, 270)
+TASK2_B_CENTER_BAR_MIN_RATIO = 0.44
+TASK2_D_CENTER_BAR_PENALTY = 0.14
+TASK3_B_CENTER_BAR_MIN_RATIO = 0.30
+TASK3_D_CENTER_BAR_MAX_RATIO = 0.24
+TASK3_BD_STRUCTURE_PENALTY = 0.10
+TASK3_MAX_CENTER_Y_RATIO = 0.75
 DEFAULT_DISTANCE_OFFSET_CM = -1.6072186919749336
 DEFAULT_DISTANCE_SCALE_CM = (
     31.628878020276648 * 2.0 * 30.0 / (42.67 * np.sqrt(np.pi)) * 1.20
@@ -245,12 +251,38 @@ class ABCDDetector:
         self._add_depth_measurements(detections, frame.shape)
         return detections
 
-    def detect_task3_rotated(self, frame, *, frame_shape=None):
+    def detect_task2(self, frame):
+        """Detect task-two letters with a B/D structural tie-break."""
+        if frame is None or not isinstance(frame, np.ndarray) or frame.ndim != 3:
+            return []
+        height, width = frame.shape[:2]
+        if height < 32 or width < 32:
+            return []
+
+        results = self._detect_yolo(frame)
+        results.extend(self._detect_white_blocks(frame, task2_bd_check=True))
+        results.extend(self._detect_dark_letters(frame))
+        detections = self._dedupe_detections(results)
+        self._add_depth_measurements(detections, frame.shape)
+        return detections
+
+    def detect_task3_rotated(
+        self, frame, *, frame_shape=None, frame_origin=(0, 0)
+    ):
         """Classify white task-three blocks at arbitrary in-plane rotation."""
         if frame is None or not isinstance(frame, np.ndarray) or frame.ndim != 3:
             return []
         detections = self._detect_white_blocks(frame, rotation_invariant=True)
-        self._add_depth_measurements(detections, frame_shape or frame.shape)
+        measurement_shape = frame_shape or frame.shape
+        origin_y = int(frame_origin[1]) if len(frame_origin) >= 2 else 0
+        full_height = max(1, int(measurement_shape[0]))
+        detections = [
+            detection
+            for detection in detections
+            if (float(detection["center"][1]) + origin_y) / full_height
+            <= TASK3_MAX_CENTER_Y_RATIO
+        ]
+        self._add_depth_measurements(detections, measurement_shape)
         return detections
 
     def _add_depth_measurements(self, detections, frame_shape):
@@ -333,7 +365,9 @@ class ABCDDetector:
                 )
         return detections
 
-    def _detect_white_blocks(self, frame, *, rotation_invariant=False):
+    def _detect_white_blocks(
+        self, frame, *, rotation_invariant=False, task2_bd_check=False
+    ):
         height, width = frame.shape[:2]
 
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
@@ -417,9 +451,11 @@ class ABCDDetector:
                     self._classify_rotation_invariant(rectified)
                 )
             else:
-                letter, confidence, occupancy = self._classify(rectified)
+                letter, confidence, occupancy = self._classify(
+                    rectified, task2_bd_check=task2_bd_check
+                )
                 edge_letter, edge_confidence, edge_occupancy = self._classify(
-                    rectified, inset=2
+                    rectified, inset=2, task2_bd_check=task2_bd_check
                 )
                 if edge_letter is not None and edge_confidence > confidence:
                     letter, confidence, occupancy = (
@@ -604,7 +640,23 @@ class ABCDDetector:
         matrix = cv2.getPerspectiveTransform(box.astype(np.float32), destination)
         return cv2.warpPerspective(frame, matrix, (side, side))
 
-    def _classify(self, rectified, inset=14):
+    @staticmethod
+    def _task2_center_bar_ratio(glyph_binary):
+        points = cv2.findNonZero(np.asarray(glyph_binary, dtype=np.uint8))
+        if points is None:
+            return 0.0
+        x, y, width, height = cv2.boundingRect(points)
+        if width < 8 or height < 8:
+            return 0.0
+        x0 = x + int(round(width * 0.28))
+        x1 = x + int(round(width * 0.82))
+        y0 = y + int(round(height * 0.42))
+        y1 = y + int(round(height * 0.58))
+        if x1 <= x0 or y1 <= y0:
+            return 0.0
+        return float(np.mean(glyph_binary[y0:y1, x0:x1]))
+
+    def _classify(self, rectified, inset=14, *, task2_bd_check=False):
         gray = cv2.cvtColor(rectified, cv2.COLOR_BGR2GRAY)
         inner = gray[inset:-inset, inset:-inset]
         inner = cv2.GaussianBlur(inner, (3, 3), 0)
@@ -622,9 +674,20 @@ class ABCDDetector:
         if not self.min_glyph_occupancy <= occupancy <= self.max_glyph_occupancy:
             return None, 0.0, occupancy
 
-        scores = []
+        scores_by_letter = {}
         for letter in LETTERS:
-            scores.append((self._best_template_score(glyph, glyph_binary, letter), letter))
+            scores_by_letter[letter] = self._best_template_score(
+                glyph, glyph_binary, letter
+            )
+        if (
+            task2_bd_check
+            and self._task2_center_bar_ratio(glyph_binary)
+            >= TASK2_B_CENTER_BAR_MIN_RATIO
+        ):
+            scores_by_letter["D"] = max(
+                0.0, scores_by_letter["D"] - TASK2_D_CENTER_BAR_PENALTY
+            )
+        scores = [(score, letter) for letter, score in scores_by_letter.items()]
         scores.sort(reverse=True)
         best_score, best_letter = scores[0]
         runner_up = scores[1][0] if len(scores) > 1 else 0.0
@@ -679,6 +742,28 @@ class ABCDDetector:
                 float(coarse_batch[letter][best_index]),
                 float(RECTIFIED_ROTATION_ANGLES_DEG[best_index]),
             )
+
+        initial_order = sorted(
+            ((score, letter) for letter, (score, _) in coarse_scores.items()),
+            reverse=True,
+        )
+        if {letter for _, letter in initial_order[:2]} == {"B", "D"}:
+            b_index = int(np.argmax(coarse_batch["B"]))
+            center_bar_ratio = self._task2_center_bar_ratio(
+                coarse_glyphs[b_index] > 127
+            )
+            if center_bar_ratio >= TASK3_B_CENTER_BAR_MIN_RATIO:
+                score, angle = coarse_scores["D"]
+                coarse_scores["D"] = (
+                    max(0.0, score - TASK3_BD_STRUCTURE_PENALTY),
+                    angle,
+                )
+            elif center_bar_ratio <= TASK3_D_CENTER_BAR_MAX_RATIO:
+                score, angle = coarse_scores["B"]
+                coarse_scores["B"] = (
+                    max(0.0, score - TASK3_BD_STRUCTURE_PENALTY),
+                    angle,
+                )
 
         coarse_order = sorted(
             ((score, letter, angle) for letter, (score, angle) in coarse_scores.items()),

@@ -7888,6 +7888,11 @@ class TargetDetector:
             self.letter_detector = ABCDDetector()
         return self.letter_detector.detect(frame)
 
+    def _detect_task2_letters(self, frame):
+        if self.letter_detector is None:
+            self.letter_detector = ABCDDetector()
+        return self.letter_detector.detect_task2(frame)
+
     def _detect_task3_rotated_letters(self, frame, roi=None):
         if self.letter_detector is None:
             self.letter_detector = ABCDDetector()
@@ -7903,7 +7908,9 @@ class TargetDetector:
                 frame, frame_shape=frame.shape
             )
         detections = self.letter_detector.detect_task3_rotated(
-            frame[y0:y1, x0:x1], frame_shape=frame.shape
+            frame[y0:y1, x0:x1],
+            frame_shape=frame.shape,
+            frame_origin=(x0, y0),
         )
         for detection in detections:
             cx, cy = detection["center"]
@@ -8253,7 +8260,7 @@ class TargetDetector:
                 if str(letter).upper() in LETTERS
             }
             letters = [
-                det for det in self._detect_letters(frame)
+                det for det in self._detect_task2_letters(frame)
                 if det.get("letter") in selected_letters
             ]
             return [*letters, *detect_platform_rings(frame)]
