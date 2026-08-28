@@ -307,11 +307,16 @@ class TestPlatformTask(unittest.TestCase):
 
     def test_secondary_history_fallback_chooses_two_distinct_labels(self):
         f = Fixture()
+        f.task._persistent_pair = lambda: ()
         f.task.begin_preselect()
-        f.now = 23.1
         f.task.preselect([letter('D', (100, 200))])
         f.task.preselect([letter('D', (100, 200))])
         f.task.preselect([letter('C', (600, 200))])
+        # History fallback is committed only after the full secondary-camera
+        # budget expires, so a late valid pair still has a chance to lock.
+        self.assertEqual(f.task.stage, 'platform_preselect')
+        f.now = f.task.timeout
+        f.task.tick()
         self.assertEqual(
             f.task.selected,
             ('D', 'C'),
@@ -322,9 +327,42 @@ class TestPlatformTask(unittest.TestCase):
             2.0,
         )
 
+    def test_persistent_pair_has_priority_over_history_at_timeout(self):
+        f = Fixture()
+        f.task._persistent_pair = lambda: ('C', 'D')
+        f.task.begin_preselect()
+        f.task.preselect([letter('A', (100, 200))])
+        f.task.preselect([letter('A', (100, 200))])
+        f.task.preselect([letter('B', (600, 200))])
+        f.now = f.task.timeout
+        f.task.tick()
+        self.assertEqual(f.task.selected, ('C', 'D'))
+        self.assertEqual(f.task.preselect_lock_source, 'PERSISTED_FALLBACK')
+
+    def test_persistent_pair_recovers_a_slot_after_preselect_failure(self):
+        f = Fixture()
+        f.task._persistent_pair = lambda: ("B", "D")
+        f.task.begin_slot("red")
+        self.assertEqual(f.task.stage, "platform_slot_raise")
+        self.assertEqual(f.task.selected, ("B", "D"))
+        f.now = f.task.deadline
+        f.task.tick()
+        self.assertEqual(f.task.stage, "platform_detect")
+        self.assertTrue(f.task.high_ready)
+
+    def test_persistent_pair_is_used_when_secondary_times_out(self):
+        f = Fixture()
+        f.task._persistent_pair = lambda: ("A", "C")
+        f.task.begin_preselect()
+        f.now = f.task.timeout
+        f.task.tick()
+        self.assertEqual(f.task.selected, ("A", "C"))
+        self.assertEqual(f.task.preselect_lock_source, "PERSISTED_FALLBACK")
+
     def test_stale_and_duplicate_letter_pair_never_lock(self):
         for stale in (True, False):
             f = Fixture()
+            f.task._persistent_pair = lambda: ()
             f.task.begin_preselect()
             for _ in range(60):
                 f.task.preselect([letter(), letter('C' if stale else 'A', (600, 300))], fresh=not stale)
@@ -335,6 +373,7 @@ class TestPlatformTask(unittest.TestCase):
 
     def test_no_slot_without_preselect_and_high(self):
         f = Fixture()
+        f.task._persistent_pair = lambda: ()
         f.task.begin_slot('red')
         self.assertEqual(f.task.error, 'PRESELECT_HIGH_NOT_READY')
         self.assertFalse(f.writes)

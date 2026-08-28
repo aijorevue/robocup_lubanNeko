@@ -8,6 +8,7 @@ import math
 import time
 
 from .grasp_calibration import calibrated_grasp_ticks
+from .task2_fixed_letters import load_fixed_letters
 
 HIGH = (650, 600, 415)
 INTERMEDIATE_HIGH = (650, 400, 415)
@@ -168,6 +169,7 @@ class PlatformTask:
         self.letter_confidence = Counter()
         self.letter_x = {}
         self.preselect_lock_source = None
+        self.pending_slot_field = None
         self.status = "PLATFORM_PICK idle"
 
     def _fail(self, reason):
@@ -214,6 +216,29 @@ class PlatformTask:
         )
         self.stage = "platform_raise"
         self._command("ARM_HIGH", self.pose, HIGH, True)
+
+    def _persistent_pair(self):
+        selected = load_fixed_letters()
+        if len(selected) != 2:
+            return ()
+        return tuple(selected)
+
+    def _start_slot_detection(self, field):
+        """Enter the normal main-camera station after the high pose settles."""
+        self.done = self.error = None
+        self.field = str(field).lower()
+        self.stage = "platform_detect"
+        self.timeout = self.clock() + PLATFORM_NO_TARGET_TIMEOUT_S
+        self.deadline = 0.0
+        self.discard = 8
+        self.votes = deque(maxlen=8)
+        self.target_key = None
+        self.target_center = None
+        self.target_seen = False
+        self.center_reacquire_deadline = 0.0
+        self.center_id1 = HIGH[0]
+        self.center_id2, self.center_id6 = HIGH[1:]
+        self.status = "PLATFORM_PICK main camera: waiting target"
 
     def _fallback_pair(self):
         """Select the two best-supported distinct labels before timeout."""
@@ -284,27 +309,36 @@ class PlatformTask:
                 pair, f"PAIR_{SECONDARY_PAIR_REQUIRED_FRAMES}_FRAME"
             )
             return
-        if self.timeout - self.clock() <= SECONDARY_PRESELECT_FALLBACK_WINDOW_S:
-            self._fallback_pair()
+        # Keep the complete preselection budget available to the secondary
+        # camera.  Fallback selection is committed only at the hard deadline;
+        # otherwise a late but valid camera pair could be replaced by stale
+        # history or the persistent pair before the normal lock path runs.
 
     def begin_slot(self, field):
-        if not self.high_ready or len(self.selected) != 2:
+        if len(self.selected) != 2:
+            selected = self._persistent_pair()
+            if selected:
+                self._lock_selected(selected, "PERSISTED_FALLBACK")
+                if self.stage == "platform_fault":
+                    return
+        if len(self.selected) != 2:
             self._fail("PRESELECT_HIGH_NOT_READY")
             return
-        self.done = self.error = None
-        self.field = str(field).lower()
-        self.stage = "platform_detect"
-        self.timeout = self.clock() + PLATFORM_NO_TARGET_TIMEOUT_S
-        self.deadline = 0.0
-        self.discard = 8  # Flush approach/motion frames as in the standalone App.
-        self.votes = deque(maxlen=8)
-        self.target_key = None
-        self.target_center = None
-        self.target_seen = False
-        self.center_reacquire_deadline = 0.0
-        self.center_id1 = HIGH[0]
-        self.center_id2, self.center_id6 = HIGH[1:]
-        self.status = "PLATFORM_PICK main camera: waiting target"
+        if not self.high_ready:
+            # H7 may already have moved on after an earlier preselect error.
+            # Finish the high-pose barrier locally, then begin this slot instead
+            # of rejecting every following station.
+            if self.stage != "platform_raise":
+                self.stage = "platform_slot_raise"
+                if not self._command("ARM_HIGH", self.pose, HIGH, True):
+                    return
+            self.pending_slot_field = str(field)
+            self.stage = "platform_slot_raise"
+            self.status = (
+                "PLATFORM_PICK persisted letters; completing high pose before slot"
+            )
+            return
+        self._start_slot_detection(field)
 
     @staticmethod
     def _key(target):
@@ -585,13 +619,21 @@ class PlatformTask:
     def tick(self, detections=(), shape=None, fresh=False):
         now = self.clock()
         if self.stage == "platform_preselect" and now >= self.timeout:
-            if not self._fallback_pair():
+            selected = self._persistent_pair()
+            if selected:
+                self._lock_selected(selected, "PERSISTED_FALLBACK")
+            elif not self._fallback_pair():
                 self._fail("SECONDARY_PAIR_TIMEOUT")
         elif self.stage == "platform_raise" and now >= self.deadline:
             self.high_ready = True
             self.stage = "platform_entry_hold"
             self.done = "PRESELECT_DONE:" + ":".join(self.selected)
             self.status = "PLATFORM_PICK ARM_HIGH_READY; release H7 approach"
+        elif self.stage == "platform_slot_raise" and now >= self.deadline:
+            self.high_ready = True
+            field = self.pending_slot_field
+            self.pending_slot_field = None
+            self._start_slot_detection(field)
         elif self.stage == "platform_detect":
             # The station budget covers the complete search/lock window.  A
             # single noisy sighting must not disable the timeout while the
