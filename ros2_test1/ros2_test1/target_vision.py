@@ -220,11 +220,11 @@ TASK1_ID14_RETRACT_TICK = 300
 TASK1_ID14_FIELD_TICK = 700
 TASK1_ID14_YELLOW_TICK = 300
 TASK1_ID14_TIME_MS = 35
-TASK1_ID15_RETRACT_TICK = 590
-TASK1_ID15_OPEN_TICK = 700
+TASK1_ID15_RETRACT_TICK = 510
+TASK1_ID15_OPEN_TICK = 650
 TASK1_AUX_TIME_MS = 100
 SPLITTER_RETRACT_TICK = 300
-CATCHER_HOME_TICK = 600
+CATCHER_HOME_TICK = 510
 CATCHER_RELEASE_READY_TICK = TASK1_ID15_OPEN_TICK
 POST_GRAB_ID2_RETREAT_TICK = 100
 DISC_CATCH_PREP_ID1_TICK = 650
@@ -239,7 +239,7 @@ DISC_CATCH_TARGET_TIMEOUT_S = 4.0
 # Formal task-one physical HTD85 ID17 gripper contract.
 # Keep both field-specific values separate from the shared task-two/task-three
 # gripper values.
-DISC_CATCH_RED_GRIPPER_OPEN_TICK = 480
+DISC_CATCH_RED_GRIPPER_OPEN_TICK = 435
 DISC_CATCH_BLUE_GRIPPER_OPEN_TICK = 480
 DISC_CATCH_BLUE_GRIPPER_CLOSED_TICK = 265
 # Task-one ball trigger window in the original 800x600 main-camera frame.
@@ -283,7 +283,7 @@ COLUMN_CATCH_READY_ID6_TICK = 413
 COLUMN_CATCH_AUX14_TICK, COLUMN_CATCH_AUX15_TICK, COLUMN_CATCH_GRIPPER_CLOSED_TICK = HTD85_AUX_HIGH
 COLUMN_CATCH_SPLITTER_TICK = COLUMN_CATCH_AUX14_TICK
 COLUMN_CATCH_CATCHER_HOME_TICK = COLUMN_CATCH_AUX15_TICK
-COLUMN_CATCH_BLUE_HOLD_HIGH = (650, 600, 413)
+COLUMN_CATCH_HOLD_HIGH = (650, 600, 413)
 COLUMN_CATCH_GRIPPER_OPEN_TICK = PLATFORM_GRIPPER_OPEN
 COLUMN_CATCH_GRIPPER_TIME_MS = PLATFORM_GRIPPER_TIME_MS
 COLUMN_CATCH_CENTER_DEADBAND_PX = PLATFORM_CENTER_DEADBAND_PX
@@ -4001,20 +4001,17 @@ class TargetGraspController:
             return self._sync_platform_task()
         self.platform_task.reset()
         self.task3_ring_place_actions.clear()
-        if station == "COLUMN_CATCH" and self.field_mode == FieldMode.BLUE:
-            return self.hold_blue_task3_arm(
+        if station == "COLUMN_CATCH":
+            return self.hold_task3_arm(
                 self._task3_hold_sequence
             )
         return self._finish_chassis_station_after_retract("STOPPED_BY_CHASSIS")
 
-    def hold_blue_task3_arm(self, sequence=None):
-        """Hold the blue task-three arm high without generic STOP cleanup."""
-        if (
-            self.active_chassis_station != "COLUMN_CATCH"
-            or self.field_mode != FieldMode.BLUE
-        ):
-            self.chassis_station_error_reason = "BLUE_HOLD_WITHOUT_COLUMN_CATCH"
-            return "blue task-three hold ignored; no active blue COLUMN_CATCH"
+    def hold_task3_arm(self, sequence=None):
+        """Hold the task-three arm high for either field."""
+        if self.active_chassis_station != "COLUMN_CATCH":
+            self.chassis_station_error_reason = "TASK3_HOLD_WITHOUT_COLUMN_CATCH"
+            return "task-three hold ignored; no active COLUMN_CATCH"
         normalized_sequence = None
         if sequence is not None:
             try:
@@ -4046,17 +4043,17 @@ class TargetGraspController:
         self.platform_task.reset()
         self.task3_ring_place_actions.clear()
         status = self._column_pose(
-            *COLUMN_CATCH_BLUE_HOLD_HIGH,
-            "COLUMN_CATCH blue orbit boundary; hold expanded high",
+            *COLUMN_CATCH_HOLD_HIGH,
+            "COLUMN_CATCH orbit boundary; hold expanded high",
             raising=True,
             id7=COLUMN_CATCH_GRIPPER_CLOSED_TICK,
             id5=COLUMN_CATCH_CATCHER_HOME_TICK,
             splitter_id4=COLUMN_CATCH_SPLITTER_TICK,
         )
         if self.servo_bridge.write_enabled and not self.servo_bridge.last_command_ok:
-            self.chassis_station_error_reason = "BLUE_HOLD_HIGH_FAILED"
-            return f"COLUMN_CATCH blue hold high failed: {status}"
-        self.id1, self.id2, self.id6 = COLUMN_CATCH_BLUE_HOLD_HIGH
+            self.chassis_station_error_reason = "TASK3_HOLD_HIGH_FAILED"
+            return f"COLUMN_CATCH hold high failed: {status}"
+        self.id1, self.id2, self.id6 = COLUMN_CATCH_HOLD_HIGH
         self.platform_high_hold = True
         self.platform_high_pose_sent = True
         self.task3_supplement_label = self._task3_supplement_label()
@@ -4074,7 +4071,7 @@ class TargetGraspController:
         self.chassis_station_done_reason = None
         self.chassis_station_error_reason = None
         self.status = (
-            "COLUMN_CATCH blue arm held expanded "
+            "COLUMN_CATCH arm held expanded "
             f"ID1={self.id1} ID2={self.id2} ID6={self.id6}"
         )
         if self.task3_supplement_label is not None:
@@ -4338,7 +4335,7 @@ class TargetGraspController:
         self.status = f"COLUMN_CATCH supplement {label} dispatched"
         return self.status
 
-    def retract_blue_task3_arm(self):
+    def retract_task3_arm(self):
         self.task3_supplement_actions.clear()
         self.task3_supplement_label = None
         self._task3_supplement_pending = False
@@ -4353,27 +4350,24 @@ class TargetGraspController:
         self.active_chassis_station = None
         self.chassis_station_stage = None
         self.chassis_station_done_reason = None
-        self.chassis_station_error_reason = None if success else "BLUE_RETRACT_FAILED"
+        self.chassis_station_error_reason = None if success else "TASK3_RETRACT_FAILED"
         return success, status
 
-    def freeze_blue_task3_arm(self, reason="H7_HOLD_FAILED"):
-        """Keep BLUE task-three arm high while H7 reports a hold failure."""
-        if (
-            self.active_chassis_station != "COLUMN_CATCH"
-            or self.field_mode != FieldMode.BLUE
-        ):
-            return f"blue task-three freeze ignored; active={self.active_chassis_station}"
+    def freeze_task3_arm(self, reason="H7_HOLD_FAILED"):
+        """Keep the task-three arm high while H7 reports a hold failure."""
+        if self.active_chassis_station != "COLUMN_CATCH":
+            return f"task-three freeze ignored; active={self.active_chassis_station}"
         self.platform_task.reset()
         self.task3_ring_place_actions.clear()
         status = self._column_pose(
-            *COLUMN_CATCH_BLUE_HOLD_HIGH,
-            f"COLUMN_CATCH blue hold failure; freeze high ({reason})",
+            *COLUMN_CATCH_HOLD_HIGH,
+            f"COLUMN_CATCH hold failure; freeze high ({reason})",
             raising=True,
             id7=COLUMN_CATCH_GRIPPER_CLOSED_TICK,
             id5=COLUMN_CATCH_CATCHER_HOME_TICK,
             splitter_id4=COLUMN_CATCH_SPLITTER_TICK,
         )
-        self.id1, self.id2, self.id6 = COLUMN_CATCH_BLUE_HOLD_HIGH
+        self.id1, self.id2, self.id6 = COLUMN_CATCH_HOLD_HIGH
         self.platform_high_hold = True
         self.platform_high_pose_sent = True
         self.chassis_station_stage = None
@@ -4384,11 +4378,23 @@ class TargetGraspController:
         self.column_target_armed = False
         self.column_capture_authorized = False
         self.status = (
-            "COLUMN_CATCH blue arm frozen expanded after H7 hold failure "
+            "COLUMN_CATCH arm frozen expanded after H7 hold failure "
             f"ID1={self.id1} ID2={self.id2} ID6={self.id6}"
         )
         self.arm_preview.publish(self.status)
         return f"FROZEN_EXPANDED_HIGH; {status}"
+
+    # Compatibility aliases for older tests and integrations. The task-three
+    # HOLD/RETRACT path is field-independent, so these names delegate to the
+    # shared implementation without creating a second state machine.
+    def hold_blue_task3_arm(self, sequence=None):
+        return self.hold_task3_arm(sequence)
+
+    def freeze_blue_task3_arm(self, reason="H7_HOLD_FAILED"):
+        return self.freeze_task3_arm(reason)
+
+    def retract_blue_task3_arm(self):
+        return self.retract_task3_arm()
 
     def _hold_platform_high_pose(self):
         """Keep the already-issued BLUE task-three high pose unchanged.
@@ -4397,7 +4403,7 @@ class TargetGraspController:
         line. This branch must not run the generic target-search fallback,
         because that fallback intentionally changes the arm pose.
         """
-        self.id1, self.id2, self.id6 = COLUMN_CATCH_BLUE_HOLD_HIGH
+        self.id1, self.id2, self.id6 = COLUMN_CATCH_HOLD_HIGH
         self.id7 = COLUMN_CATCH_GRIPPER_CLOSED_TICK
         self.id5 = COLUMN_CATCH_CATCHER_HOME_TICK
         self.splitter_id4 = COLUMN_CATCH_SPLITTER_TICK
@@ -8921,6 +8927,9 @@ def main(argv=None):
     last_detection_mode = None
     secondary_detection_future = None
     secondary_detection_pending_frame = None
+    secondary_result_buffer = deque(maxlen=4)
+    secondary_result_sequence = 0
+    secondary_last_delivered_sequence = 0
 
     def current_detection_mode():
         """Select the smallest detector set required by the current H7 phase."""
@@ -8962,6 +8971,7 @@ def main(argv=None):
         nonlocal secondary_retry_at, secondary_detection_future
         nonlocal secondary_detection_pending_frame
         nonlocal secondary_detection_warmup_future
+        nonlocal secondary_result_sequence, secondary_last_delivered_sequence
         if (
             secondary_detection_warmup_future is not None
             and secondary_detection_warmup_future.done()
@@ -8972,32 +8982,59 @@ def main(argv=None):
                 print(f"secondary detector warmup failed: {exc}", flush=True)
             secondary_detection_warmup_future = None
         if (
-            grasp_controller.chassis_station_stage != "platform_preselect"
-            or secondary_reader is None
-        ):
-            if secondary_detection_future is not None and secondary_detection_future.done():
-                secondary_detection_future = None
-                secondary_detection_pending_frame = None
-            return
-
-        if (
             secondary_detection_future is not None
             and secondary_detection_future.done()
         ):
             try:
-                secondary_detections, _ = secondary_detection_future.result()
-                preselect_info = grasp_controller.update_platform_preselect(
-                    secondary_detections,
-                    detection_fresh=True,
+                secondary_detections, elapsed_s = secondary_detection_future.result()
+                secondary_result_sequence += 1
+                secondary_result_buffer.append(
+                    (
+                        secondary_result_sequence,
+                        time.monotonic(),
+                        secondary_detections,
+                        float(elapsed_s),
+                    )
                 )
-                if preselect_info:
-                    resolve_station_outcome(preselect_info)
             except Exception as exc:
                 print(f"secondary detection worker failed: {exc}", flush=True)
             secondary_detection_future = None
             secondary_detection_pending_frame = None
 
-        if grasp_controller.chassis_station_stage != "platform_preselect" or secondary_reader is None:
+        preselect_active = (
+            grasp_controller.chassis_station_stage == "platform_preselect"
+        )
+        if preselect_active:
+            now = time.monotonic()
+            latest_result = next(
+                (
+                    item
+                    for item in reversed(secondary_result_buffer)
+                    if item[0] > secondary_last_delivered_sequence
+                ),
+                None,
+            )
+            if latest_result is not None:
+                result_sequence, result_at, result, elapsed_s = latest_result
+                secondary_last_delivered_sequence = result_sequence
+                if now - result_at <= 1.5:
+                    preselect_info = grasp_controller.update_platform_preselect(
+                        result,
+                        detection_fresh=True,
+                    )
+                    print(
+                        "SECONDARY PRESELECT latest "
+                        f"seq={result_sequence} detect_ms={elapsed_s * 1000.0:.1f}",
+                        flush=True,
+                    )
+                    if preselect_info:
+                        resolve_station_outcome(preselect_info)
+
+        prefetch_active = (
+            preselect_active
+            or getattr(chassis_link, "last_completed_task", None) == "DISC_CATCH"
+        )
+        if not prefetch_active or secondary_reader is None:
             return
         secondary_ok, secondary_frame, _, secondary_error = secondary_reader.latest()
         if secondary_error is not None:
@@ -9260,6 +9297,12 @@ def main(argv=None):
                     flush=True,
                 )
             for preselect in chassis_link.consume_preselects():
+                # Consume at most the two newest fresh background results.
+                # PlatformTask still owns the startup-frame discard and only
+                # locks after this formal PRESELECT request.
+                secondary_last_delivered_sequence = max(
+                    0, secondary_result_sequence - 2
+                )
                 preselect_status = grasp_controller.begin_platform_preselect(
                     preselect.get("count", 2)
                 )
@@ -9327,7 +9370,7 @@ def main(argv=None):
                     # controller itself keeps its required pose-settle stage.
                     chassis_link.restart_target_watch()
             for hold in chassis_link.consume_holds():
-                hold_status = grasp_controller.hold_blue_task3_arm(
+                hold_status = grasp_controller.hold_task3_arm(
                     getattr(chassis_link, "active_sequence", None)
                 )
                 hold_success = (
@@ -9368,25 +9411,25 @@ def main(argv=None):
                     )
                 elif grasp_controller.task3_supplement_pending():
                     print(
-                        "CHASSIS BLUE TASK3 HOLD deferred until fixed supplement "
+                        "CHASSIS TASK3 HOLD deferred until fixed supplement "
                         "grab/place completes",
                         flush=True,
                     )
                 else:
                     print(
-                        "CHASSIS BLUE TASK3 HOLD duplicate acknowledged; "
+                        "CHASSIS TASK3 HOLD duplicate acknowledged; "
                         "no arm action restarted",
                         flush=True,
                     )
                 print(
-                    f"CHASSIS BLUE TASK3 HOLD success={'yes' if hold_success else 'no'} | "
+                    f"CHASSIS TASK3 HOLD success={'yes' if hold_success else 'no'} | "
                     f"{hold_status}",
                     flush=True,
                 )
             for hold_failure in chassis_link.consume_hold_failures():
-                failure_status = grasp_controller.freeze_blue_task3_arm()
+                failure_status = grasp_controller.freeze_task3_arm()
                 print(
-                    "CHASSIS BLUE TASK3 HOLD FAILURE frozen high | "
+                    "CHASSIS TASK3 HOLD FAILURE frozen high | "
                     f"{failure_status}",
                     flush=True,
                 )
@@ -9403,7 +9446,7 @@ def main(argv=None):
                 station_status = grasp_controller.stop_chassis_station(station)
                 if (
                     station == "COLUMN_CATCH"
-                    and grasp_controller.field_mode == FieldMode.BLUE
+                    and grasp_controller.field_mode in (FieldMode.BLUE, FieldMode.RED)
                     and chassis_link.active_task == "COLUMN_CATCH"
                     and grasp_controller.chassis_station_error_reason is None
                 ):
@@ -9417,10 +9460,10 @@ def main(argv=None):
                     flush=True,
                 )
             for retract in chassis_link.consume_retracts():
-                retract_success, retract_status = grasp_controller.retract_blue_task3_arm()
+                retract_success, retract_status = grasp_controller.retract_task3_arm()
                 chassis_link.complete_retract(retract, retract_success, retract_status)
                 print(
-                    f"CHASSIS BLUE TASK3 RETRACT seq={retract.get('sequence')} "
+                    f"CHASSIS TASK3 RETRACT seq={retract.get('sequence')} "
                     f"success={'yes' if retract_success else 'no'} | {retract_status}",
                     flush=True,
                 )
@@ -9458,15 +9501,15 @@ def main(argv=None):
             preselect_active = (
                 grasp_controller.chassis_station_stage == "platform_preselect"
             )
-            if not preselect_active and (
-                secondary_reader is not None or secondary_cap is not None
-            ):
-                close_secondary_camera("preselect_inactive")
+            secondary_prefetch_active = (
+                preselect_active
+                or getattr(chassis_link, "last_completed_task", None) == "DISC_CATCH"
+            )
             if (
                 args.secondary_device
                 and secondary_cap is None
                 and secondary_open_future is None
-                and preselect_active
+                and secondary_prefetch_active
                 and now >= secondary_retry_at
             ):
                 secondary_open_future = camera_executor.submit(
@@ -9480,11 +9523,11 @@ def main(argv=None):
             if secondary_open_future is not None and secondary_open_future.done():
                 try:
                     opened_secondary = secondary_open_future.result()
-                    if grasp_controller.chassis_station_stage == "platform_preselect":
+                    if secondary_prefetch_active:
                         secondary_cap = opened_secondary
                         secondary_reader = LatestFrameReader(secondary_cap)
                         print(
-                            "SECONDARY CAMERA LINK restored "
+                            "SECONDARY CAMERA LINK prefetched "
                             f"device={args.secondary_device}",
                             flush=True,
                         )

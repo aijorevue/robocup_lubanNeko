@@ -727,9 +727,9 @@ class ChassisArmLink:
 
         if len(parts) >= 3 and parts[0] == "ARM" and parts[2] == "HOLD":
             task = parts[1]
-            if task != "COLUMN_CATCH" or self.field_mode != FieldMode.BLUE:
+            if task != "COLUMN_CATCH":
                 self._send_task_state(
-                    task, "ERR", sequence, "REASON", "BLUE_HOLD_ONLY",
+                    task, "ERR", sequence, "REASON", "INVALID_HOLD_TASK",
                     "FIELD", self.field_mode.wire_name,
                 )
                 return
@@ -790,10 +790,10 @@ class ChassisArmLink:
             and parts[2] == "RETRACT"
         ):
             requested = self._field_from_parts(parts[3:])
-            if requested != FieldMode.BLUE or self.field_mode != FieldMode.BLUE:
+            if requested is not None and requested != self.field_mode:
                 self._send_task_state(
                     "COLUMN_CATCH", "ERR", sequence,
-                    "REASON", "BLUE_ONLY", "FIELD", self.field_mode.wire_name,
+                    "REASON", "FIELD_MISMATCH", "FIELD", self.field_mode.wire_name,
                 )
                 return
             if self.active_task != "COLUMN_CATCH":

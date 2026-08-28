@@ -15,12 +15,12 @@ SECONDARY_TIGHT_MIN_SIZE_FRACTION = 0.06
 # The low-contrast secondary camera compresses C/D strokes into the card
 # background. Keep the existing threshold as the first pass, then score a
 # narrow threshold ladder for C/D recovery without changing the A/B path.
-SECONDARY_TIGHT_THRESHOLDS = (70, 80, 90, 100, 110, 120, 130, 140)
+SECONDARY_TIGHT_THRESHOLDS = (70, 90, 110, 130)
 # Some secondary-camera cards are large enough to be detected as one contour,
 # but their white border and board background corrupt the tight glyph crop.
 # Restrict the fallback to the card interior and use it only for weak results.
-SECONDARY_CARD_INNER_TRIMS = (0.16, 0.18, 0.20)
-SECONDARY_CARD_THRESHOLDS = (80, 100, 120, 140)
+SECONDARY_CARD_INNER_TRIMS = (0.16, 0.20)
+SECONDARY_CARD_THRESHOLDS = (80, 110, 140)
 SECONDARY_CARD_MIN_CONFIDENCE = 0.50
 SECONDARY_CARD_OVERRIDE_MAX_BASE_CONFIDENCE = 0.46
 SECONDARY_CARD_MIN_AREA = 800.0
@@ -30,6 +30,7 @@ SECONDARY_CARD_MIN_AREA = 800.0
 SECONDARY_C_DARK_THRESHOLDS = (40, 45, 50, 55, 60, 65)
 SECONDARY_C_MIN_CONFIDENCE = 0.60
 SECONDARY_C_MIN_AREA = 250.0
+SECONDARY_FAST_MIN_CONFIDENCE = 0.50
 
 
 class SecondaryLetterDetector:
@@ -41,6 +42,46 @@ class SecondaryLetterDetector:
         self.template_bank = self._build_template_bank()
 
     def detect(self, frame):
+        """Two-stage task-two detector: fast candidates, then full fallback."""
+        if frame is None or not isinstance(frame, np.ndarray) or frame.ndim != 3:
+            return []
+        height, width = frame.shape[:2]
+        if height < 64 or width < 64:
+            return []
+
+        scale = 0.5
+        preview = cv2.resize(
+            frame,
+            (max(1, int(round(width * scale))), max(1, int(round(height * scale)))),
+            interpolation=cv2.INTER_AREA,
+        )
+        fast = self._detect_impl(preview, allow_fallbacks=False)
+        fast_labels = {
+            item.get("letter") for item in fast
+            if item.get("letter") in LETTERS
+            and float(item.get("confidence") or 0.0)
+            >= SECONDARY_FAST_MIN_CONFIDENCE * 100.0
+        }
+        if len(fast_labels) >= 2:
+            inverse = 1.0 / scale
+            for item in fast:
+                x, y, box_width, box_height = item["bbox"]
+                item["bbox"] = tuple(
+                    int(round(value * inverse))
+                    for value in (x, y, box_width, box_height)
+                )
+                item["center"] = tuple(
+                    int(round(value * inverse)) for value in item["center"]
+                )
+                item["box"] = np.rint(
+                    np.asarray(item["box"], dtype=np.float32) * inverse
+                ).astype(np.int32)
+                item["projected_area"] = float(item["projected_area"]) * inverse * inverse
+                item["source"] = "secondary_fast_preview"
+            return fast
+        return self._detect_impl(frame, allow_fallbacks=True)
+
+    def _detect_impl(self, frame, *, allow_fallbacks):
         if frame is None or not isinstance(frame, np.ndarray) or frame.ndim != 3:
             return []
         height, width = frame.shape[:2]
@@ -93,36 +134,38 @@ class SecondaryLetterDetector:
             # Low-contrast cards can make the padded Otsu window absorb the
             # wall and card edge. Reclassify weak C/D candidates in the tight
             # contour box so the serif's dark body is scored independently.
-            tight = (None, 0.0, 0.0)
-            min_tight_size = max(
-                32, int(round(min(height, width) * SECONDARY_TIGHT_MIN_SIZE_FRACTION))
-            )
-            if min(box_width, box_height) >= min_tight_size:
-                tight = self._classify_tight(
-                    frame[y : y + box_height, x : x + box_width]
+            if allow_fallbacks:
+                tight = (None, 0.0, 0.0)
+                min_tight_size = max(
+                    32,
+                    int(round(min(height, width) * SECONDARY_TIGHT_MIN_SIZE_FRACTION)),
                 )
-            tight_letter, tight_confidence, tight_occupancy = tight
-            if (
-                tight_letter in {"C", "D"}
-                and tight_confidence >= SECONDARY_TIGHT_MIN_CONFIDENCE
-                and (
-                    letter not in {"C", "D"}
-                    or tight_confidence > confidence + 0.05
-                )
-            ):
-                letter, confidence, occupancy = tight
-            card = (None, 0.0, 0.0)
-            if min(box_width, box_height) >= min_tight_size:
-                card = self._classify_card_interior(
-                    frame[y : y + box_height, x : x + box_width]
-                )
-            card_letter, card_confidence, card_occupancy = card
-            if (
-                card_letter in {"C", "D"}
-                and card_confidence >= SECONDARY_CARD_MIN_CONFIDENCE
-                and confidence < SECONDARY_CARD_OVERRIDE_MAX_BASE_CONFIDENCE
-            ):
-                letter, confidence, occupancy = card
+                if min(box_width, box_height) >= min_tight_size:
+                    tight = self._classify_tight(
+                        frame[y : y + box_height, x : x + box_width]
+                    )
+                tight_letter, tight_confidence, tight_occupancy = tight
+                if (
+                    tight_letter in {"C", "D"}
+                    and tight_confidence >= SECONDARY_TIGHT_MIN_CONFIDENCE
+                    and (
+                        letter not in {"C", "D"}
+                        or tight_confidence > confidence + 0.05
+                    )
+                ):
+                    letter, confidence, occupancy = tight
+                card = (None, 0.0, 0.0)
+                if min(box_width, box_height) >= min_tight_size:
+                    card = self._classify_card_interior(
+                        frame[y : y + box_height, x : x + box_width]
+                    )
+                card_letter, card_confidence, card_occupancy = card
+                if (
+                    card_letter in {"C", "D"}
+                    and card_confidence >= SECONDARY_CARD_MIN_CONFIDENCE
+                    and confidence < SECONDARY_CARD_OVERRIDE_MAX_BASE_CONFIDENCE
+                ):
+                    letter, confidence, occupancy = card
             if letter is None or confidence < self.min_confidence:
                 continue
             min_candidate_size = max(
@@ -152,6 +195,9 @@ class SecondaryLetterDetector:
                     "angle": 0.0,
                 }
             )
+        if not allow_fallbacks:
+            return self._dedupe(detections)
+
         # The printed C/D cards remain visible as white rectangles even when
         # their dark strokes fragment under exposure changes. Use that stable
         # card geometry as a C/D-only recovery path.
@@ -200,7 +246,7 @@ class SecondaryLetterDetector:
         search_y1 = int(height * 0.70)
         search = gray[search_y0:search_y1, search_x0:search_x1]
         best = None
-        for threshold in (45, 55, 65, 75, 85, 95):
+        for threshold in (45, 65, 85, 95):
             _, dark = cv2.threshold(
                 search, threshold, 255, cv2.THRESH_BINARY_INV
             )

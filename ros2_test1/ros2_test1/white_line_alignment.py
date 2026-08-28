@@ -727,10 +727,12 @@ class WhiteLineAlignmentDetector:
 
         # The real strip enters from the left, while the wood box occupies
         # the upper-left part of the frame and can touch the strip in the
-        # threshold mask. Prefer a right-side strip segment where the box is
-        # absent. This path is task-three-only and keeps the full mask as a
-        # fallback for views where the segment is not visible yet.
-        right_window_x = int(width * 0.28)
+        # threshold mask. Keep a right-side preference, but leave enough of
+        # the strip in view for the width gate: at 0.28 a valid line can be
+        # cropped to just below the 45% width requirement and become a false
+        # NOT_FOUND. The upper box remains rejected by its height/thickness
+        # gates below.
+        right_window_x = int(width * 0.20)
         preferred_mask = mask.copy()
         preferred_mask[:, :right_window_x] = 0
         contours, _ = cv2.findContours(
