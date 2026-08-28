@@ -294,6 +294,10 @@ COLUMN_CATCH_SPLITTER_TICK = COLUMN_CATCH_AUX14_TICK
 COLUMN_CATCH_CATCHER_HOME_TICK = COLUMN_CATCH_AUX15_TICK
 COLUMN_CATCH_HOLD_HIGH = (650, 600, 413)
 COLUMN_CATCH_FINAL_ID2_OFFSET_TICKS = -30
+COLUMN_CATCH_ID2_SMOOTH_START_CM = 9.0
+COLUMN_CATCH_ID2_SMOOTH_END_CM = 13.0
+COLUMN_CATCH_ID2_SMOOTH_START_TICK = 500
+COLUMN_CATCH_ID2_SMOOTH_END_TICK = 480
 COLUMN_CATCH_GRIPPER_OPEN_TICK = PLATFORM_GRIPPER_OPEN
 COLUMN_CATCH_GRIPPER_TIME_MS = PLATFORM_GRIPPER_TIME_MS
 COLUMN_CATCH_CENTER_DEADBAND_PX = PLATFORM_CENTER_DEADBAND_PX
@@ -301,6 +305,35 @@ COLUMN_CATCH_ID2_CENTER_RANGE = PLATFORM_CENTER_ID2_RANGE
 COLUMN_CATCH_ID6_CENTER_RANGE = PLATFORM_CENTER_ID6_RANGE
 COLUMN_CATCH_ID2_CENTER_STEP_TICKS = PLATFORM_CENTER_ID2_STEP_TICKS
 COLUMN_CATCH_ID6_CENTER_STEP_TICKS = PLATFORM_CENTER_ID6_STEP_TICKS
+
+
+def column_catch_final_id2_tick(solved_id2, distance_cm):
+    """Apply the task-three-only final ID2 curve."""
+    default_tick = int(solved_id2) + COLUMN_CATCH_FINAL_ID2_OFFSET_TICKS
+    try:
+        distance_cm = float(distance_cm)
+    except (TypeError, ValueError):
+        return default_tick
+    if not math.isfinite(distance_cm):
+        return default_tick
+    if not (
+        COLUMN_CATCH_ID2_SMOOTH_START_CM
+        <= distance_cm
+        <= COLUMN_CATCH_ID2_SMOOTH_END_CM
+    ):
+        return default_tick
+    ratio = (
+        (distance_cm - COLUMN_CATCH_ID2_SMOOTH_START_CM)
+        / (COLUMN_CATCH_ID2_SMOOTH_END_CM - COLUMN_CATCH_ID2_SMOOTH_START_CM)
+    )
+    return int(round(
+        COLUMN_CATCH_ID2_SMOOTH_START_TICK
+        + (
+            COLUMN_CATCH_ID2_SMOOTH_END_TICK
+            - COLUMN_CATCH_ID2_SMOOTH_START_TICK
+        )
+        * ratio
+    ))
 TASK3_RING_PLACE_HIGH = (650, 550, 413)
 TASK3_RING_PLACE_RETURN_HIGH = (620, 440, 413)
 TASK3_RING_PLACE_POSE = (470, 350, 171)
@@ -5516,8 +5549,17 @@ class TargetGraspController:
                 return self._column_abort("NO_VALID_IK_PLAN")
             target_id1 = self._clamp(self.locked_plan["id1"], self.id1_limits)
             solved_id2 = int(self.locked_plan["id2"])
+            target_distance_cm = (
+                float(self.locked_plan["target_distance_mm"]) / 10.0
+                if self.locked_plan.get("target_distance_mm") is not None
+                else None
+            )
+            final_id2 = column_catch_final_id2_tick(
+                solved_id2,
+                target_distance_cm,
+            )
             target_id2 = self._clamp(
-                solved_id2 + COLUMN_CATCH_FINAL_ID2_OFFSET_TICKS,
+                final_id2,
                 self.id2_limits,
             )
             target_id6 = self._clamp(self.id6, COLUMN_CATCH_ID6_CENTER_RANGE)
@@ -5542,8 +5584,10 @@ class TargetGraspController:
                 self.algorithm_stage = "fault"
             return (
                 "COLUMN_CATCH descend endpoint "
+                f"DISTANCE_CM={target_distance_cm!r} "
                 f"ID2_SOLVED={solved_id2} "
                 f"ID2_OFFSET={COLUMN_CATCH_FINAL_ID2_OFFSET_TICKS:+d} "
+                f"ID2_CURVE={'SMOOTH_9_13' if final_id2 != solved_id2 + COLUMN_CATCH_FINAL_ID2_OFFSET_TICKS else 'DEFAULT'} "
                 f"ID2_TARGET={target_id2} ID2_SENT={self.id2} | {status}"
             )
 

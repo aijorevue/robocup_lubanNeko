@@ -100,6 +100,34 @@ def make_controller(bridge=None, field_mode=target_vision.FieldMode.RED):
 
 
 class ChassisStationSafetyTests(unittest.TestCase):
+    def test_task3_id2_smooth_curve_is_caller_only(self):
+        expected = {
+            7.0: 510,
+            8.0: 505,
+            9.0: 500,
+            10.0: 495,
+            11.0: 490,
+            12.0: 485,
+            13.0: 480,
+            14.0: 477,
+            15.0: 473,
+        }
+        for distance_cm, final_id2 in expected.items():
+            with self.subTest(distance_cm=distance_cm):
+                _, solved_id2 = target_vision.calibrated_grasp_ticks(distance_cm)
+                self.assertEqual(
+                    target_vision.column_catch_final_id2_tick(
+                        solved_id2,
+                        distance_cm,
+                    ),
+                    final_id2,
+                )
+
+        self.assertEqual(
+            target_vision.calibrated_grasp_ticks(10.0),
+            (590, 450),
+        )
+
     def test_blue_orbit_hold_runs_one_quota_supplement_before_release(self):
         controller, bridge, _ = make_controller(
             field_mode=target_vision.FieldMode.BLUE
