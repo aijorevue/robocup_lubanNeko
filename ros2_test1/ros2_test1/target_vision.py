@@ -216,9 +216,9 @@ HTD85_GRIPPER_ID = 17
 # high-pose values because the same physical bus IDs have different jobs.
 TASK1_ID3_RETRACT_TICK = 300
 TASK1_ID3_RETRACT_TIME_MS = 600
-TASK1_ID14_RETRACT_TICK = 300
-TASK1_ID14_FIELD_TICK = 700
-TASK1_ID14_YELLOW_TICK = 300
+TASK1_ID14_RETRACT_TICK = 100
+TASK1_ID14_FIELD_TICK = 500
+TASK1_ID14_YELLOW_TICK = 180
 TASK1_ID14_TIME_MS = 35
 TASK1_ID15_RETRACT_TICK = 510
 TASK1_ID15_OPEN_TICK = 650
@@ -257,8 +257,8 @@ DISC_CATCH_YELLOW_COOLDOWN_S = 0.5
 DISC_CATCH_OPEN_HOLD_MARGIN_S = 0.1
 DISC_CATCH_CLOSE_CONFIRM_DELAY_S = 0.05
 DISC_CATCH_GRIPPER_TIME_MS = 80
-# Blue-field ID14 must remain on the detected ball's channel for a full
-# half-second before preparing the other channel for the next target.
+# Both fields keep ID14 on the detected ball's channel for a full half-second
+# before preparing the other channel for the next target.
 DISC_CATCH_BLUE_CHANNEL_HOLD_S = 0.5
 DISC_CATCH_BLUE_CLEAR_FRAMES = 3
 ARM_JOINT_SEQUENCE_DELAY_S = 0.2
@@ -4523,9 +4523,9 @@ class TargetGraspController:
                 return f"DISC_CATCH descend settling {self.chassis_station_deadline - now:.1f}s"
             if ball is None:
                 if (
-                    self.field_mode == FieldMode.BLUE
+                    self.field_mode in (FieldMode.RED, FieldMode.BLUE)
                     and self.disc_pulse_done
-                    and self.disc_last_pulsed_color == "blue"
+                    and self.disc_last_pulsed_color == self.field_mode.value
                 ):
                     self.disc_blue_clear_frames += 1
                     if self.disc_blue_clear_frames >= DISC_CATCH_BLUE_CLEAR_FRAMES:
@@ -4534,7 +4534,8 @@ class TargetGraspController:
                         self.disc_last_pulsed_center = None
                         self.disc_blue_clear_frames = 0
                         return (
-                            "DISC_CATCH blue target cleared; ready for next target frame"
+                            f"DISC_CATCH {self.field_mode.value} target cleared; "
+                            "ready for next target frame"
                         )
                 else:
                     self.disc_pulse_done = False
@@ -4554,14 +4555,15 @@ class TargetGraspController:
                     f"{remaining:.1f}s"
                 )
             if (
-                self.field_mode == FieldMode.BLUE
-                and ball.get("color") == "blue"
+                self.field_mode in (FieldMode.RED, FieldMode.BLUE)
+                and ball.get("color") == self.field_mode.value
                 and self.disc_pulse_done
-                and self.disc_last_pulsed_color == "blue"
+                and self.disc_last_pulsed_color == self.field_mode.value
             ):
                 self.disc_blue_clear_frames = 0
                 return (
-                    "DISC_CATCH blue target already pulsed; waiting for target "
+                    f"DISC_CATCH {self.field_mode.value} target already pulsed; "
+                    "waiting for target "
                     "to leave the detection area"
                 )
             if self.disc_pulse_done and ball_color == self.disc_last_pulsed_color:
@@ -4583,7 +4585,10 @@ class TargetGraspController:
                 f"ID2={self.id2}; sync ID4 with ID7 open"
             )
             print(f"CHASSIS STATION {self.status}", flush=True)
-            self.disc_fast_blue_cycle = self.field_mode == FieldMode.BLUE
+            self.disc_fast_blue_cycle = self.field_mode in (
+                FieldMode.RED,
+                FieldMode.BLUE,
+            )
             self.disc_blue_channel_hold_deadline = (
                 now + DISC_CATCH_BLUE_CHANNEL_HOLD_S
                 if self.disc_fast_blue_cycle
@@ -4691,14 +4696,15 @@ class TargetGraspController:
             self.state = "DISC_CATCH close wait"
             if now < self.chassis_station_deadline:
                 return f"DISC_CATCH close wait {self.chassis_station_deadline - now:.1f}s"
-            if self.field_mode == FieldMode.BLUE:
+            if self.field_mode in (FieldMode.RED, FieldMode.BLUE):
                 self.chassis_station_stage = "disc_blue_channel_wait"
                 self.chassis_station_deadline = max(
                     now,
                     self.disc_blue_channel_hold_deadline,
                 )
                 return (
-                    "DISC_CATCH blue-field ID17 closed; holding current ID14 "
+                    f"DISC_CATCH {self.field_mode.value}-field ID17 closed; "
+                    "holding current ID14 "
                     f"channel for {max(0.0, self.chassis_station_deadline - now):.2f}s"
                 )
             if self.disc_last_pulsed_color == "yellow":
@@ -4718,23 +4724,27 @@ class TargetGraspController:
             self.state = "DISC_CATCH blue channel hold"
             if now < self.chassis_station_deadline:
                 return (
-                    "DISC_CATCH blue-field ID14 target channel hold "
+                    f"DISC_CATCH {self.field_mode.value}-field ID14 target "
+                    "channel hold "
                     f"{self.chassis_station_deadline - now:.2f}s"
                 )
-            # A blue-ball pulse leaves ID14 on the blue channel.  Only a
-            # yellow pulse needs the post-hold switch back to blue; switching
-            # after blue was the source of repeated blue-channel triggers.
-            status = "DISC_CATCH blue-field ID14 remains on blue channel"
+            # An own-field ball pulse leaves ID14 on the field channel. Only
+            # a yellow pulse needs the post-hold switch back to that channel.
+            status = (
+                f"DISC_CATCH {self.field_mode.value}-field ID14 remains on "
+                "field channel"
+            )
             if self.disc_last_pulsed_color == "yellow":
                 status = self._send_splitter_id4(
                     DISC_CATCH_SPLITTER_FIELD_TICK,
-                    "DISC_CATCH blue-field ID14 switch yellow->blue",
+                    f"DISC_CATCH {self.field_mode.value}-field ID14 switch "
+                    "yellow->field",
                     splitter_time_ms=TASK1_ID14_TIME_MS,
                 )
                 if not self.servo_bridge.last_command_ok:
                     return status
             self.disc_blue_channel_hold_deadline = 0.0
-            if self.disc_last_pulsed_color == "blue":
+            if self.disc_last_pulsed_color == self.field_mode.value:
                 self.disc_blue_clear_frames = 0
                 self.chassis_station_stage = "disc_detect"
                 self.chassis_station_deadline = 0.0
@@ -4742,7 +4752,9 @@ class TargetGraspController:
                     time.monotonic() + DISC_CATCH_TARGET_TIMEOUT_S
                 )
                 return (
-                    status + "; cooldown complete; waiting for blue target to clear"
+                    status
+                    + f"; cooldown complete; waiting for "
+                    f"{self.field_mode.value} target to clear"
                 )
             self.disc_pulse_done = False
             self.disc_last_pulsed_color = None

@@ -525,7 +525,9 @@ class ChassisStationSafetyTests(unittest.TestCase):
             )
 
         self.assertEqual(controller.chassis_station_stage, "disc_open_wait")
-        self.assertEqual(bridge.sent[-1]["id4"], controller.id7_open)
+        self.assertEqual(
+            bridge.sent[-1]["id4"], controller._disc_catch_gripper_open_tick()
+        )
 
     def test_disc_blue_field_yellow_holds_channel_then_returns_to_blue(self):
         controller, bridge, _ = make_controller(field_mode=target_vision.FieldMode.BLUE)
@@ -562,7 +564,30 @@ class ChassisStationSafetyTests(unittest.TestCase):
         self.assertFalse(controller.disc_pulse_done)
         self.assertIsNone(controller.disc_last_pulsed_color)
 
-    def test_disc_close_completion_immediately_rearms_same_color(self):
+    def test_disc_red_field_uses_fast_80ms_gripper_cycle(self):
+        controller, bridge, _ = make_controller(field_mode=target_vision.FieldMode.RED)
+        red_ball = {
+            "kind": "ball",
+            "color": "red",
+            "center": (320, 240),
+            "area_percent": 1.0,
+        }
+        controller.active_chassis_station = "DISC_CATCH"
+        controller.chassis_station_stage = "disc_detect"
+        controller.chassis_station_deadline = 0.0
+        controller.chassis_station_no_target_deadline = 110.0
+
+        with mock.patch.object(target_vision.time, "monotonic", return_value=100.0):
+            controller.update_chassis_station(
+                "DISC_CATCH", [red_ball], (600, 800, 3), detection_fresh=True
+            )
+
+        self.assertTrue(controller.disc_fast_blue_cycle)
+        self.assertEqual(controller.chassis_station_stage, "disc_open_wait")
+        self.assertEqual(bridge.sent[-1]["id4"], 480)
+        self.assertEqual(bridge.timed_sent[-1][2], 80)
+
+    def test_disc_red_field_waits_for_target_clear_after_cooldown(self):
         controller, bridge, _ = make_controller(field_mode=target_vision.FieldMode.RED)
         red_ball = {
             "kind": "ball",
@@ -573,21 +598,48 @@ class ChassisStationSafetyTests(unittest.TestCase):
         controller.active_chassis_station = "DISC_CATCH"
         controller.chassis_station_stage = "disc_close_wait"
         controller.chassis_station_deadline = 100.0
-        controller.chassis_station_no_target_deadline = 110.0
+        controller.chassis_station_no_target_deadline = 100000000000.0
         controller.disc_pulse_done = True
         controller.disc_last_pulsed_color = "red"
+        controller.disc_last_pulsed_center = (320.0, 240.0)
+        controller.disc_blue_channel_hold_deadline = 100.5
 
         clock = [100.0]
         with mock.patch.object(target_vision.time, "monotonic", lambda: clock[0]):
             result = controller.update_chassis_station(
                 "DISC_CATCH", [red_ball], (600, 800, 3), detection_fresh=True
             )
-            self.assertIn("ready for next target frame", result)
-            self.assertFalse(controller.disc_pulse_done)
-            self.assertIsNone(controller.disc_last_pulsed_color)
-            self.assertEqual(controller.chassis_station_stage, "disc_detect")
+            self.assertIn("red-field ID17 closed", result)
+            self.assertTrue(controller.disc_pulse_done)
+            self.assertEqual(controller.disc_last_pulsed_color, "red")
+            self.assertEqual(controller.chassis_station_stage, "disc_blue_channel_wait")
+            self.assertEqual(controller.chassis_station_deadline, 100.5)
 
-            clock[0] = 100.01
+            sent_before_cooldown = len(bridge.sent)
+            clock[0] = 100.49
+            controller.update_chassis_station(
+                "DISC_CATCH", [red_ball], (600, 800, 3), detection_fresh=True
+            )
+            self.assertEqual(len(bridge.sent), sent_before_cooldown)
+
+            clock[0] = 100.5
+            result = controller.update_chassis_station(
+                "DISC_CATCH", [red_ball], (600, 800, 3), detection_fresh=True
+            )
+            self.assertEqual(controller.chassis_station_stage, "disc_detect")
+            self.assertIn("waiting for red target to clear", result)
+
+            clock[0] = 100.51
+            result = controller.update_chassis_station(
+                "DISC_CATCH", [red_ball], (600, 800, 3), detection_fresh=True
+            )
+            self.assertIn("already pulsed", result)
+            self.assertEqual(len(bridge.sent), sent_before_cooldown)
+
+            for _ in range(3):
+                controller.update_chassis_station(
+                    "DISC_CATCH", [], (600, 800, 3), detection_fresh=True
+                )
             controller.update_chassis_station(
                 "DISC_CATCH", [red_ball], (600, 800, 3), detection_fresh=True
             )
@@ -597,7 +649,9 @@ class ChassisStationSafetyTests(unittest.TestCase):
             bridge.sent[-1]["splitter_id4"],
             target_vision.DISC_CATCH_SPLITTER_FIELD_TICK,
         )
-        self.assertEqual(bridge.sent[-1]["id4"], controller.id7_open)
+        self.assertEqual(
+            bridge.sent[-1]["id4"], controller._disc_catch_gripper_open_tick()
+        )
 
     def test_disc_station_starts_with_app_low_pose(self):
         controller, bridge, _ = make_controller()
