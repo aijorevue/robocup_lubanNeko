@@ -20,6 +20,10 @@ except ImportError:  # YOLO is optional; the template pipeline still works.
 
 
 LETTERS = ("A", "B", "C", "D")
+ROTATION_COARSE_STEP_DEG = 10
+ROTATION_FINE_RADIUS_DEG = 8
+ROTATION_FINE_STEP_DEG = 1
+ROTATION_MIN_MARGIN = 0.015
 DEFAULT_DISTANCE_OFFSET_CM = -1.6072186919749336
 DEFAULT_DISTANCE_SCALE_CM = (
     31.628878020276648 * 2.0 * 30.0 / (42.67 * np.sqrt(np.pi)) * 1.20
@@ -580,7 +584,7 @@ class ABCDDetector:
         canvas[offset_y:offset_y + glyph.shape[0], offset_x:offset_x + glyph.shape[1]] = glyph
         center = ((side - 1) / 2.0, (side - 1) / 2.0)
         coarse_scores = {letter: (0.0, 0.0) for letter in LETTERS}
-        for angle in range(0, 360, 15):
+        for angle in range(0, 360, ROTATION_COARSE_STEP_DEG):
             matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
             rotated = cv2.warpAffine(
                 canvas, matrix, (side, side), flags=cv2.INTER_LINEAR,
@@ -600,7 +604,11 @@ class ABCDDetector:
         best_score, best_letter, best_angle = coarse_order[0]
         runner_up = coarse_order[1][0] if len(coarse_order) > 1 else 0.0
         fine_best = (best_score, best_angle)
-        for offset in range(-6, 7, 3):
+        for offset in range(
+            -ROTATION_FINE_RADIUS_DEG,
+            ROTATION_FINE_RADIUS_DEG + 1,
+            ROTATION_FINE_STEP_DEG,
+        ):
             angle = (best_angle + offset) % 360.0
             matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
             rotated = cv2.warpAffine(
@@ -615,7 +623,14 @@ class ABCDDetector:
         best_score, best_angle = fine_best
         confidence = max(0.0, min(1.0, best_score + 0.18 * (best_score - runner_up)))
         margin = best_score - runner_up
-        if best_score < self.min_confidence or margin < 0.035:
+        # Task-three blocks are often seen at an oblique angle or with a
+        # partially merged white border. Geometry and the later multi-frame
+        # vote already reject ambiguous candidates, so keep a small margin
+        # floor here instead of discarding valid rotated glyphs too early.
+        if (
+            best_score < max(0.36, self.min_confidence - 0.06)
+            or margin < ROTATION_MIN_MARGIN
+        ):
             return None, confidence, occupancy, best_angle, margin
         return best_letter, confidence, occupancy, best_angle, margin
 

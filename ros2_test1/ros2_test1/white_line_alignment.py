@@ -835,9 +835,8 @@ class WhiteLineAlignmentDetector:
         self._last_measurement = measurement
         return measurement
 
-    @staticmethod
     def _task3_scanline_fallback(
-        frame, threshold_floor=135, saturation_limit=150
+        self, frame, threshold_floor=135, saturation_limit=150
     ):
         """Extract a partial horizontal strip without merging the upper box.
 
@@ -858,7 +857,11 @@ class WhiteLineAlignmentDetector:
         value_eq = clahe.apply(hsv[:, :, 2])
         x0 = max(0, int(width * 0.02))
         x1 = min(width, int(width * 0.98))
-        y0 = max(int(height * 0.20), int(height * 0.15))
+        # The formal target is centered near Y=300 in a 600px frame. Reject
+        # the upper bright hardware band before it can become a white-line
+        # candidate; keeping this guard task-three-only avoids changing the
+        # task-one/task-two camera contracts.
+        y0 = max(int(height * 0.24), int(height * 0.15))
         # Exclude the lower vehicle/arm highlight from the task-three scan.
         # The formal reference is Y=300 in a 600px frame, so the extra lower
         # margin is unnecessary and can only admit chassis structure.
@@ -934,13 +937,26 @@ class WhiteLineAlignmentDetector:
         ]
         if not groups:
             return None
-        group = max(
-            groups,
-            key=lambda candidate: (
-                max(item[1] for item in candidate),
-                sum(item[1] for item in candidate),
-            ),
-        )
+        reference_y = height * 0.50
+        if self._task3_last_measurement is not None:
+            reference_y = float(
+                self._task3_last_measurement.get("y_at_center", reference_y)
+            )
+
+        def group_score(candidate):
+            group_y = float(np.median([item[0] for item in candidate]))
+            max_width = max(item[1] for item in candidate)
+            y_score = max(
+                -1.0,
+                1.0 - abs(group_y - reference_y) / max(1.0, height * 0.30),
+            )
+            width_score = min(1.0, max_width / max(1.0, width * 0.45))
+            row_score = min(1.0, len(candidate) / max(1.0, height * 0.03))
+            return 4.0 * y_score + 1.4 * width_score + 0.3 * row_score
+
+        # Prefer the strip near the formal reference or the last accepted
+        # geometry over a wider but unrelated bright structure above it.
+        group = max(groups, key=group_score)
         if max(item[1] for item in group) < width * 0.18:
             return None
 
@@ -969,7 +985,7 @@ class WhiteLineAlignmentDetector:
         slope, intercept = np.polyfit(coordinates[:, 0], coordinates[:, 1], 1)
         angle_deg = float(np.degrees(np.arctan(float(slope))))
         y_at_center = float(intercept + slope * (width * 0.5))
-        if not height * 0.20 <= y_at_center <= height * 0.64:
+        if not height * 0.24 <= y_at_center <= height * 0.64:
             return None
         if abs(angle_deg) > 25.0:
             return None
@@ -1019,7 +1035,7 @@ class WhiteLineAlignmentDetector:
         previous_left = float(bounds[0])
         previous_width = max(40.0, float(bounds[2]))
         y_margin = max(42, int(height * 0.09))
-        y0 = max(int(height * 0.20), int(round(previous_y - y_margin)))
+        y0 = max(int(height * 0.24), int(round(previous_y - y_margin)))
         y1 = min(int(height * 0.64), int(round(previous_y + y_margin)))
         x0 = max(0, int(round(previous_left - max(55, width * 0.07))))
         x1 = min(width, int(round(previous_right + max(55, width * 0.07))))
@@ -1123,7 +1139,7 @@ class WhiteLineAlignmentDetector:
         slope, intercept = np.polyfit(coordinates[:, 0], coordinates[:, 1], 1)
         angle_deg = float(np.degrees(np.arctan(float(slope))))
         y_at_center = float(intercept + slope * (width * 0.5))
-        if not height * 0.20 <= y_at_center <= height * 0.64:
+        if not height * 0.24 <= y_at_center <= height * 0.64:
             return None
         if abs(angle_deg) > 25.0:
             return None
@@ -1150,6 +1166,51 @@ class WhiteLineAlignmentDetector:
             "edge_support": len(points),
             "right_edge_x": right_edge_x,
         }
+
+    def _task3_measurement_is_continuous(self, measurement):
+        """Reject implausible frame-to-frame jumps to another bright object."""
+        previous = self._task3_last_measurement
+        if previous is None:
+            return True
+        height = float(measurement.get("frame_height", 600.0))
+        width = float(measurement.get("frame_width", 800.0))
+        y_delta = abs(
+            float(measurement.get("y_at_center", 0.0))
+            - float(previous.get("y_at_center", 0.0))
+        )
+        edge_delta = abs(
+            float(measurement.get("right_edge_x", 0.0))
+            - float(previous.get("right_edge_x", 0.0))
+        )
+        angle_delta = abs(
+            float(measurement.get("angle_deg", 0.0))
+            - float(previous.get("angle_deg", 0.0))
+        )
+        return (
+            y_delta <= max(45.0, height * 0.10)
+            and edge_delta <= max(70.0, width * 0.10)
+            and angle_delta <= 8.0
+        )
+
+    def _task3_accept_measurement(self, frame, measurement):
+        """Accept only continuous geometry or recover the last valid strip."""
+        if measurement is None:
+            return self._task3_recover_last()
+        if self._task3_measurement_is_continuous(measurement):
+            return self._task3_stabilize(measurement)
+
+        # A bright upper structure must not replace a tracked strip in one
+        # frame. Search locally around the previous geometry before holding it.
+        if self._task3_last_measurement is not None:
+            recovered = self._task3_local_recovery(
+                frame, self._task3_last_measurement
+            )
+            if (
+                recovered is not None
+                and self._task3_measurement_is_continuous(recovered)
+            ):
+                return self._task3_stabilize(recovered)
+        return self._task3_recover_last()
 
     def _task3_recover_last(self):
         """Keep a confirmed result for only a few detector cycles."""
@@ -1193,7 +1254,7 @@ class WhiteLineAlignmentDetector:
                 frame, self._task3_last_measurement
             )
         if scanline is not None:
-            return self._task3_stabilize(scanline)
+            return self._task3_accept_measurement(frame, scanline)
 
         height, width = frame.shape[:2]
         task3_max_line_y = height * 0.64
@@ -1221,7 +1282,7 @@ class WhiteLineAlignmentDetector:
                     strict["right_edge_x"] = self._task3_refine_right_boundary(
                         frame, strict
                     )
-                    return self._task3_stabilize(strict)
+                    return self._task3_accept_measurement(frame, strict)
         self._task2_edge_history = []
         if frame is None or frame.size == 0:
             return None
@@ -1233,7 +1294,7 @@ class WhiteLineAlignmentDetector:
         value_eq = clahe.apply(hsv[:, :, 2])
         x0 = int(width * self.roi_x[0])
         x1 = int(width * self.roi_x[1])
-        y0 = int(height * 0.18)
+        y0 = int(height * 0.24)
         # Keep the lower vehicle body out of the task-three candidate ROI.
         # The line target is centered at Y=300 in the 600px frame; pixels
         # below this guard are reserved for the chassis and arm structure.
@@ -1346,7 +1407,7 @@ class WhiteLineAlignmentDetector:
                 )
             if (
                 y_at_center is None
-                or not height * 0.20 <= y_at_center <= task3_max_line_y
+                or not height * 0.24 <= y_at_center <= task3_max_line_y
                 or abs(angle_deg) > 32.0
             ):
                 continue
@@ -1387,7 +1448,7 @@ class WhiteLineAlignmentDetector:
                     frame, self._task3_last_measurement
                 )
             if scanline is not None:
-                return self._task3_stabilize(scanline)
+                return self._task3_accept_measurement(frame, scanline)
             return self._task3_recover_last()
 
         _, contour, rect, bounds, area, edge_geometry, right_edge_x = max(
@@ -1434,7 +1495,7 @@ class WhiteLineAlignmentDetector:
             ),
             "right_edge_x": right_edge_x,
         }
-        return self._task3_stabilize(measurement)
+        return self._task3_accept_measurement(frame, measurement)
 
     def _task3_stabilize(self, measurement):
         """Apply task-three-only temporal stability to a fresh measurement."""

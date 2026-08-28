@@ -154,6 +154,11 @@ COLUMN_BLOCK_MAX_CIRCULARITY = 0.88
 # grace period while the arm centers; a brief detector gap must not skip it.
 COLUMN_BLOCK_CLASSIFY_TIMEOUT_S = 3.0
 COLUMN_BLOCK_TRACK_LOST_TIMEOUT_S = 3.0
+# A fresh frame with no matching glyph is recoverable: the arm is already
+# paused, and the detector may need a few frames while the block changes
+# scale/angle during centering. A missing camera frame keeps the shorter
+# safety timeout above.
+COLUMN_BLOCK_FRESH_LOST_TIMEOUT_S = 6.0
 COLUMN_BLOCK_CONFIRM_FRAMES = 1
 COLUMN_CLASSIFY_VOTE_WINDOW = 6
 COLUMN_CLASSIFY_MIN_VOTES = 4
@@ -265,7 +270,7 @@ COLUMN_CATCH_ID6_CENTER_RANGE = PLATFORM_CENTER_ID6_RANGE
 COLUMN_CATCH_ID2_CENTER_STEP_TICKS = PLATFORM_CENTER_ID2_STEP_TICKS
 COLUMN_CATCH_ID6_CENTER_STEP_TICKS = PLATFORM_CENTER_ID6_STEP_TICKS
 TASK3_RING_PLACE_HIGH = (650, 550, 413)
-TASK3_RING_PLACE_RETURN_HIGH = (620, 460, 413)
+TASK3_RING_PLACE_RETURN_HIGH = (610, 460, 413)
 TASK3_RING_PLACE_POSE = (470, 350, 171)
 TASK3_RING_PLACE_AXIS_TIME_MS = 500
 TASK3_RING_PLACE_ID1_TIME_MS = 700
@@ -276,8 +281,8 @@ TASK3_RING_PLACE_GRIPPER_TIME_MS = 200
 TASK3_RING_PLACE_SLOW_CLOSE_TIME_MS = 2000
 TASK3_RING_PLACE_RELEASE_GRIPPER_TIME_MS = 1000
 TASK3_RING_PLACE_RELEASE_HOLD_MS = 1500
-TASK3_RING_PLACE_RELEASE_ID1_TICK = 610
-TASK3_RING_PLACE_RELEASE_ID2_TICK = 450
+TASK3_RING_PLACE_RELEASE_ID1_TICK = 590
+TASK3_RING_PLACE_RELEASE_ID2_TICK = 441
 TASK3_RING_PLACE_RELEASE_ID1_TIME_MS = 1000
 TASK3_RING_PLACE_RELEASE_ID1_HOLD_MS = 1000
 TASK3_RING_PLACE_CONTRACT_AXIS_TIME_MS = 500
@@ -286,6 +291,7 @@ COLUMN_CATCH_LETTER_PLACE_TIME_MS = 500
 # Formal BLUE task-three only: one fixed recovery grab before releasing the
 # post-orbit H7 hold when the selected letter pair still has a quota gap.
 TASK3_SUPPLEMENT_OPEN_HOLD_MS = 1000
+TASK3_SUPPLEMENT_EXPANDED_HIGH = (650, 600, 450)
 TASK3_SUPPLEMENT_DESCEND_ID1_TICK = 580
 TASK3_SUPPLEMENT_DESCEND_TIME_MS = 800
 TASK3_SUPPLEMENT_GRIPPER_TIME_MS = 200
@@ -3487,6 +3493,7 @@ class TargetGraspController:
         for det in detections:
             if (
                 det.get("kind") != "letter"
+                or not det.get("observed", True)
                 or not det.get("fully_visible", True)
                 or str(det.get("letter", "")).upper() not in LETTERS
             ):
@@ -3529,6 +3536,7 @@ class TargetGraspController:
         for det in detections:
             if (
                 det.get("kind") != "letter"
+                or not det.get("observed", True)
                 or not det.get("fully_visible", True)
                 or str(det.get("letter", "")).upper() != label
             ):
@@ -3563,6 +3571,7 @@ class TargetGraspController:
         candidates = [
             det for det in detections
             if det.get("kind") == "column_block"
+            and det.get("observed", True)
             and det.get("fully_visible", True)
             and not self._column_block_has_processed_letter(detections, det)
         ]
@@ -3588,6 +3597,7 @@ class TargetGraspController:
         blocks = [
             det for det in detections
             if det.get("kind") == "column_block"
+            and det.get("observed", True)
             and det.get("fully_visible", True)
         ]
         active = []
@@ -3728,10 +3738,17 @@ class TargetGraspController:
         return True
 
     def stop_chassis_station(self, station):
-        self.platform_task.reset()
-        self.task3_ring_place_actions.clear()
         if self.active_chassis_station != station:
             return f"chassis station {station} stop ignored; active={self.active_chassis_station}"
+        if station == "PLATFORM_PICK":
+            # PLATFORM_PICK STOP is a local slot timeout. Keep the selected
+            # letters and the arm at task-two high; never use the generic
+            # station shutdown path because it retracts the arm and poisons
+            # the next slot's PRESELECT_HIGH_NOT_READY barrier.
+            self.platform_task.stop_keep_high("STOPPED_BY_CHASSIS")
+            return self._sync_platform_task()
+        self.platform_task.reset()
+        self.task3_ring_place_actions.clear()
         if station == "COLUMN_CATCH" and self.field_mode == FieldMode.BLUE:
             return self.hold_blue_task3_arm(
                 self._task3_hold_sequence
@@ -3952,9 +3969,9 @@ class TargetGraspController:
                     self._task3_supplement_command,
                     ("open high", TASK3_SUPPLEMENT_OPEN_HOLD_MS),
                     {
-                        "id1": COLUMN_CATCH_BLUE_HOLD_HIGH[0],
-                        "id2": COLUMN_CATCH_BLUE_HOLD_HIGH[1],
-                        "id6": COLUMN_CATCH_BLUE_HOLD_HIGH[2],
+                        "id1": TASK3_SUPPLEMENT_EXPANDED_HIGH[0],
+                        "id2": TASK3_SUPPLEMENT_EXPANDED_HIGH[1],
+                        "id6": TASK3_SUPPLEMENT_EXPANDED_HIGH[2],
                         "id7": COLUMN_CATCH_GRIPPER_OPEN_TICK,
                     },
                 ),
@@ -4538,6 +4555,7 @@ class TargetGraspController:
             tracked_blocks = [
                 det for det in detections
                 if det.get("kind") == "column_block"
+                and det.get("observed", True)
                 and det.get("fully_visible", True)
                 and self._column_block_tracks_match(self.column_locked_block, det)
             ]
@@ -4806,7 +4824,12 @@ class TargetGraspController:
                 if self.column_target_lost_since is None:
                     self.column_target_lost_since = now
                 lost_s = now - self.column_target_lost_since
-                if lost_s >= COLUMN_BLOCK_TRACK_LOST_TIMEOUT_S:
+                lost_timeout = (
+                    COLUMN_BLOCK_FRESH_LOST_TIMEOUT_S
+                    if detection_fresh
+                    else COLUMN_BLOCK_TRACK_LOST_TIMEOUT_S
+                )
+                if lost_s >= lost_timeout:
                     self.chassis_station_stage = "column_resume_abort"
                     self.status = (
                         "COLUMN_CATCH target lost while paused for "
@@ -4815,7 +4838,7 @@ class TargetGraspController:
                     return self.status
                 return (
                     "COLUMN_CATCH paused; waiting fresh letter for centering "
-                    f"({lost_s:.1f}/{COLUMN_BLOCK_TRACK_LOST_TIMEOUT_S:.1f}s)"
+                    f"({lost_s:.1f}/{lost_timeout:.1f}s)"
                 )
             self.column_target_lost_since = None
             letter_target = self._copy_target(letter_target)
@@ -7277,7 +7300,9 @@ class TargetDetector:
         x1 = min(width, x + roi_width)
         y1 = min(height, y + roi_height)
         if x1 <= x0 or y1 <= y0:
-            return []
+            return self.letter_detector.detect_task3_rotated(
+                frame, frame_shape=frame.shape
+            )
         detections = self.letter_detector.detect_task3_rotated(
             frame[y0:y1, x0:x1], frame_shape=frame.shape
         )
@@ -7291,7 +7316,18 @@ class TargetDetector:
                     np.asarray(detection["box"], dtype=np.int32)
                     + np.asarray((x0, y0), dtype=np.int32)
                 )
-        return detections
+        # During centering the locked block can leave the old ROI for a few
+        # frames, or its white border can split under perspective. Always add
+        # a full-frame pass while a block is locked. The station controller
+        # still applies the locked block and label filters, so an unrelated
+        # letter cannot authorize a grasp; the extra candidates only make
+        # same-block reacquisition possible after the ROI becomes stale.
+        full_frame_detections = self.letter_detector.detect_task3_rotated(
+            frame, frame_shape=frame.shape
+        )
+        if not detections:
+            return full_frame_detections
+        return detections + full_frame_detections
 
     @staticmethod
     def _column_block_angle(box):

@@ -321,6 +321,7 @@ class PlatformTask:
                 or (kind == "ring" and label == self.field))
 
     def skip(self, reason):
+        self.done = self.error = None
         self.high_ready = False
         self.finish_reason = f"SKIPPED:{reason}"
         self.actions = deque([("RETURN_HIGH", self.pose, (HIGH, True))])
@@ -329,6 +330,25 @@ class PlatformTask:
         self.center_reacquire_deadline = 0.0
         self.depth_invalid_deadline = 0.0
         self.status = f"PLATFORM_PICK {self.finish_reason}; returning high"
+
+    def stop_keep_high(self, reason="STOPPED_BY_CHASSIS"):
+        """Abort only the current slot and leave the arm at task-two high."""
+        self.done = self.error = None
+        self.high_ready = False
+        self.finish_reason = f"SKIPPED:{reason}"
+        self.target_key = None
+        self.target_center = None
+        self.target_seen = False
+        self.votes.clear()
+        self.actions = deque([
+            ("STOP_CLOSE", self.gripper_close, (PLATFORM_GRIPPER_CLOSED,)),
+            ("RETURN_HIGH", self.pose, (HIGH, True)),
+        ])
+        self.stage = "platform_actions"
+        self.deadline = 0.0
+        self.center_reacquire_deadline = 0.0
+        self.depth_invalid_deadline = 0.0
+        self.status = f"PLATFORM_PICK {self.finish_reason}; keeping high"
 
     def _detect(self, detections, shape):
         if self.discard:
@@ -360,10 +380,12 @@ class PlatformTask:
         key = self._key(target)
         point = tuple(target["center"])
         if not self.target_seen:
+            # A first valid candidate starts the stability vote; it does not
+            # release the station's bounded observation window.
             self.target_seen = True
             self.status = (
                 "PLATFORM_PICK target observed; "
-                "grasp transaction has no deadline"
+                "waiting for 3-frame stability vote"
             )
         self.votes.append((key, point))
         if sum(v is not None and v[0] == key and math.dist(v[1], point) <= 140
@@ -372,6 +394,10 @@ class PlatformTask:
         if not self._allowed(target):
             self.skip("TARGET_NOT_SELECTED")
             return
+        self.status = (
+            "PLATFORM_PICK target locked; "
+            "grasp transaction has no deadline"
+        )
         self.target_key, self.target_center = key, point
         dx, dy = point[0] - width / 2, point[1] - height / 2
         center_deadband = (
@@ -562,7 +588,10 @@ class PlatformTask:
             self.done = "PRESELECT_DONE:" + ":".join(self.selected)
             self.status = "PLATFORM_PICK ARM_HIGH_READY; release H7 approach"
         elif self.stage == "platform_detect":
-            if not self.target_seen and now >= self.timeout:
+            # The station budget covers the complete search/lock window.  A
+            # single noisy sighting must not disable the timeout while the
+            # required stable vote is still missing.
+            if self.target_key is None and now >= self.timeout:
                 self.skip("MAIN_TARGET_OR_DEPTH_TIMEOUT")
             elif (
                 self.target_seen
