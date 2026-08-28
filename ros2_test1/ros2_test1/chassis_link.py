@@ -1137,6 +1137,7 @@ class ChassisArmLink:
         print(self.status, flush=True)
         self.active_task = None
         self.active_sequence = None
+        self.active_slot = None
         self.formal_column_control_state = None
         self.formal_column_control_sequence = None
         self.last_completed_task = task
