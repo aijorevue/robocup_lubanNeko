@@ -169,9 +169,19 @@ COLUMN_BLOCK_MATCH_IOU = 0.35
 # block identity with bounded motion and scale instead of fixed-frame IoU.
 COLUMN_LOCKED_BLOCK_MAX_JUMP_PX = 220.0
 COLUMN_LOCKED_BLOCK_MAX_SIZE_RATIO = 2.5
+# Centering follows the last accepted physical block, not the first paused
+# frame. The larger bounded window covers a normal arm-induced image shift;
+# the nearest tracked block still prevents switching to another block.
+COLUMN_LOCKED_BLOCK_REACQUIRE_MAX_JUMP_PX = 360.0
+COLUMN_LOCKED_BLOCK_REACQUIRE_MAX_SIZE_RATIO = 3.2
 COLUMN_HANDLED_BLOCK_REARM_FRAMES = 15
 COLUMN_LOCKED_LETTER_MAX_JUMP_PX = 260.0
 COLUMN_LOCKED_LETTER_MAX_SIZE_RATIO = 2.8
+# After a stable letter vote, the arm may move the target a long way between
+# detector results. Track the selected label from its latest fresh position;
+# never require every frame to remain inside the original pause ROI.
+COLUMN_LOCKED_LETTER_REACQUIRE_MAX_JUMP_PX = 360.0
+COLUMN_LOCKED_LETTER_REACQUIRE_MAX_SIZE_RATIO = 3.2
 COLUMN_H7_PAUSE_TIMEOUT_S = 3.0
 COLUMN_H7_RESUME_TIMEOUT_S = 3.0
 
@@ -1385,6 +1395,7 @@ class TargetGraspController:
         self.column_pending_target = None
         self.column_pending_frames = 0
         self.column_locked_block = None
+        self.column_locked_letter_track = None
         self.column_locked_distance_cm = None
         # A white block alone must never authorize arm descent.
         self.column_capture_authorized = False
@@ -3292,6 +3303,7 @@ class TargetGraspController:
         self.column_pending_target = None
         self.column_pending_frames = 0
         self.column_locked_block = None
+        self.column_locked_letter_track = None
         self.column_locked_distance_cm = None
         self.column_capture_authorized = False
         self.column_handled_blocks = []
@@ -3567,6 +3579,194 @@ class TargetGraspController:
             ),
         )
 
+    @staticmethod
+    def _column_letter_block_proxy(letter):
+        """Build a moving block anchor from a fresh rotated letter detection."""
+
+        bbox = letter.get("bbox", ()) if letter is not None else ()
+        center = letter.get("center", ()) if letter is not None else ()
+        if len(bbox) < 4 or len(center) != 2:
+            return None
+        try:
+            x, y, width, height = (int(round(float(value))) for value in bbox[:4])
+            cx, cy = (int(round(float(value))) for value in center[:2])
+        except (TypeError, ValueError):
+            return None
+        if width <= 0 or height <= 0:
+            return None
+        return {
+            "kind": "column_block",
+            "color": "white_edge",
+            "center": (cx, cy),
+            "bbox": (x, y, width, height),
+            "projected_area": float(width * height),
+            "fully_visible": bool(letter.get("fully_visible", True)),
+            "parallel": bool(letter.get("parallel", True)),
+            "orientation_agnostic": True,
+            "source": "column_locked_letter_track",
+        }
+
+    def _column_update_locked_letter_track(self, letter, detections):
+        """Move the active block anchor with the accepted fresh letter.
+
+        The rotated detector's letter bbox is produced from the same white
+        block contour. Prefer a full geometric block from this frame when it
+        is close; otherwise the letter bbox is a conservative proxy. This
+        keeps the next ROI useful after the arm changes the camera view.
+        """
+
+        if letter is None:
+            return
+        self.column_locked_letter_track = self._copy_target(letter)
+        self.last_visual_target = self._copy_target(letter)
+        letter_center = np.asarray(letter.get("center", ()), dtype=np.float32)
+        letter_bbox = letter.get("bbox", ())
+        if letter_center.shape != (2,) or len(letter_bbox) < 4:
+            return
+        letter_size = max(
+            float(letter_bbox[2]), float(letter_bbox[3]), 1.0
+        )
+        nearby_blocks = []
+        for block in detections or ():
+            if (
+                block.get("kind") != "column_block"
+                or not block.get("observed", True)
+                or not block.get("fully_visible", True)
+            ):
+                continue
+            block_center = np.asarray(block.get("center", ()), dtype=np.float32)
+            block_bbox = block.get("bbox", ())
+            if block_center.shape != (2,) or len(block_bbox) < 4:
+                continue
+            block_size = max(float(block_bbox[2]), float(block_bbox[3]), 1.0)
+            if float(np.linalg.norm(block_center - letter_center)) > max(
+                70.0, letter_size * 1.6
+            ):
+                continue
+            if max(block_size, letter_size) / min(block_size, letter_size) > 3.2:
+                continue
+            nearby_blocks.append(block)
+        if nearby_blocks:
+            self.column_locked_block = self._copy_target(
+                min(
+                    nearby_blocks,
+                    key=lambda block: float(
+                        np.linalg.norm(
+                            np.asarray(block.get("center"), dtype=np.float32)
+                            - letter_center
+                        )
+                    ),
+                )
+            )
+            return
+        proxy = self._column_letter_block_proxy(letter)
+        if proxy is not None:
+            self.column_locked_block = proxy
+
+    def _column_reacquire_locked_letter(self, detections):
+        """Select the same locked label from its latest moving image track."""
+
+        reference = self.column_locked_letter_track
+        if reference is None and self.locked_target is not None:
+            if self.locked_target.get("kind") == "letter":
+                reference = self.locked_target
+        if reference is None:
+            return None
+        label = str(reference.get("letter", "")).upper()
+        reference_center = np.asarray(reference.get("center", ()), dtype=np.float32)
+        reference_bbox = reference.get("bbox", ())
+        if not label or reference_center.shape != (2,):
+            return None
+        reference_size = (
+            max(float(reference_bbox[2]), float(reference_bbox[3]), 1.0)
+            if len(reference_bbox) >= 4
+            else 80.0
+        )
+        candidates = []
+        for detection in detections or ():
+            if (
+                detection.get("kind") != "letter"
+                or not detection.get("observed", True)
+                or not detection.get("fully_visible", True)
+                or str(detection.get("letter", "")).upper() != label
+            ):
+                continue
+            center = np.asarray(detection.get("center", ()), dtype=np.float32)
+            bbox = detection.get("bbox", ())
+            if center.shape != (2,) or len(bbox) < 4:
+                continue
+            size = max(float(bbox[2]), float(bbox[3]), 1.0)
+            size_ratio = max(reference_size, size) / min(reference_size, size)
+            if size_ratio > COLUMN_LOCKED_LETTER_REACQUIRE_MAX_SIZE_RATIO:
+                continue
+            distance = float(np.linalg.norm(center - reference_center))
+            max_jump = max(
+                COLUMN_LOCKED_LETTER_REACQUIRE_MAX_JUMP_PX,
+                reference_size * 3.0,
+            )
+            if distance > max_jump:
+                continue
+            candidates.append(
+                (
+                    distance / max(reference_size, 1.0)
+                    + 0.25 * abs(math.log(max(size_ratio, 1.0))),
+                    distance,
+                    detection,
+                )
+            )
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: (item[0], item[1]))
+        return candidates[0][2]
+
+    def _column_reacquire_locked_block(self, detections):
+        """Follow the selected white block when only geometry is visible."""
+
+        reference = self.column_locked_block
+        if reference is None:
+            return None
+        reference_center = np.asarray(reference.get("center", ()), dtype=np.float32)
+        reference_bbox = reference.get("bbox", ())
+        if reference_center.shape != (2,) or len(reference_bbox) < 4:
+            return None
+        reference_size = max(
+            float(reference_bbox[2]), float(reference_bbox[3]), 1.0
+        )
+        candidates = []
+        for detection in detections or ():
+            if (
+                detection.get("kind") != "column_block"
+                or not detection.get("observed", True)
+                or not detection.get("fully_visible", True)
+            ):
+                continue
+            center = np.asarray(detection.get("center", ()), dtype=np.float32)
+            bbox = detection.get("bbox", ())
+            if center.shape != (2,) or len(bbox) < 4:
+                continue
+            size = max(float(bbox[2]), float(bbox[3]), 1.0)
+            size_ratio = max(reference_size, size) / min(reference_size, size)
+            if size_ratio > COLUMN_LOCKED_BLOCK_REACQUIRE_MAX_SIZE_RATIO:
+                continue
+            distance = float(np.linalg.norm(center - reference_center))
+            if distance > max(
+                COLUMN_LOCKED_BLOCK_REACQUIRE_MAX_JUMP_PX,
+                reference_size * 3.0,
+            ):
+                continue
+            candidates.append(
+                (
+                    distance / max(reference_size, 1.0)
+                    + 0.25 * abs(math.log(max(size_ratio, 1.0))),
+                    distance,
+                    detection,
+                )
+            )
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: (item[0], item[1]))
+        return candidates[0][2]
+
     def _column_block_visible(self, detections):
         candidates = [
             det for det in detections
@@ -3712,6 +3912,7 @@ class TargetGraspController:
         self.column_pending_target = None
         self.column_pending_frames = 0
         self.column_locked_block = None
+        self.column_locked_letter_track = None
         self.column_locked_distance_cm = None
         self.column_capture_authorized = False
         self.column_target_lost_since = None
@@ -4551,6 +4752,7 @@ class TargetGraspController:
             self._column_block_visible(detections) if detection_fresh else None
         )
         active_locked_block = self.column_locked_block
+        fresh_locked_block = None
         if detection_fresh and self.column_locked_block is not None:
             tracked_blocks = [
                 det for det in detections
@@ -4570,12 +4772,43 @@ class TargetGraspController:
                     ),
                 )
                 self.column_locked_block = self._copy_target(active_locked_block)
+                fresh_locked_block = self.column_locked_block
             else:
                 # Keep the PAUSED block ROI for transient contour loss.  This
                 # matches the standalone classifier: a dark glyph can hide or
                 # split the white border for a frame, but an unrelated
                 # full-frame letter must never become the grasp target.
                 active_locked_block = self.column_locked_block
+        if (
+            detection_fresh
+            and self.chassis_station_stage == "column_centering"
+            and self.column_capture_authorized
+        ):
+            moving_block = self._column_reacquire_locked_block(detections)
+            if moving_block is not None:
+                self.column_locked_block = self._copy_target(moving_block)
+                active_locked_block = self.column_locked_block
+                fresh_locked_block = self.column_locked_block
+        reacquired_locked_letter = None
+        if (
+            detection_fresh
+            and self.chassis_station_stage == "column_centering"
+            and self.column_capture_authorized
+            and self.locked_target is not None
+            and self.locked_target.get("kind") == "letter"
+        ):
+            # Once the paused vote has accepted a letter, follow its latest
+            # fresh position. The original pause block is only an initial
+            # identity anchor, not a permanent image ROI.
+            reacquired_locked_letter = self._column_reacquire_locked_letter(
+                detections
+            )
+            if reacquired_locked_letter is not None:
+                self._column_update_locked_letter_track(
+                    reacquired_locked_letter, detections
+                )
+                active_locked_block = self.column_locked_block
+                fresh_locked_block = self.column_locked_block
         # Before PAUSE, only the geometric block detector is authoritative.
         # After PAUSE, bind classification to the block that caused PAUSE;
         # never promote an unrelated full-frame letter into a grasp target.
@@ -4584,6 +4817,8 @@ class TargetGraspController:
             if detection_fresh and active_locked_block is not None
             else []
         )
+        if reacquired_locked_letter is not None:
+            column_letter_candidates = [reacquired_locked_letter]
         if (
             detection_fresh
             and self.column_locked_block is not None
@@ -4634,6 +4869,44 @@ class TargetGraspController:
             ),
             default=None,
         )
+        if (
+            self.chassis_station_stage == "column_centering"
+            and self.column_capture_authorized
+            and fresh_locked_block is not None
+        ):
+            # The accepted letter is already known. Prefer the fresh white
+            # block geometry for the centering point so a temporary glyph
+            # classification miss cannot cancel the grab.
+            base_target = (
+                letter_target
+                or self.column_locked_letter_track
+                or self.locked_target
+            )
+            block_center = np.asarray(
+                fresh_locked_block.get("center", ()), dtype=np.float32
+            )
+            block_bbox = fresh_locked_block.get("bbox", ())
+            if (
+                base_target is not None
+                and str(base_target.get("letter", "")).upper()
+                == str((self.locked_target or {}).get("letter", "")).upper()
+                and block_center.shape == (2,)
+                and len(block_bbox) >= 4
+            ):
+                geometry_target = self._copy_target(base_target)
+                geometry_target["center"] = tuple(
+                    int(round(value)) for value in block_center
+                )
+                geometry_target["bbox"] = tuple(
+                    int(round(float(value))) for value in block_bbox[:4]
+                )
+                geometry_target["projected_area"] = float(
+                    max(1, geometry_target["bbox"][2])
+                    * max(1, geometry_target["bbox"][3])
+                )
+                geometry_target["source"] = "column_locked_block_center"
+                selected_letter_candidates = [geometry_target]
+                letter_target = geometry_target
         stable_letter_target = None
         if self.chassis_station_stage == "column_classify" and detection_fresh:
             self.column_classify_votes.append(
@@ -4717,6 +4990,7 @@ class TargetGraspController:
             self.column_pending_target = None
             self.column_pending_frames = 0
             self.column_locked_block = self._copy_target(block_target)
+            self.column_locked_letter_track = None
             self.column_locked_distance_cm = None
             self.column_capture_authorized = False
             self.column_target_lost_since = None
@@ -4777,6 +5051,9 @@ class TargetGraspController:
                     return self.status
                 self.locked_target = self._copy_target(stable_letter_target)
                 letter_target = stable_letter_target
+                self.column_locked_letter_track = self._copy_target(
+                    stable_letter_target
+                )
                 # Only a paused, ROI-bound, selected letter can authorize
                 # centering and the later open/retreat/descend stages.
                 self.column_capture_authorized = True
@@ -4842,6 +5119,7 @@ class TargetGraspController:
                 )
             self.column_target_lost_since = None
             letter_target = self._copy_target(letter_target)
+            self._column_update_locked_letter_track(letter_target, detections)
             if letter_target.get("distance_cm") is None and self.column_locked_distance_cm is not None:
                 letter_target["distance_cm"] = self.column_locked_distance_cm
             elif letter_target.get("distance_cm") is not None:
@@ -4906,6 +5184,7 @@ class TargetGraspController:
                 self.locked_target = None
                 self.locked_plan = None
                 self.column_locked_block = None
+                self.column_locked_letter_track = None
                 self.column_locked_distance_cm = None
                 self.column_resume_deadline = 0.0
                 self.column_target_lost_since = None
@@ -4932,6 +5211,7 @@ class TargetGraspController:
                 self.column_pending_target = None
                 self.column_pending_frames = 0
                 self.column_locked_block = None
+                self.column_locked_letter_track = None
                 self.column_locked_distance_cm = None
                 self.column_capture_authorized = False
                 self.column_target_lost_since = None
@@ -5236,6 +5516,7 @@ class TargetGraspController:
                 self.locked_target = None
                 self.locked_plan = None
                 self.column_locked_block = None
+                self.column_locked_letter_track = None
                 self.column_locked_distance_cm = None
                 self.column_capture_authorized = False
                 self.column_target_lost_since = None
@@ -5293,6 +5574,7 @@ class TargetGraspController:
         self.column_capture_authorized = False
         self.column_target_lost_since = None
         self.column_locked_block = None
+        self.column_locked_letter_track = None
         self.column_locked_distance_cm = None
         self.locked_target = None
         self.locked_plan = None
