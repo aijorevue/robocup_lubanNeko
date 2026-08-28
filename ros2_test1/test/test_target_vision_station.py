@@ -746,13 +746,15 @@ class ChassisStationSafetyTests(unittest.TestCase):
         self.assertEqual(bridge.sent[-1], {"id2": 570})
 
     def test_task3_ring_place_waits_then_finishes_contracted(self):
+        self.assertEqual(target_vision.TASK3_RING_PLACE_HIGH, (650, 550, 413))
         self.assertEqual(target_vision.TASK3_RING_PLACE_POSE, (470, 350, 171))
-        self.assertEqual(target_vision.TASK3_RING_PLACE_RETURN_HIGH, (600, 480, 415))
+        self.assertEqual(target_vision.TASK3_RING_PLACE_RETURN_HIGH, (620, 440, 413))
+        self.assertEqual(target_vision.TASK3_RING_PLACE_RELEASE_ID1_TICK, 590)
+        self.assertEqual(target_vision.TASK3_RING_PLACE_RELEASE_ID2_TICK, 420)
         self.assertEqual(target_vision.TASK3_RING_PLACE_GRIPPER_TIME_MS, 200)
         self.assertEqual(target_vision.TASK3_RING_PLACE_SLOW_CLOSE_TIME_MS, 2000)
-        self.assertEqual(target_vision.TASK3_RING_PLACE_RELEASE_GRIPPER_TIME_MS, 500)
+        self.assertEqual(target_vision.TASK3_RING_PLACE_RELEASE_GRIPPER_TIME_MS, 1000)
         self.assertEqual(target_vision.TASK3_RING_PLACE_RELEASE_HOLD_MS, 1500)
-        self.assertEqual(target_vision.TASK3_RING_PLACE_POST_HIGH_HOLD_MS, 3000)
         self.assertEqual(target_vision.TASK3_RING_PLACE_CONTRACT_AXIS_TIME_MS, 500)
         controller, bridge, _ = make_controller()
         with mock.patch.object(target_vision.time, "monotonic", return_value=1000.0), mock.patch.object(
@@ -766,13 +768,22 @@ class ChassisStationSafetyTests(unittest.TestCase):
                 )
 
         self.assertEqual(controller.consume_chassis_station_done(), "TASK3_RING_PLACE_DONE")
-        self.assertEqual(controller.id7, 310)
-        self.assertEqual(bridge.sent[-1]["id4"], 310)
+        self.assertEqual(
+            controller.id7,
+            target_vision.TASK3_RING_PLACE_GRIPPER_CLOSED_TICK,
+        )
+        self.assertEqual(
+            bridge.sent[-1]["id4"],
+            target_vision.TASK3_RING_PLACE_GRIPPER_CLOSED_TICK,
+        )
         self.assertEqual(bridge.sent[-4], {"id6": target_vision.BASE_YAW_HOME_TICK})
         self.assertEqual(bridge.sent[-3], {"id2": target_vision.HOME_ID2_TICK})
         self.assertEqual(bridge.sent[-2], {"id1": target_vision.HOME_ID1_TICK})
         self.assertEqual(bridge.sent[-1]["id3"], target_vision.TASK1_ID3_RETRACT_TICK)
-        self.assertEqual(bridge.sent[-1]["id4"], 310)
+        self.assertEqual(
+            bridge.sent[-1]["id4"],
+            target_vision.TASK3_RING_PLACE_GRIPPER_CLOSED_TICK,
+        )
         self.assertEqual(
             (controller.id1, controller.id2, controller.id6),
             (
@@ -782,7 +793,7 @@ class ChassisStationSafetyTests(unittest.TestCase):
             ),
         )
 
-    def test_task3_ring_place_followup_gripper_pulses_are_slow(self):
+    def test_task3_ring_place_second_release_returns_high_before_close(self):
         controller, _bridge, _ = make_controller()
         with mock.patch.object(target_vision.time, "monotonic", return_value=1000.0), mock.patch.object(
             target_vision.time, "sleep"
@@ -793,12 +804,27 @@ class ChassisStationSafetyTests(unittest.TestCase):
                 "TASK3_RING_PLACE", [], (600, 800, 3), detection_fresh=False
             )
 
-        actions = {name: args for name, _handler, args in controller.task3_ring_place_actions}
+        action_list = list(controller.task3_ring_place_actions)
+        actions = {name: args for name, _handler, args in action_list}
+        names = [name for name, _handler, _args in action_list]
         self.assertEqual(actions["OPEN_ID17"][1], 200)
         self.assertEqual(actions["SLOW_CLOSE_ID17"][1], 2000)
-        self.assertEqual(actions["WAIT_AFTER_RETURN_HIGH"][0], 3000)
-        self.assertEqual(actions["OPEN_ID17_AGAIN"][1], 500)
-        self.assertEqual(actions["CLOSE_ID17_AGAIN"][1], 500)
+        self.assertEqual(actions["OPEN_ID17_AGAIN"][1], 1000)
+        self.assertEqual(actions["CLOSE_ID17_AGAIN"][1], 1000)
+        release_start = names.index("OPEN_ID17_AGAIN")
+        self.assertEqual(
+            names[release_start:release_start + 5],
+            [
+                "OPEN_ID17_AGAIN",
+                "ID1_RELEASE_HIGH",
+                "ID2_RELEASE_HIGH",
+                "ID6_RELEASE_HIGH",
+                "CLOSE_ID17_AGAIN",
+            ],
+        )
+        self.assertEqual(actions["ID1_RELEASE_HIGH"][:3], ("id1", 650, 1000))
+        self.assertEqual(actions["ID2_RELEASE_HIGH"][:3], ("id2", 550, 1000))
+        self.assertEqual(actions["ID6_RELEASE_HIGH"][:3], ("id6", 413, 1000))
 
     def test_column_centering_uses_seven_and_five_tick_steps(self):
         controller, bridge, _ = make_controller()

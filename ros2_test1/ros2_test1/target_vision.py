@@ -313,8 +313,8 @@ TASK3_RING_PLACE_GRIPPER_TIME_MS = 200
 TASK3_RING_PLACE_SLOW_CLOSE_TIME_MS = 2000
 TASK3_RING_PLACE_RELEASE_GRIPPER_TIME_MS = 1000
 TASK3_RING_PLACE_RELEASE_HOLD_MS = 1500
-TASK3_RING_PLACE_RELEASE_ID1_TICK = 605
-TASK3_RING_PLACE_RELEASE_ID2_TICK = 433
+TASK3_RING_PLACE_RELEASE_ID1_TICK = 590
+TASK3_RING_PLACE_RELEASE_ID2_TICK = 420
 TASK3_RING_PLACE_RELEASE_ID1_TIME_MS = 1000
 TASK3_RING_PLACE_RELEASE_ID1_HOLD_MS = 1000
 TASK3_RING_PLACE_CONTRACT_AXIS_TIME_MS = 500
@@ -3102,6 +3102,15 @@ class TargetGraspController:
                 ("OPEN_ID17_AGAIN", self._task3_ring_gripper,
                  (TASK3_RING_PLACE_GRIPPER_OPEN_TICK,
                   TASK3_RING_PLACE_RELEASE_GRIPPER_TIME_MS, "open ID17 again")),
+                ("ID1_RELEASE_HIGH", self._task3_ring_single,
+                 ("id1", TASK3_RING_PLACE_HIGH[0],
+                  TASK3_RING_PLACE_HIGH_TIME_MS, "release high ID1")),
+                ("ID2_RELEASE_HIGH", self._task3_ring_single,
+                 ("id2", TASK3_RING_PLACE_HIGH[1],
+                  TASK3_RING_PLACE_HIGH_TIME_MS, "release high ID2")),
+                ("ID6_RELEASE_HIGH", self._task3_ring_single,
+                 ("id6", TASK3_RING_PLACE_HIGH[2],
+                  TASK3_RING_PLACE_HIGH_TIME_MS, "release high ID6")),
                 ("CLOSE_ID17_AGAIN", self._task3_ring_gripper,
                 (TASK3_RING_PLACE_GRIPPER_CLOSED_TICK,
                   TASK3_RING_PLACE_RELEASE_GRIPPER_TIME_MS, "close ID17 again")),
