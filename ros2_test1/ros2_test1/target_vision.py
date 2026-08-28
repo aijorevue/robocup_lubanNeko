@@ -269,7 +269,7 @@ COLUMN_CATCH_READY_ID6_TICK = 413
 COLUMN_CATCH_AUX14_TICK, COLUMN_CATCH_AUX15_TICK, COLUMN_CATCH_GRIPPER_CLOSED_TICK = HTD85_AUX_HIGH
 COLUMN_CATCH_SPLITTER_TICK = COLUMN_CATCH_AUX14_TICK
 COLUMN_CATCH_CATCHER_HOME_TICK = COLUMN_CATCH_AUX15_TICK
-COLUMN_CATCH_BLUE_HOLD_HIGH = (650, 600, 413)
+COLUMN_CATCH_HOLD_HIGH = (650, 600, 413)
 COLUMN_CATCH_GRIPPER_OPEN_TICK = PLATFORM_GRIPPER_OPEN
 COLUMN_CATCH_GRIPPER_TIME_MS = PLATFORM_GRIPPER_TIME_MS
 COLUMN_CATCH_CENTER_DEADBAND_PX = PLATFORM_CENTER_DEADBAND_PX
@@ -3853,18 +3853,15 @@ class TargetGraspController:
         self.task3_ring_place_actions.clear()
         if self.active_chassis_station != station:
             return f"chassis station {station} stop ignored; active={self.active_chassis_station}"
-        if station == "COLUMN_CATCH" and self.field_mode == FieldMode.BLUE:
-            return self.hold_blue_task3_arm()
+        if station == "COLUMN_CATCH":
+            return self.hold_formal_task3_arm()
         return self._finish_chassis_station_after_retract("STOPPED_BY_CHASSIS")
 
-    def hold_blue_task3_arm(self):
-        """Hold the blue task-three arm high without generic STOP cleanup."""
-        if (
-            self.active_chassis_station != "COLUMN_CATCH"
-            or self.field_mode != FieldMode.BLUE
-        ):
-            self.chassis_station_error_reason = "BLUE_HOLD_WITHOUT_COLUMN_CATCH"
-            return "blue task-three hold ignored; no active blue COLUMN_CATCH"
+    def hold_formal_task3_arm(self):
+        """Hold the formal task-three arm high until H7 requests retract."""
+        if self.active_chassis_station != "COLUMN_CATCH":
+            self.chassis_station_error_reason = "TASK3_HOLD_WITHOUT_COLUMN_CATCH"
+            return "task-three hold ignored; no active COLUMN_CATCH"
         # H7 may retransmit HOLD while the supplement is running. Keep the
         # current action queue intact; restarting it would replay OPEN_HIGH
         # forever and prevent the descend/close/place steps from running.
@@ -3875,20 +3872,24 @@ class TargetGraspController:
         self.platform_task.reset()
         self.task3_ring_place_actions.clear()
         status = self._column_pose(
-            *COLUMN_CATCH_BLUE_HOLD_HIGH,
-            "COLUMN_CATCH blue orbit boundary; hold expanded high",
+            *COLUMN_CATCH_HOLD_HIGH,
+            "COLUMN_CATCH orbit boundary; hold expanded high",
             raising=True,
             id7=COLUMN_CATCH_GRIPPER_CLOSED_TICK,
             id5=COLUMN_CATCH_CATCHER_HOME_TICK,
             splitter_id4=COLUMN_CATCH_SPLITTER_TICK,
         )
         if self.servo_bridge.write_enabled and not self.servo_bridge.last_command_ok:
-            self.chassis_station_error_reason = "BLUE_HOLD_HIGH_FAILED"
-            return f"COLUMN_CATCH blue hold high failed: {status}"
-        self.id1, self.id2, self.id6 = COLUMN_CATCH_BLUE_HOLD_HIGH
+            self.chassis_station_error_reason = "TASK3_HOLD_HIGH_FAILED"
+            return f"COLUMN_CATCH hold high failed: {status}"
+        self.id1, self.id2, self.id6 = COLUMN_CATCH_HOLD_HIGH
         self.platform_high_hold = True
         self.platform_high_pose_sent = True
-        self.task3_supplement_label = self._task3_supplement_label()
+        self.task3_supplement_label = (
+            self._task3_supplement_label()
+            if self.field_mode == FieldMode.BLUE
+            else None
+        )
         self.task3_supplement_done = False
         if self.task3_supplement_label is not None:
             self.task3_supplement_active = True
@@ -3904,7 +3905,7 @@ class TargetGraspController:
         self.chassis_station_done_reason = None
         self.chassis_station_error_reason = None
         self.status = (
-            "COLUMN_CATCH blue arm held expanded "
+            "COLUMN_CATCH arm held expanded "
             f"ID1={self.id1} ID2={self.id2} ID6={self.id6}"
         )
         if self.task3_supplement_label is not None:
@@ -3914,6 +3915,13 @@ class TargetGraspController:
             )
         self.arm_preview.publish(self.status)
         return f"HOLD_EXPANDED_HIGH; {status}"
+
+    def hold_blue_task3_arm(self):
+        """Backward-compatible entry point for existing BLUE callers/tests."""
+        if self.field_mode != FieldMode.BLUE:
+            self.chassis_station_error_reason = "BLUE_HOLD_WITHOUT_COLUMN_CATCH"
+            return "blue task-three hold ignored outside BLUE field"
+        return self.hold_formal_task3_arm()
 
     def _task3_supplement_label(self):
         """Choose one deficient letter from the locked secondary-camera pair."""
@@ -4041,9 +4049,9 @@ class TargetGraspController:
                     self._task3_supplement_command,
                     ("open high", TASK3_SUPPLEMENT_OPEN_HOLD_MS),
                     {
-                        "id1": COLUMN_CATCH_BLUE_HOLD_HIGH[0],
-                        "id2": COLUMN_CATCH_BLUE_HOLD_HIGH[1],
-                        "id6": COLUMN_CATCH_BLUE_HOLD_HIGH[2],
+                        "id1": COLUMN_CATCH_HOLD_HIGH[0],
+                        "id2": COLUMN_CATCH_HOLD_HIGH[1],
+                        "id6": COLUMN_CATCH_HOLD_HIGH[2],
                         "id7": COLUMN_CATCH_GRIPPER_OPEN_TICK,
                     },
                 ),
@@ -4188,7 +4196,7 @@ class TargetGraspController:
         self.status = f"COLUMN_CATCH supplement {label} dispatched"
         return self.status
 
-    def retract_blue_task3_arm(self):
+    def retract_formal_task3_arm(self):
         self.task3_supplement_actions.clear()
         self.task3_supplement_label = None
         self.task3_supplement_active = False
@@ -4200,27 +4208,32 @@ class TargetGraspController:
         self.active_chassis_station = None
         self.chassis_station_stage = None
         self.chassis_station_done_reason = None
-        self.chassis_station_error_reason = None if success else "BLUE_RETRACT_FAILED"
+        self.chassis_station_error_reason = (
+            None if success else "TASK3_RETRACT_FAILED"
+        )
         return success, status
 
-    def freeze_blue_task3_arm(self, reason="H7_HOLD_FAILED"):
-        """Keep BLUE task-three arm high while H7 reports a hold failure."""
-        if (
-            self.active_chassis_station != "COLUMN_CATCH"
-            or self.field_mode != FieldMode.BLUE
-        ):
-            return f"blue task-three freeze ignored; active={self.active_chassis_station}"
+    def retract_blue_task3_arm(self):
+        """Backward-compatible BLUE wrapper around the formal retract path."""
+        if self.field_mode != FieldMode.BLUE:
+            return False, "blue task-three retract ignored outside BLUE field"
+        return self.retract_formal_task3_arm()
+
+    def freeze_formal_task3_arm(self, reason="H7_HOLD_FAILED"):
+        """Keep the task-three arm high if H7 reports a hold failure."""
+        if self.active_chassis_station != "COLUMN_CATCH":
+            return f"task-three freeze ignored; active={self.active_chassis_station}"
         self.platform_task.reset()
         self.task3_ring_place_actions.clear()
         status = self._column_pose(
-            *COLUMN_CATCH_BLUE_HOLD_HIGH,
-            f"COLUMN_CATCH blue hold failure; freeze high ({reason})",
+            *COLUMN_CATCH_HOLD_HIGH,
+            f"COLUMN_CATCH hold failure; freeze high ({reason})",
             raising=True,
             id7=COLUMN_CATCH_GRIPPER_CLOSED_TICK,
             id5=COLUMN_CATCH_CATCHER_HOME_TICK,
             splitter_id4=COLUMN_CATCH_SPLITTER_TICK,
         )
-        self.id1, self.id2, self.id6 = COLUMN_CATCH_BLUE_HOLD_HIGH
+        self.id1, self.id2, self.id6 = COLUMN_CATCH_HOLD_HIGH
         self.platform_high_hold = True
         self.platform_high_pose_sent = True
         self.chassis_station_stage = None
@@ -4231,32 +4244,38 @@ class TargetGraspController:
         self.column_target_armed = False
         self.column_capture_authorized = False
         self.status = (
-            "COLUMN_CATCH blue arm frozen expanded after H7 hold failure "
+            "COLUMN_CATCH arm frozen expanded after H7 hold failure "
             f"ID1={self.id1} ID2={self.id2} ID6={self.id6}"
         )
         self.arm_preview.publish(self.status)
         return f"FROZEN_EXPANDED_HIGH; {status}"
 
+    def freeze_blue_task3_arm(self, reason="H7_HOLD_FAILED"):
+        """Backward-compatible BLUE wrapper around the formal freeze path."""
+        if self.field_mode != FieldMode.BLUE:
+            return f"blue task-three freeze ignored outside BLUE field"
+        return self.freeze_formal_task3_arm(reason)
+
     def _hold_platform_high_pose(self):
-        """Keep the already-issued BLUE task-three high pose unchanged.
+        """Keep the already-issued formal task-three high pose unchanged.
 
         The H7 route remains in COLUMN_CATCH while it travels to the white
         line. This branch must not run the generic target-search fallback,
         because that fallback intentionally changes the arm pose.
         """
-        self.id1, self.id2, self.id6 = COLUMN_CATCH_BLUE_HOLD_HIGH
+        self.id1, self.id2, self.id6 = COLUMN_CATCH_HOLD_HIGH
         self.id7 = COLUMN_CATCH_GRIPPER_CLOSED_TICK
         self.id5 = COLUMN_CATCH_CATCHER_HOME_TICK
         self.splitter_id4 = COLUMN_CATCH_SPLITTER_TICK
         if not self.platform_high_pose_sent:
             self.arm_preview.set_targets(self.id1, self.id2, self.id7, self.id6)
             self.arm_preview.publish(
-                "COLUMN_CATCH blue arm hold high "
+                "COLUMN_CATCH arm hold high "
                 f"ID1={self.id1} ID2={self.id2} ID6={self.id6}"
             )
             self.platform_high_pose_sent = True
         return (
-            "COLUMN_CATCH blue arm held expanded "
+            "COLUMN_CATCH arm held expanded "
             f"ID1={self.id1} ID2={self.id2} ID6={self.id6}"
         )
 
@@ -8835,7 +8854,7 @@ def main(argv=None):
             or not grasp_controller.consume_task3_supplement_done()
         ):
             return info
-        chassis_link.complete_blue_column_hold(
+        chassis_link.complete_column_catch_hold(
             "COLUMN_CATCH",
             reason="ARM_STOP_DONE_AFTER_SUPPLEMENT",
             success=True,
@@ -8851,6 +8870,8 @@ def main(argv=None):
         phase = getattr(chassis_link, "white_line_phase", None)
         task2_phase = phase == "TASK2_AFTER_SECONDARY_SHIFT"
         task3_blue_phase = phase == "TASK3_BLUE_WHITE_LINE_ALIGN"
+        task3_red_phase = phase == "TASK3_RED_WHITE_LINE_ALIGN"
+        task3_phase = task3_blue_phase or task3_red_phase
         if (
             query_sequence != white_line_last_query_sequence
             or phase != white_line_last_phase
@@ -8883,7 +8904,7 @@ def main(argv=None):
             )
         if task2_phase:
             line_measurement = task2_white_line_detector.detect_task2(white_line_frame)
-        elif task3_blue_phase:
+        elif task3_phase:
             line_measurement = task3_blue_white_line_detector.detect_task3(white_line_frame)
         else:
             line_measurement = white_line_detector.detect(white_line_frame)
@@ -9078,7 +9099,7 @@ def main(argv=None):
                     # controller itself keeps its required pose-settle stage.
                     chassis_link.restart_target_watch()
             for hold in chassis_link.consume_holds():
-                hold_status = grasp_controller.hold_blue_task3_arm()
+                hold_status = grasp_controller.hold_formal_task3_arm()
                 hold_success = (
                     grasp_controller.chassis_station_error_reason is None
                     and (
@@ -9087,32 +9108,32 @@ def main(argv=None):
                     )
                 )
                 if hold_success and not grasp_controller.task3_supplement_pending():
-                    chassis_link.complete_blue_column_hold(
+                    chassis_link.complete_column_catch_hold(
                         hold,
                         reason=hold_status,
                         success=True,
                     )
                 elif not hold_success:
-                    chassis_link.complete_blue_column_hold(
+                    chassis_link.complete_column_catch_hold(
                         hold,
                         reason=hold_status,
                         success=False,
                     )
                 else:
                     print(
-                        "CHASSIS BLUE TASK3 HOLD deferred until fixed supplement "
+                        "CHASSIS TASK3 HOLD deferred until fixed supplement "
                         "grab/place completes",
                         flush=True,
                     )
                 print(
-                    f"CHASSIS BLUE TASK3 HOLD success={'yes' if hold_success else 'no'} | "
+                    f"CHASSIS TASK3 HOLD success={'yes' if hold_success else 'no'} | "
                     f"{hold_status}",
                     flush=True,
                 )
             for hold_failure in chassis_link.consume_hold_failures():
-                failure_status = grasp_controller.freeze_blue_task3_arm()
+                failure_status = grasp_controller.freeze_formal_task3_arm()
                 print(
-                    "CHASSIS BLUE TASK3 HOLD FAILURE frozen high | "
+                    "CHASSIS TASK3 HOLD FAILURE frozen high | "
                     f"{failure_status}",
                     flush=True,
                 )
@@ -9129,11 +9150,11 @@ def main(argv=None):
                 station_status = grasp_controller.stop_chassis_station(station)
                 if (
                     station == "COLUMN_CATCH"
-                    and grasp_controller.field_mode == FieldMode.BLUE
                     and chassis_link.active_task == "COLUMN_CATCH"
                     and grasp_controller.chassis_station_error_reason is None
+                    and not grasp_controller.task3_supplement_pending()
                 ):
-                    chassis_link.complete_blue_column_hold(
+                    chassis_link.complete_column_catch_hold(
                         station, reason="ARM_STOP_DONE"
                     )
                 else:
@@ -9143,10 +9164,12 @@ def main(argv=None):
                     flush=True,
                 )
             for retract in chassis_link.consume_retracts():
-                retract_success, retract_status = grasp_controller.retract_blue_task3_arm()
+                retract_success, retract_status = (
+                    grasp_controller.retract_formal_task3_arm()
+                )
                 chassis_link.complete_retract(retract, retract_success, retract_status)
                 print(
-                    f"CHASSIS BLUE TASK3 RETRACT seq={retract.get('sequence')} "
+                    f"CHASSIS TASK3 RETRACT seq={retract.get('sequence')} "
                     f"success={'yes' if retract_success else 'no'} | {retract_status}",
                     flush=True,
                 )
