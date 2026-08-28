@@ -875,7 +875,7 @@ class ChassisStationSafetyTests(unittest.TestCase):
     def test_column_pause_classification_window_is_three_seconds(self):
         self.assertEqual(target_vision.COLUMN_BLOCK_CLASSIFY_TIMEOUT_S, 3.0)
 
-    def test_column_committed_capture_survives_short_geometry_loss(self):
+    def test_column_committed_capture_uses_last_plan_when_geometry_is_lost(self):
         controller, bridge, _ = make_controller()
         controller.active_chassis_station = "COLUMN_CATCH"
         controller.chassis_station_stage = "column_centering"
@@ -883,6 +883,13 @@ class ChassisStationSafetyTests(unittest.TestCase):
         controller.column_locked_block = {
             "bbox": (350, 250, 100, 100),
             "center": (400, 300),
+            "distance_cm": 15.0,
+        }
+        controller.column_last_grasp_plan = {
+            "id1": 530,
+            "id2": 503,
+            "target_distance_mm": 150.0,
+            "ik_error_mm": 0.0,
         }
         controller.locked_target = {
             "kind": "letter",
@@ -903,37 +910,78 @@ class ChassisStationSafetyTests(unittest.TestCase):
 
         link = FakeColumnLink()
         with mock.patch.object(target_vision.time, "monotonic", return_value=100.0):
-            first = controller.update_chassis_station(
-                "COLUMN_CATCH", [], (600, 800, 3), detection_fresh=False,
+            status = controller.update_chassis_station(
+                "COLUMN_CATCH", [], (600, 800, 3), detection_fresh=True,
                 chassis_link=link,
             )
-        self.assertIn("GRAB_COMMITTED", first)
-        self.assertEqual(controller.chassis_station_stage, "column_centering")
-        self.assertEqual(bridge.sent, [])
-
-        with mock.patch.object(target_vision.time, "monotonic", return_value=109.9):
-            second = controller.update_chassis_station(
-                "COLUMN_CATCH", [], (600, 800, 3), detection_fresh=False,
-                chassis_link=link,
-            )
-        self.assertIn("GRAB_COMMITTED", second)
-        self.assertEqual(controller.chassis_station_stage, "column_centering")
-
-        with mock.patch.object(target_vision.time, "monotonic", return_value=110.1):
-            third = controller.update_chassis_station(
-                "COLUMN_CATCH", [], (600, 800, 3), detection_fresh=False,
-                chassis_link=link,
-            )
-        self.assertIn("ABORT_REASON=BLOCK_LOST", third)
-        self.assertEqual(controller.chassis_station_stage, "column_resume_abort")
+        self.assertIn("BLIND_GRASP_LAST_PLAN", status)
+        self.assertEqual(controller.chassis_station_stage, "column_open")
+        self.assertEqual(controller.locked_plan["id1"], 530)
+        self.assertEqual(controller.locked_plan["id2"], 503)
+        self.assertTrue(controller.column_capture_blind)
+        self.assertEqual(bridge.sent, [{"splitter_id4": 300}])
         self.assertEqual(link.resume_requests, 0)
 
-        with mock.patch.object(target_vision.time, "monotonic", return_value=110.2):
+    def test_column_blind_grasp_does_not_increment_quota_and_rearms_after_leave(self):
+        controller, _bridge, _ = make_controller()
+        controller.active_chassis_station = "COLUMN_CATCH"
+        controller.chassis_station_stage = "column_resume_request"
+        controller.column_capture_authorized = True
+        controller.column_capture_blind = True
+        controller.column_target_armed = False
+        controller.locked_target = {"kind": "letter", "letter": "C"}
+        controller.column_locked_block = {
+            "kind": "column_block",
+            "bbox": (350, 250, 100, 100),
+            "center": (400, 300),
+        }
+        controller.letter_success_counts["C"] = 0
+
+        class ResumedColumnLink:
+            @staticmethod
+            def formal_column_pause_state():
+                return "RESUMED"
+
+        status = controller.update_chassis_station(
+            "COLUMN_CATCH", [], (600, 800, 3), detection_fresh=True,
+            chassis_link=ResumedColumnLink(),
+        )
+
+        self.assertIn("grasp complete", status)
+        self.assertEqual(controller.letter_success_counts["C"], 0)
+        self.assertEqual(controller.column_handled_blocks, [])
+        self.assertFalse(controller.column_target_armed)
+        self.assertEqual(controller.chassis_station_stage, "column_detect")
+        self.assertFalse(controller.column_capture_blind)
+
+        for _ in range(3):
             controller.update_chassis_station(
-                "COLUMN_CATCH", [], (600, 800, 3), detection_fresh=False,
-                chassis_link=link,
+                "COLUMN_CATCH", [], (600, 800, 3), detection_fresh=True,
+                chassis_link=ResumedColumnLink(),
             )
-        self.assertEqual(link.resume_requests, 1)
+        self.assertTrue(controller.column_target_armed)
+        self.assertTrue(controller._column_letter_quota_available("C"))
+
+    def test_column_committed_loss_without_safe_plan_still_aborts_safely(self):
+        controller, _bridge, _ = make_controller()
+        controller.active_chassis_station = "COLUMN_CATCH"
+        controller.chassis_station_stage = "column_centering"
+        controller.column_capture_authorized = True
+        controller.locked_target = {
+            "kind": "letter",
+            "letter": "C",
+            "bbox": (350, 250, 100, 100),
+            "center": (400, 300),
+        }
+        controller.column_target_lost_since = 100.0
+
+        with mock.patch.object(target_vision.time, "monotonic", return_value=110.1):
+            status = controller.update_chassis_station(
+                "COLUMN_CATCH", [], (600, 800, 3), detection_fresh=True,
+            )
+
+        self.assertIn("ABORT_REASON=NO_VALID_IK_PLAN", status)
+        self.assertEqual(controller.chassis_station_stage, "column_resume_abort")
 
     def test_column_committed_center_uses_cached_geometry_without_letter(self):
         controller, _bridge, _ = make_controller()
@@ -954,11 +1002,16 @@ class ChassisStationSafetyTests(unittest.TestCase):
         }
         controller.locked_target = dict(controller.column_locked_letter_track)
         controller.column_locked_distance_cm = 15.0
-        controller.centered_frames = 1
+        controller.centered_frames = 2
 
+        fresh_block = {
+            **controller.column_locked_block,
+            "observed": True,
+            "fully_visible": True,
+        }
         with mock.patch.object(target_vision.time, "monotonic", return_value=100.0):
             status = controller.update_chassis_station(
-                "COLUMN_CATCH", [], (600, 800, 3), detection_fresh=False
+                "COLUMN_CATCH", [fresh_block], (600, 800, 3), detection_fresh=True
             )
 
         self.assertIn("GRAB_COMMITTED centered", status)
@@ -983,11 +1036,16 @@ class ChassisStationSafetyTests(unittest.TestCase):
             "distance_cm": None,
         }
         controller.locked_target = dict(controller.column_locked_letter_track)
-        controller.centered_frames = 1
+        controller.centered_frames = 2
 
+        fresh_block = {
+            **controller.column_locked_block,
+            "observed": True,
+            "fully_visible": True,
+        }
         with mock.patch.object(target_vision.time, "monotonic", return_value=100.0):
             status = controller.update_chassis_station(
-                "COLUMN_CATCH", [], (600, 800, 3), detection_fresh=False
+                "COLUMN_CATCH", [fresh_block], (600, 800, 3), detection_fresh=True
             )
 
         self.assertIn("depth temporarily invalid", status)
