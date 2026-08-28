@@ -13,11 +13,12 @@ from .task2_fixed_letters import load_fixed_letters
 HIGH = (650, 600, 415)
 INTERMEDIATE_HIGH = (650, 400, 415)
 PREPLACE_ID2 = 400
-LETTER_PLACE = (530, 350, 670)
+LETTER_PLACE = (530, 350, 650)
 RING_PLACE = (545, 350, 171)
 HTD85_AUX_HIGH = (300, 510, 265)  # physical ID14, ID15, ID17; ID14 retracted
 PLATFORM_GRIPPER_CLOSED = 265
 PLATFORM_GRIPPER_OPEN = 405
+PLATFORM_RING_GRIPPER_OPEN = 395
 PLATFORM_ARM_TIME_MS = 500
 PLATFORM_AUX_TIME_MS = 200
 PLATFORM_GRIPPER_TIME_MS = 200
@@ -44,9 +45,9 @@ FORMAL_ID2_CORRECTION_TICKS = 20
 FORMAL_ID1_FINAL_CORRECTION_TICKS = 20
 FORMAL_ID2_FINAL_CORRECTION_TICKS = 70
 FORMAL_LETTER_ID2_REDUCTION_TICKS = 40
-FORMAL_LETTER_7_13_ID2_INCREASE_TICKS = 10
+FORMAL_LETTER_7_13_ID2_INCREASE_TICKS = 0
 FORMAL_RING_ID2_REDUCTION_TICKS = 40
-FORMAL_RING_NEAR_ID2_EXTRA_REDUCTION_TICKS = 28
+FORMAL_RING_NEAR_ID2_EXTRA_REDUCTION_TICKS = 38
 FORMAL_RING_7_13_ID2_INCREASE_TICKS = 6
 FORMAL_RING_MID_MIN_DISTANCE_CM = 15.0
 FORMAL_RING_MID_MAX_DISTANCE_CM = 19.0
@@ -54,7 +55,7 @@ FORMAL_RING_MID_ID2_INCREASE_TICKS = 50
 FORMAL_RING_LONG_RANGE_MIN_DISTANCE_CM = 20.5
 FORMAL_RING_LONG_RANGE_MAX_DISTANCE_CM = 25.0
 FORMAL_RING_LONG_RANGE_ID1_REDUCTION_TICKS = 30
-FORMAL_RING_LONG_RANGE_ID2_INCREASE_TICKS = 30
+FORMAL_RING_LONG_RANGE_ID2_INCREASE_TICKS = 25
 FORMAL_LONG_RANGE_FINAL_ID2_INCREASE_TICKS = 15
 PLATFORM_GRASP_ID1_OFFSET_TICKS = 40
 CENTER_DEADBAND_PX = 45
@@ -75,13 +76,14 @@ PLATFORM_CENTER_REACQUIRE_TIMEOUT_S = 1.0
 PLATFORM_DEPTH_INVALID_TIMEOUT_S = 4.0
 TARGET_WINDOW_SIZE_PX = 400
 TARGET_WINDOW_MIN_AREA_FRACTION = 0.80
+PLATFORM_FULLSCREEN_SLOTS = frozenset({3, 4, 5, 6})
 SECONDARY_PAIR_REQUIRED_FRAMES = 1
-SECONDARY_PRESELECT_TIMEOUT_S = 15.0
+SECONDARY_PRESELECT_TIMEOUT_S = 9.0
 SECONDARY_PRESELECT_FALLBACK_WINDOW_S = 2.0
 
 
-def _target_in_center_window(target, frame_shape):
-    """Require at least 80% of a target bbox inside the centered 400x400 window."""
+def _target_in_center_window(target, frame_shape, *, full_frame=False):
+    """Require at least 80% of a target bbox inside the active observation window."""
     bbox = target.get("bbox")
     if bbox is None or len(bbox) != 4:
         return False
@@ -92,18 +94,26 @@ def _target_in_center_window(target, frame_shape):
     if width <= 0.0 or height <= 0.0:
         return False
     frame_height, frame_width = frame_shape[:2]
-    window_size = min(
-        float(TARGET_WINDOW_SIZE_PX), float(frame_width), float(frame_height)
-    )
-    window_left = (float(frame_width) - window_size) / 2.0
-    window_top = (float(frame_height) - window_size) / 2.0
+    if full_frame:
+        window_left = 0.0
+        window_top = 0.0
+        window_width = float(frame_width)
+        window_height = float(frame_height)
+    else:
+        window_size = min(
+            float(TARGET_WINDOW_SIZE_PX), float(frame_width), float(frame_height)
+        )
+        window_left = (float(frame_width) - window_size) / 2.0
+        window_top = (float(frame_height) - window_size) / 2.0
+        window_width = window_size
+        window_height = window_size
     intersection_width = max(
         0.0,
-        min(x + width, window_left + window_size) - max(x, window_left),
+        min(x + width, window_left + window_width) - max(x, window_left),
     )
     intersection_height = max(
         0.0,
-        min(y + height, window_top + window_size) - max(y, window_top),
+        min(y + height, window_top + window_height) - max(y, window_top),
     )
     inside_fraction = (intersection_width * intersection_height) / (width * height)
     return inside_fraction >= TARGET_WINDOW_MIN_AREA_FRACTION
@@ -170,6 +180,8 @@ class PlatformTask:
         self.letter_x = {}
         self.preselect_lock_source = None
         self.pending_slot_field = None
+        self.pending_slot_index = None
+        self.current_slot = None
         self.status = "PLATFORM_PICK idle"
 
     def _fail(self, reason):
@@ -223,10 +235,14 @@ class PlatformTask:
             return ()
         return tuple(selected)
 
-    def _start_slot_detection(self, field):
+    def _start_slot_detection(self, field, slot=None):
         """Enter the normal main-camera station after the high pose settles."""
         self.done = self.error = None
         self.field = str(field).lower()
+        try:
+            self.current_slot = int(slot) if slot is not None else None
+        except (TypeError, ValueError):
+            self.current_slot = None
         self.stage = "platform_detect"
         self.timeout = self.clock() + PLATFORM_NO_TARGET_TIMEOUT_S
         self.deadline = 0.0
@@ -314,7 +330,7 @@ class PlatformTask:
         # otherwise a late but valid camera pair could be replaced by stale
         # history or the persistent pair before the normal lock path runs.
 
-    def begin_slot(self, field):
+    def begin_slot(self, field, slot=None):
         if len(self.selected) != 2:
             selected = self._persistent_pair()
             if selected:
@@ -333,12 +349,13 @@ class PlatformTask:
                 if not self._command("ARM_HIGH", self.pose, HIGH, True):
                     return
             self.pending_slot_field = str(field)
+            self.pending_slot_index = slot
             self.stage = "platform_slot_raise"
             self.status = (
                 "PLATFORM_PICK persisted letters; completing high pose before slot"
             )
             return
-        self._start_slot_detection(field)
+        self._start_slot_detection(field, slot)
 
     @staticmethod
     def _key(target):
@@ -398,7 +415,11 @@ class PlatformTask:
                       and (float(d.get("confidence") or 0) >= 45 if d.get("kind") == "letter"
                            else float(d.get("score") or 0) >= 0.55)
                       and d.get("center") is not None
-                      and _target_in_center_window(d, shape)]
+                      and _target_in_center_window(
+                          d,
+                          shape,
+                          full_frame=self.current_slot in PLATFORM_FULLSCREEN_SLOTS,
+                      )]
         # Ignore opponent rings and letters that were not selected by the
         # secondary camera.  Waiting for a valid candidate lets the station
         # timeout path advance safely without ever grabbing the wrong letter.
@@ -549,8 +570,13 @@ class PlatformTask:
             CENTER_ID2_RANGE[0],
             self.center_id2 - retreat_ticks,
         )
+        grasp_open = (
+            PLATFORM_RING_GRIPPER_OPEN
+            if key[0] == "ring"
+            else PLATFORM_GRIPPER_OPEN
+        )
         actions = [
-            ("GRIPPER_OPEN", self.gripper_open, (PLATFORM_GRIPPER_OPEN,)),
+            ("GRIPPER_OPEN", self.gripper_open, (grasp_open,)),
             ("POST_OPEN_ID2_RETREAT", self.retreat_pose,
              ((self.center_id1, retreat_id2, self.center_id6), False)),
             ("DESCEND", self.pose, ((id1, id2, self.center_id6), False)),
@@ -632,8 +658,10 @@ class PlatformTask:
         elif self.stage == "platform_slot_raise" and now >= self.deadline:
             self.high_ready = True
             field = self.pending_slot_field
+            slot = self.pending_slot_index
             self.pending_slot_field = None
-            self._start_slot_detection(field)
+            self.pending_slot_index = None
+            self._start_slot_detection(field, slot)
         elif self.stage == "platform_detect":
             # The station budget covers the complete search/lock window.  A
             # single noisy sighting must not disable the timeout while the

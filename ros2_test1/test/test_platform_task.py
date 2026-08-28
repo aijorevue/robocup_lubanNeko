@@ -6,10 +6,11 @@ from unittest.mock import Mock, patch
 from ros2_test1.platform_task import (
     PlatformTask, HIGH, INTERMEDIATE_HIGH, PREPLACE_ID2, LETTER_PLACE, RING_PLACE,
     POST_OPEN_ID2_RETREAT_TICKS_BY_KIND, PLATFORM_GRIPPER_CLOSED,
-    PLATFORM_GRIPPER_OPEN,
+    PLATFORM_GRIPPER_OPEN, PLATFORM_RING_GRIPPER_OPEN,
     PLATFORM_RETREAT_TIME_MS,
     PLATFORM_RETURN_HIGH_TIME_MS,
     TARGET_WINDOW_SIZE_PX, TARGET_WINDOW_MIN_AREA_FRACTION,
+    PLATFORM_FULLSCREEN_SLOTS,
     PLATFORM_LETTER_PLACE_TIME_MS, PLATFORM_RING_RELEASE_HOLD_S,
     PLATFORM_NO_TARGET_TIMEOUT_S,
     PLATFORM_DEPTH_INVALID_TIMEOUT_S,
@@ -19,7 +20,10 @@ from ros2_test1.platform_task import (
     _target_in_center_window,
 )
 from ros2_test1.chassis_link import ChassisArmLink
-from ros2_test1.target_vision import TargetGraspController
+from ros2_test1.target_vision import (
+    COLUMN_CATCH_FINAL_ID2_OFFSET_TICKS,
+    TargetGraspController,
+)
 from ros2_test1.target_vision import TargetDetector, detection_process_worker
 import cv2
 import numpy as np
@@ -214,16 +218,16 @@ class TestPlatformTask(unittest.TestCase):
         raw_id1, raw_id2 = calibrated_grasp_ticks(
             22.83, id1_offset_ticks=40, target_kind="ring",
         )
-        self.assertEqual((raw_id1 - 30, raw_id2 + 30), (464, 499))
+        self.assertEqual((raw_id1 - 30, raw_id2 + 25), (464, 494))
 
         f = Fixture(); f.ready(); f.writes.clear(); f.task.begin_slot('red')
         f.feed(dict(letter(depth=22.83), kind='ring', color='red', score=.9))
         f.finish()
         self.assertEqual(f.writes[2][0], 'pose')
-        self.assertEqual(f.writes[2][1][0:2], (464, 499))
+        self.assertEqual(f.writes[2][1][0:2], (464, 494))
 
     def test_formal_long_range_final_id2_increase_applies_to_letters_and_rings(self):
-        for kind, expected in (("letter", (474, 484)), ("ring", (464, 499))):
+        for kind, expected in (("letter", (474, 484)), ("ring", (464, 494))):
             with self.subTest(kind=kind):
                 f = Fixture(); f.ready(); f.writes.clear(); f.task.begin_slot('red')
                 target = dict(letter(depth=22.83), kind=kind, color='red', score=.9)
@@ -234,8 +238,8 @@ class TestPlatformTask(unittest.TestCase):
     def test_formal_long_range_ring_id1_minus_10_is_boundary_scoped(self):
         cases = (
             (20.49, (470, 450)),
-            (20.50, (499, 510)),
-            (25.00, (432, 488)),
+            (20.50, (499, 505)),
+            (25.00, (432, 483)),
             (25.01, (403, 450)),
         )
         for depth, expected in cases:
@@ -272,6 +276,22 @@ class TestPlatformTask(unittest.TestCase):
             letter(center=(650, 300)), (600, 800, 3)))
         self.assertFalse(_target_in_center_window(
             dict(letter(), bbox=(580, 280, 100, 40)), (600, 800, 3)))
+        self.assertTrue(_target_in_center_window(
+            letter(center=(650, 300)), (600, 800, 3), full_frame=True))
+
+    def test_only_slots_three_through_six_use_full_frame_observation(self):
+        self.assertEqual(PLATFORM_FULLSCREEN_SLOTS, frozenset({3, 4, 5, 6}))
+        edge_target = letter(center=(50, 300))
+        for slot in range(1, 9):
+            with self.subTest(slot=slot):
+                f = Fixture(); f.ready(); f.writes.clear()
+                f.task.begin_slot('red', slot=slot)
+                f.task.discard = 0
+                f.task.tick([edge_target], (600, 800, 3), fresh=True)
+                self.assertEqual(
+                    f.task.target_seen,
+                    slot in PLATFORM_FULLSCREEN_SLOTS,
+                )
 
     def test_pair_first_and_high_settle_barrier(self):
         f = Fixture()
@@ -400,8 +420,10 @@ class TestPlatformTask(unittest.TestCase):
     def test_letter_and_both_field_ring_exact_actions(self):
         self.assertEqual(HIGH, (650, 600, 415))
         self.assertEqual(PREPLACE_ID2, 400)
-        self.assertEqual(LETTER_PLACE, (530, 350, 670))
+        self.assertEqual(LETTER_PLACE, (530, 350, 650))
         self.assertEqual(RING_PLACE, (545, 350, 171))
+        self.assertEqual(PLATFORM_GRIPPER_OPEN, 405)
+        self.assertEqual(PLATFORM_RING_GRIPPER_OPEN, 395)
         self.assertEqual(POST_OPEN_ID2_RETREAT_TICKS_BY_KIND,
                          {'letter': 30, 'ring': 50})
         for kind, field, placement in [('letter', 'red', LETTER_PLACE),
@@ -416,7 +438,8 @@ class TestPlatformTask(unittest.TestCase):
                 retreat_ticks = POST_OPEN_ID2_RETREAT_TICKS_BY_KIND[kind]
                 expected_descent_id2 = 450 if kind == 'ring' else 483
                 expected = [
-                    ('gripper', PLATFORM_GRIPPER_OPEN),
+                    ('gripper', PLATFORM_RING_GRIPPER_OPEN
+                     if kind == 'ring' else PLATFORM_GRIPPER_OPEN),
                     ('retreat_pose', (650, 600 - retreat_ticks, 415), False),
                     ('pose', (478, expected_descent_id2, 415), False),
                     ('gripper', PLATFORM_GRIPPER_CLOSED),
@@ -437,7 +460,7 @@ class TestPlatformTask(unittest.TestCase):
                     else [
                         ('letter_high_id1', 650), ('letter_high_id2', 600),
                         ('letter_high_id6', 415), ('letter_id2', 400),
-                        ('letter_id6', 670), ('letter_id1_id2', 530, 350),
+                        ('letter_id6', 650), ('letter_id1_id2', 530, 350),
                         ('gripper', PLATFORM_GRIPPER_OPEN),
                         ('gripper', PLATFORM_GRIPPER_CLOSED),
                         ('pose', INTERMEDIATE_HIGH, True),
@@ -457,7 +480,7 @@ class TestPlatformTask(unittest.TestCase):
                             ('letter_high_id1', 650),
                             ('letter_high_id2', 600), ('letter_high_id6', 415),
                             ('letter_id2', 400),
-                            ('letter_id6', 670), ('letter_id1_id2', 530, 350),
+                            ('letter_id6', 650), ('letter_id1_id2', 530, 350),
                             ('letter_high_id1', 650),
                             ('letter_high_id2', 600), ('letter_high_id6', 415),
                         ],
@@ -533,16 +556,16 @@ class TestPlatformTask(unittest.TestCase):
 
     def test_formal_id2_adjustment_applies_to_letters_and_rings_7_to_13cm(self):
         cases = [
-            ('letter', 7.0, 630, 600, 570),
-            ('letter', 9.0, 610, 590, 570),
-            ('letter', 10.0, 600, 510, 570),
-            ('letter', 11.0, 590, 530, 570),
-            ('letter', 13.0, 570, 570, 570),
-            ('ring', 7.0, 630, 568, 520),
-            ('ring', 9.0, 610, 558, 520),
-            ('ring', 10.0, 600, 478, 520),
-            ('ring', 11.0, 590, 498, 550),
-            ('ring', 13.0, 570, 538, 550),
+            ('letter', 7.0, 630, 590, 570),
+            ('letter', 9.0, 610, 580, 570),
+            ('letter', 10.0, 600, 500, 570),
+            ('letter', 11.0, 590, 520, 570),
+            ('letter', 13.0, 570, 560, 570),
+            ('ring', 7.0, 630, 558, 520),
+            ('ring', 9.0, 610, 548, 520),
+            ('ring', 10.0, 600, 468, 520),
+            ('ring', 11.0, 590, 488, 550),
+            ('ring', 13.0, 570, 528, 550),
         ]
         for kind, depth, expected_descent_id1, expected_descent_id2, expected_retreat_id2 in cases:
             with self.subTest(kind=kind, depth=depth):
@@ -715,6 +738,9 @@ class TestPlatformTask(unittest.TestCase):
 
 
 class TestControllerAndProtocol(unittest.TestCase):
+    def test_task3_column_final_id2_offset_is_task3_only_minus_25(self):
+        self.assertEqual(COLUMN_CATCH_FINAL_ID2_OFFSET_TICKS, -25)
+
     def make_controller(self):
         bridge = Mock(enabled=True, write_enabled=True, assumed_feedback=True,
                       last_command_ok=True, arm_time_ms=600, gripper_time_ms=210,
@@ -745,7 +771,8 @@ class TestControllerAndProtocol(unittest.TestCase):
         before = bridge.send_targets.call_count
         c.update(None, (600, 800, 3))
         self.assertEqual(bridge.send_targets.call_count, before)
-        c.begin_chassis_station('PLATFORM_PICK')
+        c.begin_chassis_station('PLATFORM_PICK', slot=4)
+        self.assertEqual(c.platform_task.current_slot, 4)
         for _ in range(11):
             c.update_chassis_station('PLATFORM_PICK', [letter()], (600, 800, 3))
         for _ in range(20):
@@ -764,7 +791,7 @@ class TestControllerAndProtocol(unittest.TestCase):
             [PLATFORM_GRIPPER_OPEN, PLATFORM_GRIPPER_CLOSED,
              PLATFORM_GRIPPER_OPEN, PLATFORM_GRIPPER_CLOSED],
         )
-        self.assertTrue(any(call.kwargs.get('id6') == 670 for call in bridge.send_targets.call_args_list))
+        self.assertTrue(any(call.kwargs.get('id6') == 650 for call in bridge.send_targets.call_args_list))
 
     def test_real_parser_sequence_retries_do_not_restart_preselect_or_slot(self):
         link = ChassisArmLink(False, 'unused', 115200, 5)

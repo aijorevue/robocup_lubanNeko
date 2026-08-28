@@ -225,9 +225,10 @@ HTD85_GRIPPER_ID = 17
 TASK1_ID3_RETRACT_TICK = 300
 TASK1_ID3_RETRACT_TIME_MS = 600
 TASK1_ID14_RETRACT_TICK = 100
-TASK1_ID14_FIELD_TICK = 500
-TASK1_ID14_YELLOW_TICK = 180
-TASK1_ID14_TIME_MS = 35
+TASK1_ID14_PREP_TICK = 500
+TASK1_ID14_FIELD_TICK = 750
+TASK1_ID14_YELLOW_TICK = 300
+TASK1_ID14_TIME_MS = 20
 TASK1_ID15_RETRACT_TICK = 510
 TASK1_ID15_OPEN_TICK = 620
 TASK1_AUX_TIME_MS = 100
@@ -241,8 +242,8 @@ DISC_CATCH_READY_ID1_TICK = 560
 DISC_CATCH_READY_ID2_TICK = 550
 DISC_CATCH_ID6_TICK = 413
 DISC_CATCH_CATCHER_READY_TICK = TASK1_ID15_OPEN_TICK
-DISC_CATCH_PREP_SPLITTER_TICK = TASK1_ID14_RETRACT_TICK
-DISC_CATCH_SPLITTER_READY_TICK = TASK1_ID14_RETRACT_TICK
+DISC_CATCH_PREP_SPLITTER_TICK = TASK1_ID14_PREP_TICK
+DISC_CATCH_SPLITTER_READY_TICK = TASK1_ID14_PREP_TICK
 DISC_CATCH_TARGET_TIMEOUT_S = 4.0
 # Formal task-one physical HTD85 ID17 gripper contract.
 # Keep both field-specific values separate from the shared task-two/task-three
@@ -292,7 +293,7 @@ COLUMN_CATCH_AUX14_TICK, COLUMN_CATCH_AUX15_TICK, COLUMN_CATCH_GRIPPER_CLOSED_TI
 COLUMN_CATCH_SPLITTER_TICK = COLUMN_CATCH_AUX14_TICK
 COLUMN_CATCH_CATCHER_HOME_TICK = COLUMN_CATCH_AUX15_TICK
 COLUMN_CATCH_HOLD_HIGH = (650, 600, 413)
-COLUMN_CATCH_FINAL_ID2_OFFSET_TICKS = -20
+COLUMN_CATCH_FINAL_ID2_OFFSET_TICKS = -25
 COLUMN_CATCH_GRIPPER_OPEN_TICK = PLATFORM_GRIPPER_OPEN
 COLUMN_CATCH_GRIPPER_TIME_MS = PLATFORM_GRIPPER_TIME_MS
 COLUMN_CATCH_CENTER_DEADBAND_PX = PLATFORM_CENTER_DEADBAND_PX
@@ -317,7 +318,7 @@ TASK3_RING_PLACE_RELEASE_ID2_TICK = 441
 TASK3_RING_PLACE_RELEASE_ID1_TIME_MS = 1000
 TASK3_RING_PLACE_RELEASE_ID1_HOLD_MS = 1000
 TASK3_RING_PLACE_CONTRACT_AXIS_TIME_MS = 500
-COLUMN_CATCH_LETTER_PLACE = (530, 350, 670)
+COLUMN_CATCH_LETTER_PLACE = (530, 350, 650)
 COLUMN_CATCH_LETTER_PLACE_TIME_MS = 500
 # Formal BLUE task-three only: one fixed recovery grab before releasing the
 # post-orbit H7 hold when the selected letter pair still has a quota gap.
@@ -333,7 +334,7 @@ TASK3_SUPPLEMENT_HIGH = (
     COLUMN_CATCH_READY_ID2_TICK,
     COLUMN_CATCH_READY_ID6_TICK,
 )
-TASK3_SUPPLEMENT_PLACE = COLUMN_CATCH_LETTER_PLACE
+TASK3_SUPPLEMENT_PLACE = (530, 350, 670)
 RING_DISTANCE_OFFSET_CM = BALL_DISTANCE_OFFSET_CM + RING_DISTANCE_EXTRA_CM
 RING_DISTANCE_SCALE_CM = (
     BALL_DISTANCE_SCALE_CM
@@ -2504,12 +2505,12 @@ class TargetGraspController:
             and self.platform_task.target_key is None
         )
 
-    def begin_chassis_station(self, station):
+    def begin_chassis_station(self, station, slot=None):
         if station == "PLATFORM_PICK":
             self._reset_cycle_for_search("platform slot start")
             self.active_chassis_station = station
             self.chassis_station_done_reason = self.chassis_station_error_reason = None
-            self.platform_task.begin_slot(self.field_mode.value)
+            self.platform_task.begin_slot(self.field_mode.value, slot=slot)
             return self._sync_platform_task()
         self.platform_task.reset()
         self._reset_cycle_for_search(f"chassis station {station} start")
@@ -9500,7 +9501,14 @@ def main(argv=None):
                     flush=True,
                 )
             for station in pending_stations:
-                station_status = grasp_controller.begin_chassis_station(station)
+                slot = (
+                    getattr(chassis_link, "active_slot", None)
+                    if station == "PLATFORM_PICK"
+                    else None
+                )
+                station_status = grasp_controller.begin_chassis_station(
+                    station, slot=slot
+                )
                 print(
                     f"CHASSIS STATION {station} STARTED | {station_status}",
                     flush=True,
