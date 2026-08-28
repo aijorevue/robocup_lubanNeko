@@ -17,16 +17,18 @@ RING_PLACE = (545, 350, 171)
 HTD85_AUX_HIGH = (300, 600, 265)  # physical ID14, ID15, ID17; ID14 retracted
 PLATFORM_GRIPPER_CLOSED = 265
 PLATFORM_GRIPPER_OPEN = 405
-PLATFORM_ARM_TIME_MS = 600
+PLATFORM_ARM_TIME_MS = 500
 PLATFORM_AUX_TIME_MS = 200
 PLATFORM_GRIPPER_TIME_MS = 200
-PLATFORM_RETREAT_TIME_MS = 600
+PLATFORM_GRIPPER_CLOSE_TIME_MS = 150
+PLATFORM_PLACE_GRIPPER_TIME_MS = 150
+PLATFORM_RETREAT_TIME_MS = 500
 PLATFORM_RETURN_HIGH_TIME_MS = 500
-PLATFORM_RING_PLACE_TIME_MS = 700
+PLATFORM_RING_PLACE_TIME_MS = 600
 PLATFORM_RING_AXIS_TIME_MS = 500
 PLATFORM_RING_RELEASE_HOLD_S = 1.0
 PLATFORM_LETTER_PLACE_TIME_MS = 500
-PLATFORM_CENTER_TIME_MS = 100
+PLATFORM_CENTER_TIME_MS = 80
 PLATFORM_LETTER_SUCCESS_QUOTA = 2
 POST_OPEN_ID2_RETREAT_TICKS_BY_KIND = {
     "letter": 30,
@@ -107,6 +109,8 @@ def _target_in_center_window(target, frame_shape):
 
 class PlatformTask:
     def __init__(self, pose, gripper, center, *, retreat_pose=None,
+                 gripper_open=None, gripper_close=None,
+                 place_open=None, place_close=None,
                  ring_place_id6=None,
                  ring_place_id2=None, ring_place_id1=None,
                  ring_place_id12=None,
@@ -120,6 +124,10 @@ class PlatformTask:
         self.pose = pose
         self.retreat_pose = retreat_pose or pose
         self.gripper = gripper
+        self.gripper_open = gripper_open or gripper
+        self.gripper_close = gripper_close or gripper
+        self.place_open = place_open or gripper
+        self.place_close = place_close or gripper
         self.center = center
         self.ring_place_id6 = ring_place_id6
         self.ring_place_id2 = ring_place_id2
@@ -477,11 +485,11 @@ class PlatformTask:
             self.center_id2 - retreat_ticks,
         )
         actions = [
-            ("GRIPPER_OPEN", self.gripper, (PLATFORM_GRIPPER_OPEN,)),
+            ("GRIPPER_OPEN", self.gripper_open, (PLATFORM_GRIPPER_OPEN,)),
             ("POST_OPEN_ID2_RETREAT", self.retreat_pose,
              ((self.center_id1, retreat_id2, self.center_id6), False)),
             ("DESCEND", self.pose, ((id1, id2, self.center_id6), False)),
-            ("GRIPPER_CLOSE", self.gripper, (PLATFORM_GRIPPER_CLOSED,)),
+            ("GRIPPER_CLOSE", self.gripper_close, (PLATFORM_GRIPPER_CLOSED,)),
         ]
         if key[0] == "ring":
             # Return high in the required joint order, settle ID2 at the
@@ -516,8 +524,8 @@ class PlatformTask:
                  (placement[0], placement[1])),
             ])
         actions.extend([
-            ("PLACE_OPEN", self.gripper, (PLATFORM_GRIPPER_OPEN,)),
-            ("PLACE_CLOSE", self.gripper, (PLATFORM_GRIPPER_CLOSED,)),
+            ("PLACE_OPEN", self.place_open, (PLATFORM_GRIPPER_OPEN,)),
+            ("PLACE_CLOSE", self.place_close, (PLATFORM_GRIPPER_CLOSED,)),
             # Clear the released object before the ordered final high return.
             ("RETURN_INTERMEDIATE_HIGH", self.pose,
              (INTERMEDIATE_HIGH, True)),

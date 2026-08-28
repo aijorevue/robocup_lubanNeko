@@ -35,9 +35,9 @@ INTERMEDIATE_HIGH = {1: 650, 2: 400, 6: 415}
 PREPLACE_ID2 = 400
 LETTER_WORK = {1: 500, 2: 350, 6: 670}
 RING_AFTER_HIGH = {1: 520, 2: 345, 6: 171}
-HTD85_AUX_HIGH = {14: 300, 15: 600, 17: 320}
-GRIPPER_CLOSED = 320
-GRIPPER_OPEN = 450
+HTD85_AUX_HIGH = {14: 300, 15: 600, 17: 265}
+GRIPPER_CLOSED = 265
+GRIPPER_OPEN = 405
 ARM_TIME_MS = 600
 HTD85_AUX_TIME_MS = 200
 GRIPPER_TIME_MS = 200
@@ -1056,7 +1056,7 @@ def run(args) -> int:
         boards.pose_high()
         print(
             "TASK2 HIGH_POSE_READY ID1=650 ID2=600 ID6=415 "
-            "ID14=300 ID15=600 ID17=320",
+            "ID14=300 ID15=600 ID17=265",
             flush=True,
         )
         h7 = H7Link(args.h7_device)

@@ -1449,7 +1449,7 @@ def run(args) -> int:
         _task3_pose_high(boards)
         print(
             "TASK3 ARM_HIGH ID1=650 ID2=570 ID6=415 "
-            "ID14=300 ID15=600 ID17=320",
+            "ID14=300 ID15=600 ID17=265",
             flush=True,
         )
         h7 = Task3H7Link(args.h7_device)
