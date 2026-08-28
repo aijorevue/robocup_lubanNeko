@@ -19,6 +19,9 @@ class FakeArmPreview:
     def publish(self, message, *_args):
         self.messages.append(message)
 
+    def publish_plan_marker(self, *_args):
+        pass
+
 
 class FakeServoBridge:
     def __init__(self):
@@ -816,7 +819,7 @@ class ChassisStationSafetyTests(unittest.TestCase):
     def test_column_pause_classification_window_is_three_seconds(self):
         self.assertEqual(target_vision.COLUMN_BLOCK_CLASSIFY_TIMEOUT_S, 3.0)
 
-    def test_column_centering_allows_three_second_target_loss_grace(self):
+    def test_column_committed_capture_survives_short_geometry_loss(self):
         controller, bridge, _ = make_controller()
         controller.active_chassis_station = "COLUMN_CATCH"
         controller.chassis_station_stage = "column_centering"
@@ -848,33 +851,92 @@ class ChassisStationSafetyTests(unittest.TestCase):
                 "COLUMN_CATCH", [], (600, 800, 3), detection_fresh=False,
                 chassis_link=link,
             )
-        self.assertIn("waiting fresh letter", first)
+        self.assertIn("GRAB_COMMITTED", first)
         self.assertEqual(controller.chassis_station_stage, "column_centering")
         self.assertEqual(bridge.sent, [])
 
-        with mock.patch.object(target_vision.time, "monotonic", return_value=102.9):
+        with mock.patch.object(target_vision.time, "monotonic", return_value=109.9):
             second = controller.update_chassis_station(
                 "COLUMN_CATCH", [], (600, 800, 3), detection_fresh=False,
                 chassis_link=link,
             )
-        self.assertIn("waiting fresh letter", second)
+        self.assertIn("GRAB_COMMITTED", second)
         self.assertEqual(controller.chassis_station_stage, "column_centering")
 
-        with mock.patch.object(target_vision.time, "monotonic", return_value=103.1):
+        with mock.patch.object(target_vision.time, "monotonic", return_value=110.1):
             third = controller.update_chassis_station(
                 "COLUMN_CATCH", [], (600, 800, 3), detection_fresh=False,
                 chassis_link=link,
             )
-        self.assertIn("resume H7", third)
+        self.assertIn("ABORT_REASON=BLOCK_LOST", third)
         self.assertEqual(controller.chassis_station_stage, "column_resume_abort")
         self.assertEqual(link.resume_requests, 0)
 
-        with mock.patch.object(target_vision.time, "monotonic", return_value=103.2):
+        with mock.patch.object(target_vision.time, "monotonic", return_value=110.2):
             controller.update_chassis_station(
                 "COLUMN_CATCH", [], (600, 800, 3), detection_fresh=False,
                 chassis_link=link,
             )
         self.assertEqual(link.resume_requests, 1)
+
+    def test_column_committed_center_uses_cached_geometry_without_letter(self):
+        controller, _bridge, _ = make_controller()
+        controller.active_chassis_station = "COLUMN_CATCH"
+        controller.chassis_station_stage = "column_centering"
+        controller.column_capture_authorized = True
+        controller.column_locked_block = {
+            "kind": "column_block",
+            "bbox": (350, 250, 100, 100),
+            "center": (400, 300),
+        }
+        controller.column_locked_letter_track = {
+            "kind": "letter",
+            "letter": "A",
+            "bbox": (350, 250, 100, 100),
+            "center": (400, 300),
+            "distance_cm": 15.0,
+        }
+        controller.locked_target = dict(controller.column_locked_letter_track)
+        controller.column_locked_distance_cm = 15.0
+        controller.centered_frames = 1
+
+        with mock.patch.object(target_vision.time, "monotonic", return_value=100.0):
+            status = controller.update_chassis_station(
+                "COLUMN_CATCH", [], (600, 800, 3), detection_fresh=False
+            )
+
+        self.assertIn("GRAB_COMMITTED centered", status)
+        self.assertEqual(controller.chassis_station_stage, "column_open")
+        self.assertIsNotNone(controller.locked_plan)
+
+    def test_column_committed_missing_depth_retries_without_abort(self):
+        controller, _bridge, _ = make_controller()
+        controller.active_chassis_station = "COLUMN_CATCH"
+        controller.chassis_station_stage = "column_centering"
+        controller.column_capture_authorized = True
+        controller.column_locked_block = {
+            "kind": "column_block",
+            "bbox": (350, 250, 100, 100),
+            "center": (400, 300),
+        }
+        controller.column_locked_letter_track = {
+            "kind": "letter",
+            "letter": "A",
+            "bbox": (350, 250, 100, 100),
+            "center": (400, 300),
+            "distance_cm": None,
+        }
+        controller.locked_target = dict(controller.column_locked_letter_track)
+        controller.centered_frames = 1
+
+        with mock.patch.object(target_vision.time, "monotonic", return_value=100.0):
+            status = controller.update_chassis_station(
+                "COLUMN_CATCH", [], (600, 800, 3), detection_fresh=False
+            )
+
+        self.assertIn("depth temporarily invalid", status)
+        self.assertEqual(controller.chassis_station_stage, "column_centering")
+        self.assertTrue(controller.column_capture_authorized)
 
     def test_column_stop_retracts_before_done(self):
         controller, bridge, _ = make_controller()

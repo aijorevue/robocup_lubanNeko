@@ -159,6 +159,10 @@ COLUMN_BLOCK_TRACK_LOST_TIMEOUT_S = 3.0
 # scale/angle during centering. A missing camera frame keeps the shorter
 # safety timeout above.
 COLUMN_BLOCK_FRESH_LOST_TIMEOUT_S = 6.0
+# After the 4/6 vote commits a task-three pickup, letter classification is no
+# longer part of the abort decision.  Allow a longer geometry-only recovery
+# window while the arm changes the block scale and perspective.
+COLUMN_BLOCK_COMMITTED_LOST_TIMEOUT_S = 10.0
 COLUMN_BLOCK_CONFIRM_FRAMES = 1
 COLUMN_CLASSIFY_VOTE_WINDOW = 6
 COLUMN_CLASSIFY_MIN_VOTES = 4
@@ -1414,6 +1418,7 @@ class TargetGraspController:
         self.column_locked_distance_cm = None
         # A white block alone must never authorize arm descent.
         self.column_capture_authorized = False
+        self.column_capture_abort_reason = None
         self.column_handled_blocks = []
         self.column_classify_deadline = 0.0
         self.column_classify_votes = []
@@ -3322,6 +3327,7 @@ class TargetGraspController:
         self.column_locked_letter_track = None
         self.column_locked_distance_cm = None
         self.column_capture_authorized = False
+        self.column_capture_abort_reason = None
         self.column_handled_blocks = []
         self.column_classify_deadline = 0.0
         self.column_classify_votes = []
@@ -3504,6 +3510,45 @@ class TargetGraspController:
             for angle in angles
         ]
         return max(deviations, default=0.0) <= COLUMN_CLASSIFY_MAX_ANGLE_JITTER_DEG
+
+    @classmethod
+    def _column_committed_vote_target(cls, votes, label):
+        """Freeze a robust target snapshot when the 4/6 vote commits."""
+
+        matching = [
+            vote for vote in votes
+            if vote is not None
+            and str(vote.get("letter", "")).upper() == str(label).upper()
+        ]
+        if not matching:
+            return None
+        committed = cls._copy_target(matching[-1])
+        centers = [
+            tuple(float(value) for value in vote.get("center", ())[:2])
+            for vote in matching
+            if len(vote.get("center", ())) >= 2
+        ]
+        if centers:
+            center_array = np.asarray(centers, dtype=np.float64)
+            committed["center"] = tuple(
+                int(round(value)) for value in np.median(center_array, axis=0)
+            )
+        distances = []
+        for vote in matching:
+            try:
+                distance = float(vote.get("distance_cm"))
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(distance):
+                distances.append(distance)
+        if distances:
+            committed["distance_cm"] = float(np.median(distances))
+            committed["distance_cm_samples"] = tuple(
+                round(value, 2) for value in distances
+            )
+        committed["source"] = "column_committed_4_of_6"
+        committed["capture_committed"] = True
+        return committed
 
     @classmethod
     def _column_blocks_match(cls, first, second):
@@ -3969,6 +4014,7 @@ class TargetGraspController:
         self.column_locked_letter_track = None
         self.column_locked_distance_cm = None
         self.column_capture_authorized = False
+        self.column_capture_abort_reason = None
         self.column_target_lost_since = None
         self.column_pause_deadline = 0.0
         self.column_resume_deadline = 0.0
@@ -5003,10 +5049,8 @@ class TargetGraspController:
                         self.column_classify_votes, winner
                     )
                 ):
-                    stable_letter_target = next(
-                        vote for vote in reversed(self.column_classify_votes)
-                        if vote is not None
-                        and str(vote.get("letter", "")).upper() == winner
+                    stable_letter_target = self._column_committed_vote_target(
+                        self.column_classify_votes, winner
                     )
 
         if self.splitter_id4 != COLUMN_CATCH_SPLITTER_TICK:
@@ -5131,6 +5175,7 @@ class TargetGraspController:
                 # Only a paused, ROI-bound, selected letter can authorize
                 # centering and the later open/retreat/descend stages.
                 self.column_capture_authorized = True
+                self.column_capture_abort_reason = None
                 if stable_letter_target.get("distance_cm") is not None:
                     try:
                         self.column_locked_distance_cm = float(
@@ -5149,7 +5194,7 @@ class TargetGraspController:
                     f"CHASSIS STATION COLUMN_CATCH target letter "
                     f"{stable_letter_target.get('letter')} accepted after "
                     f"{COLUMN_CLASSIFY_MIN_VOTES}/{COLUMN_CLASSIFY_VOTE_WINDOW} "
-                    "paused-frame votes",
+                    "paused-frame votes; GRAB_COMMITTED geometry-only tracking",
                     flush=True,
                 )
             elif now >= self.column_classify_deadline:
@@ -5166,32 +5211,62 @@ class TargetGraspController:
         if self.chassis_station_stage == "column_centering":
             self.state = "COLUMN_CATCH center target"
             if not self.column_capture_authorized:
-                self.status = (
-                    "COLUMN_CATCH blocked arm motion: no accepted letter; resume H7"
+                return self._column_abort("COMMITTED_AUTHORIZATION_LOST")
+            using_committed_snapshot = False
+            if letter_target is None:
+                cached_target = (
+                    self.column_locked_letter_track or self.locked_target
                 )
-                self.chassis_station_stage = "column_resume_abort"
-                return self.status
-            if not detection_fresh or letter_target is None:
-                if self.column_target_lost_since is None:
-                    self.column_target_lost_since = now
-                lost_s = now - self.column_target_lost_since
-                lost_timeout = (
-                    COLUMN_BLOCK_FRESH_LOST_TIMEOUT_S
-                    if detection_fresh
-                    else COLUMN_BLOCK_TRACK_LOST_TIMEOUT_S
-                )
-                if lost_s >= lost_timeout:
-                    self.chassis_station_stage = "column_resume_abort"
-                    self.status = (
-                        "COLUMN_CATCH target lost while paused for "
-                        f"{lost_s:.1f}s; resume H7"
+                cached_center = self._target_center(cached_target)
+                cached_centered = False
+                if cached_center is not None:
+                    cached_error_x, cached_error_y = self._target_error(
+                        cached_target, frame_shape
                     )
-                    return self.status
-                return (
-                    "COLUMN_CATCH paused; waiting fresh letter for centering "
-                    f"({lost_s:.1f}/{lost_timeout:.1f}s)"
-                )
-            self.column_target_lost_since = None
+                    cached_centered = (
+                        abs(cached_error_x) <= COLUMN_CATCH_CENTER_DEADBAND_PX
+                        and abs(cached_error_y) <= COLUMN_CATCH_CENTER_DEADBAND_PX
+                    )
+                # A fresh centered geometry sample is enough to finish the
+                # committed transaction if the detector drops out on the
+                # following frame. Do not repeatedly steer on stale pixels.
+                if (
+                    cached_target is not None
+                    and cached_centered
+                    and self.centered_frames > 0
+                ):
+                    letter_target = self._copy_target(cached_target)
+                    if (
+                        letter_target.get("distance_cm") is None
+                        and self.column_locked_distance_cm is not None
+                    ):
+                        letter_target["distance_cm"] = self.column_locked_distance_cm
+                    letter_target["source"] = "column_committed_snapshot"
+                    using_committed_snapshot = True
+                    self.centered_frames = max(
+                        self.centered_frames,
+                        max(1, self.stable_frames_required) - 1,
+                    )
+                else:
+                    if self.column_target_lost_since is None:
+                        self.column_target_lost_since = now
+                    lost_s = now - self.column_target_lost_since
+                    if lost_s >= COLUMN_BLOCK_COMMITTED_LOST_TIMEOUT_S:
+                        self.column_capture_abort_reason = "BLOCK_LOST"
+                        self.chassis_station_stage = "column_resume_abort"
+                        self.status = (
+                            "COLUMN_CATCH ABORT_REASON=BLOCK_LOST "
+                            "committed block completely lost for "
+                            f"{lost_s:.1f}s; resume H7"
+                        )
+                        return self.status
+                    return (
+                        "COLUMN_CATCH GRAB_COMMITTED; hold last center/depth; "
+                        "waiting same white-block geometry "
+                        f"({lost_s:.1f}/{COLUMN_BLOCK_COMMITTED_LOST_TIMEOUT_S:.1f}s)"
+                    )
+            if not using_committed_snapshot:
+                self.column_target_lost_since = None
             letter_target = self._copy_target(letter_target)
             self._column_update_locked_letter_track(letter_target, detections)
             if letter_target.get("distance_cm") is None and self.column_locked_distance_cm is not None:
@@ -5213,6 +5288,13 @@ class TargetGraspController:
                 "COLUMN_CATCH center",
             )
             if not centered:
+                if "blocked by limits" in message:
+                    self.column_capture_abort_reason = "CENTER_LIMIT"
+                    self.chassis_station_stage = "column_resume_abort"
+                    self.status = (
+                        "COLUMN_CATCH ABORT_REASON=CENTER_LIMIT " + message
+                    )
+                    return self.status
                 return message
             self.centered_frames += 1
             median_distance_cm = self._record_center_distance_sample(
@@ -5233,15 +5315,37 @@ class TargetGraspController:
             self.locked_plan = plan
             self.arm_preview.publish_plan_marker(plan, plan_text)
             if plan.get("ik_error_mm", float("inf")) > self.post_center_ik_error_mm:
+                distance_cm = locked.get("distance_cm")
+                if distance_cm is None:
+                    self.centered_frames = max(1, self.centered_frames - 1)
+                    self.locked_plan = None
+                    return (
+                        "COLUMN_CATCH GRAB_COMMITTED; depth temporarily invalid; "
+                        "keep H7 paused and retry"
+                    )
+                try:
+                    distance_cm = float(distance_cm)
+                except (TypeError, ValueError):
+                    distance_cm = float("nan")
+                self.column_capture_abort_reason = "DEPTH_OR_IK_SAFETY"
                 self.chassis_station_stage = "column_resume_abort"
-                self.status = f"COLUMN_CATCH IK invalid; resume H7: {plan_text}"
+                self.status = (
+                    "COLUMN_CATCH ABORT_REASON=DEPTH_OR_IK_SAFETY "
+                    f"distance={distance_cm!r}; {plan_text}"
+                )
                 return self.status
             self.column_grab_id2 = int(self.id2)
             self.chassis_station_stage = "column_open"
-            return f"COLUMN_CATCH centered; {plan_text}"
+            return f"COLUMN_CATCH GRAB_COMMITTED centered; {plan_text}"
 
         if self.chassis_station_stage == "column_resume_abort":
             self.state = "COLUMN_CATCH resume after abort"
+            if self.column_capture_abort_reason:
+                print(
+                    "CHASSIS STATION COLUMN_CATCH "
+                    f"ABORT_REASON={self.column_capture_abort_reason}",
+                    flush=True,
+                )
             self.column_capture_authorized = False
             if chassis_link is None:
                 return self._column_abort("NO_FORMAL_CHASSIS_LINK")
@@ -5260,6 +5364,7 @@ class TargetGraspController:
                 self.column_locked_block = None
                 self.column_locked_letter_track = None
                 self.column_locked_distance_cm = None
+                self.column_capture_abort_reason = None
                 self.column_resume_deadline = 0.0
                 self.column_target_lost_since = None
                 self.chassis_station_stage = "column_detect"
@@ -5288,6 +5393,7 @@ class TargetGraspController:
                 self.column_locked_letter_track = None
                 self.column_locked_distance_cm = None
                 self.column_capture_authorized = False
+                self.column_capture_abort_reason = None
                 self.column_target_lost_since = None
                 self.locked_target = None
                 self.locked_plan = None
@@ -5602,6 +5708,7 @@ class TargetGraspController:
                 self.column_locked_letter_track = None
                 self.column_locked_distance_cm = None
                 self.column_capture_authorized = False
+                self.column_capture_abort_reason = None
                 self.column_target_lost_since = None
                 self.last_visual_target = None
                 self.center_distance_samples = []
@@ -5655,6 +5762,7 @@ class TargetGraspController:
         self.id5 = COLUMN_CATCH_CATCHER_HOME_TICK
         self.splitter_id4 = COLUMN_CATCH_SPLITTER_TICK
         self.column_capture_authorized = False
+        self.column_capture_abort_reason = reason
         self.column_target_lost_since = None
         self.column_locked_block = None
         self.column_locked_letter_track = None
@@ -5675,6 +5783,7 @@ class TargetGraspController:
 
     def _column_abort(self, reason):
         self.column_capture_authorized = False
+        self.column_capture_abort_reason = reason
         self.state = "fault"
         self.algorithm_stage = "fault"
         self.status = f"COLUMN_CATCH {reason}"
@@ -8964,10 +9073,17 @@ def main(argv=None):
         if chassis_link.white_line_active:
             return DETECTION_MODE_WHITE_LINE
         if station == "COLUMN_CATCH":
-            if grasp_controller.chassis_station_stage in {
-                "column_classify", "column_centering"
-            }:
+            if grasp_controller.chassis_station_stage == "column_classify":
                 return DETECTION_MODE_COLUMN_ROTATED_LETTERS
+            if grasp_controller.chassis_station_stage == "column_centering":
+                # The 4/6 vote has committed the letter identity. From here
+                # the controller only needs the same white-block geometry;
+                # a later glyph miss must not revoke the pickup.
+                return (
+                    DETECTION_MODE_COLUMN_BLOCKS
+                    if grasp_controller.column_capture_authorized
+                    else DETECTION_MODE_COLUMN_ROTATED_LETTERS
+                )
             return DETECTION_MODE_COLUMN_BLOCKS
         if station == "PLATFORM_PICK":
             if grasp_controller.chassis_station_stage == "platform_preselect":
