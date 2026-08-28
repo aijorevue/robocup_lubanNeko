@@ -239,7 +239,7 @@ DISC_CATCH_TARGET_TIMEOUT_S = 4.0
 # Formal task-one physical HTD85 ID17 gripper contract.
 # Keep both field-specific values separate from the shared task-two/task-three
 # gripper values.
-DISC_CATCH_RED_GRIPPER_OPEN_TICK = 435
+DISC_CATCH_RED_GRIPPER_OPEN_TICK = 480
 DISC_CATCH_BLUE_GRIPPER_OPEN_TICK = 480
 DISC_CATCH_BLUE_GRIPPER_CLOSED_TICK = 265
 # Task-one ball trigger window in the original 800x600 main-camera frame.
