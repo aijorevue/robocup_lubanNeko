@@ -25,6 +25,8 @@ class WhiteLineAlignmentDetector:
         self._line_edge_history = []
         self._task2_edge_history = []
         self._task3_edge_history = []
+        self._task3_last_measurement = None
+        self._task3_missed_frames = 0
 
     def reset_tracking(self):
         """Discard stale geometry when a new white-line phase begins."""
@@ -33,6 +35,8 @@ class WhiteLineAlignmentDetector:
         self._line_edge_history = []
         self._task2_edge_history = []
         self._task3_edge_history = []
+        self._task3_last_measurement = None
+        self._task3_missed_frames = 0
 
     @staticmethod
     def _fitted_line(contour, frame_width, frame_height):
@@ -832,7 +836,9 @@ class WhiteLineAlignmentDetector:
         return measurement
 
     @staticmethod
-    def _task3_scanline_fallback(frame):
+    def _task3_scanline_fallback(
+        frame, threshold_floor=135, saturation_limit=150
+    ):
         """Extract a partial horizontal strip without merging the upper box.
 
         At close range the threshold mask can connect the strip to the wooden
@@ -862,12 +868,16 @@ class WhiteLineAlignmentDetector:
 
         roi_value = value_eq[y0:y1, x0:x1]
         roi_gray = gray_eq[y0:y1, x0:x1]
-        adaptive_value = max(135, int(np.percentile(roi_value, 60)))
-        adaptive_gray = max(135, int(np.percentile(roi_gray, 62)))
+        adaptive_value = max(
+            int(threshold_floor), int(np.percentile(roi_value, 60))
+        )
+        adaptive_gray = max(
+            int(threshold_floor), int(np.percentile(roi_gray, 62))
+        )
         bright = cv2.inRange(
             hsv,
             np.array((0, 0, adaptive_value), dtype=np.uint8),
-            np.array((179, 150, 255), dtype=np.uint8),
+            np.array((179, int(saturation_limit), 255), dtype=np.uint8),
         )
         gray_mask = cv2.inRange(gray_eq, adaptive_gray, 255)
         mask = cv2.bitwise_or(bright, gray_mask)
@@ -989,6 +999,172 @@ class WhiteLineAlignmentDetector:
             "right_edge_x": right_edge_x,
         }
 
+    @staticmethod
+    def _task3_local_recovery(frame, previous):
+        """Recover the same strip from a short local search after a miss.
+
+        The normal task-three scan can reject a real strip when one exposure
+        gap breaks its terminal run or when the chassis moves a few pixels
+        between queries.  This recovery remains constrained to the previous
+        strip geometry, so bright chassis parts and the upper box cannot become
+        a new target.
+        """
+        if frame is None or frame.size == 0 or previous is None:
+            return None
+
+        height, width = frame.shape[:2]
+        previous_y = float(previous.get("y_at_center", height * 0.5))
+        previous_right = float(previous.get("right_edge_x", width * 0.75))
+        bounds = previous.get("bounds") or (width * 0.20, previous_y, width * 0.45, 20)
+        previous_left = float(bounds[0])
+        previous_width = max(40.0, float(bounds[2]))
+        y_margin = max(42, int(height * 0.09))
+        y0 = max(int(height * 0.20), int(round(previous_y - y_margin)))
+        y1 = min(int(height * 0.64), int(round(previous_y + y_margin)))
+        x0 = max(0, int(round(previous_left - max(55, width * 0.07))))
+        x1 = min(width, int(round(previous_right + max(55, width * 0.07))))
+        if x1 <= x0 or y1 <= y0:
+            return None
+
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        gray_eq = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
+        value = hsv[:, :, 2]
+        roi_value = value[y0:y1, x0:x1]
+        roi_gray = gray_eq[y0:y1, x0:x1]
+        value_floor = max(112, int(np.percentile(roi_value, 45)))
+        gray_floor = max(112, int(np.percentile(roi_gray, 48)))
+        bright = cv2.inRange(
+            hsv,
+            np.array((0, 0, value_floor), dtype=np.uint8),
+            np.array((179, 175, 255), dtype=np.uint8),
+        )
+        gray_mask = cv2.inRange(gray_eq, gray_floor, 255)
+        mask = cv2.bitwise_or(bright, gray_mask)
+        roi_mask = np.zeros((height, width), dtype=np.uint8)
+        roi_mask[y0:y1, x0:x1] = 255
+        mask = cv2.bitwise_and(mask, roi_mask)
+        mask = cv2.morphologyEx(
+            mask,
+            cv2.MORPH_CLOSE,
+            cv2.getStructuringElement(cv2.MORPH_RECT, (17, 1)),
+        )
+
+        row_runs = []
+        minimum_width = max(60, int(previous_width * 0.28), int(width * 0.10))
+        for row_y in range(y0, y1):
+            row = mask[row_y] > 0
+            indices = np.flatnonzero(row[x0:x1])
+            if indices.size == 0:
+                continue
+            runs = []
+            start = previous_index = int(indices[0])
+            for index in indices[1:]:
+                index = int(index)
+                if index - previous_index > 4:
+                    runs.append((start, previous_index))
+                    start = index
+                previous_index = index
+            runs.append((start, previous_index))
+            for run_start, run_end in runs:
+                run_start += x0
+                run_end += x0
+                run_width = run_end - run_start + 1
+                if run_width < minimum_width:
+                    continue
+                edge_delta = abs(float(run_end) - previous_right)
+                y_delta = abs(float(row_y) - previous_y)
+                score = (
+                    run_width / max(1.0, previous_width)
+                    - edge_delta / max(40.0, width * 0.16)
+                    - y_delta / max(20.0, y_margin)
+                )
+                row_runs.append((score, row_y, run_start, run_end))
+
+        if not row_runs:
+            return None
+        best_score = max(item[0] for item in row_runs)
+        selected = [item for item in row_runs if item[0] >= best_score - 0.16]
+        selected = sorted(selected, key=lambda item: item[1])
+        groups = []
+        for item in selected:
+            if not groups or item[1] - groups[-1][-1][1] > 2:
+                groups.append([item])
+            else:
+                groups[-1].append(item)
+        if not groups:
+            return None
+        group = max(
+            groups,
+            key=lambda candidate: (
+                len(candidate),
+                max(item[3] - item[2] + 1 for item in candidate),
+            ),
+        )
+        if len(group) < 2:
+            return None
+
+        band_top = max(y0, group[0][1] - 3)
+        band_bottom = min(y1 - 1, group[-1][1] + 3)
+        left_edge_x = float(np.median([item[2] for item in group]))
+        right_edge_x = float(np.median([item[3] for item in group]))
+        if right_edge_x - left_edge_x < max(70.0, width * 0.12):
+            return None
+
+        points = []
+        for column_x in range(int(left_edge_x), int(right_edge_x) + 1):
+            column = mask[band_top:band_bottom + 1, column_x]
+            ys = np.flatnonzero(column)
+            if ys.size:
+                points.append((column_x, band_top + float(np.median(ys))))
+        if len(points) < max(20, int(width * 0.06)):
+            return None
+        coordinates = np.asarray(points, dtype=np.float32)
+        slope, intercept = np.polyfit(coordinates[:, 0], coordinates[:, 1], 1)
+        angle_deg = float(np.degrees(np.arctan(float(slope))))
+        y_at_center = float(intercept + slope * (width * 0.5))
+        if not height * 0.20 <= y_at_center <= height * 0.64:
+            return None
+        if abs(angle_deg) > 25.0:
+            return None
+        return {
+            "center_x": (left_edge_x + right_edge_x) * 0.5,
+            "center_y": y_at_center,
+            "angle_deg": angle_deg,
+            "y_at_center": y_at_center,
+            "length": right_edge_x - left_edge_x + 1,
+            "thickness": float(band_bottom - band_top + 1),
+            "area": float(np.count_nonzero(mask[band_top:band_bottom + 1])),
+            "bounds": (
+                int(round(left_edge_x)), band_top,
+                int(round(right_edge_x - left_edge_x + 1)),
+                band_bottom - band_top + 1,
+            ),
+            "frame_width": width,
+            "frame_height": height,
+            "held": False,
+            "center_line": (
+                (left_edge_x, float(intercept + slope * left_edge_x)),
+                (right_edge_x, float(intercept + slope * right_edge_x)),
+            ),
+            "edge_support": len(points),
+            "right_edge_x": right_edge_x,
+        }
+
+    def _task3_recover_last(self):
+        """Keep a confirmed result for only a few detector cycles."""
+        self._task3_missed_frames += 1
+        if (
+            self._task3_last_measurement is not None
+            and self._task3_missed_frames <= self.max_hold_frames
+        ):
+            held = dict(self._task3_last_measurement)
+            held["held"] = True
+            return held
+        self._task3_last_measurement = None
+        self._task3_edge_history = []
+        return None
+
     def detect_task3(self, frame):
         """Detect the BLUE task-three strip with a recoverable fallback.
 
@@ -1006,6 +1182,16 @@ class WhiteLineAlignmentDetector:
         # a stable but wrong Y/RX result and prevents the existing scanline
         # recovery from running.
         scanline = self._task3_scanline_fallback(frame)
+        if scanline is None:
+            # A lower-contrast retry is still constrained by the same narrow
+            # ROI and thin horizontal-band geometry.
+            scanline = self._task3_scanline_fallback(
+                frame, threshold_floor=118, saturation_limit=175
+            )
+        if scanline is None and self._task3_last_measurement is not None:
+            scanline = self._task3_local_recovery(
+                frame, self._task3_last_measurement
+            )
         if scanline is not None:
             return self._task3_stabilize(scanline)
 
@@ -1192,10 +1378,17 @@ class WhiteLineAlignmentDetector:
 
         if not candidates:
             scanline = self._task3_scanline_fallback(frame)
+            if scanline is None:
+                scanline = self._task3_scanline_fallback(
+                    frame, threshold_floor=118, saturation_limit=175
+                )
+            if scanline is None and self._task3_last_measurement is not None:
+                scanline = self._task3_local_recovery(
+                    frame, self._task3_last_measurement
+                )
             if scanline is not None:
                 return self._task3_stabilize(scanline)
-            self._task3_edge_history = []
-            return None
+            return self._task3_recover_last()
 
         _, contour, rect, bounds, area, edge_geometry, right_edge_x = max(
             candidates, key=lambda candidate: candidate[0]
@@ -1290,6 +1483,8 @@ class WhiteLineAlignmentDetector:
             )
         self._missed_frames = 0
         self._last_measurement = result
+        self._task3_missed_frames = 0
+        self._task3_last_measurement = result
         return result
 
     @staticmethod
