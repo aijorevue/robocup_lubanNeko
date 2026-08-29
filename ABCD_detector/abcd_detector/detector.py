@@ -40,6 +40,10 @@ TASK3_C_RIGHT_OPEN_MAX_RATIO = 0.24
 TASK3_D_FOR_C_OPEN_PENALTY = 0.20
 TASK3_MAX_CENTER_Y_RATIO = 0.75
 TASK3_MIN_CONFIDENCE_PERCENT = 55.0
+# A protruding cube side can contaminate the normal 14 px glyph crop.
+# Retry further inside a fully visible card only when its first score fails.
+TASK3_A_RECOVERY_INSET = 18
+TASK3_A_RECOVERY_MIN_CONFIDENCE = 0.65
 # The task-three green discs otherwise merge into the white block mask.
 TASK3_MAX_WHITE_SATURATION = 45
 DEFAULT_DISTANCE_OFFSET_CM = -1.6072186919749336
@@ -390,10 +394,14 @@ class ABCDDetector:
         """Classify white task-three blocks at arbitrary in-plane rotation."""
         if frame is None or not isinstance(frame, np.ndarray) or frame.ndim != 3:
             return []
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        classification_cache = {}
         detections = self._detect_white_blocks(
             frame,
             rotation_invariant=True,
             white_saturation_max=TASK3_MAX_WHITE_SATURATION,
+            hsv=hsv,
+            task3_classification_cache=classification_cache,
         )
         measurement_shape = frame_shape or frame.shape
         origin_y = int(frame_origin[1]) if len(frame_origin) >= 2 else 0
@@ -405,6 +413,17 @@ class ABCDDetector:
             and (float(detection["center"][1]) + origin_y) / full_height
             <= TASK3_MAX_CENTER_Y_RATIO
         ]
+        # Preserve the ordinary task-three A/B/C/D results. Only recover an A
+        # in a previously unaccepted region; never replace an accepted label.
+        recovered_a = self._detect_white_blocks(
+            frame, rotation_invariant=True,
+            white_saturation_max=TASK3_MAX_WHITE_SATURATION,
+            task3_a_recovery=True, task3_accepted_cards=detections,
+            task3_max_center_y=full_height * TASK3_MAX_CENTER_Y_RATIO - origin_y,
+            hsv=hsv,
+            task3_classification_cache=classification_cache,
+        )
+        detections.extend(recovered_a)
         self._add_white_block_depth(
             detections, detections, detections, measurement_shape, task="task3"
         )
@@ -523,6 +542,10 @@ class ABCDDetector:
         task2_reject_green=False,
         task2_require_visible=False,
         task2_known_cards=(),
+        task3_a_recovery=False,
+        task3_accepted_cards=(),
+        task3_max_center_y=None,
+        task3_classification_cache=None,
         hsv=None,
     ):
         height, width = frame.shape[:2]
@@ -603,6 +626,14 @@ class ABCDDetector:
             )
             if task2_require_visible and not fully_visible:
                 continue
+            if task3_a_recovery and (
+                not fully_visible
+                or (task3_max_center_y is not None and cy > task3_max_center_y)
+                or self._overlaps_task3_accepted_card(
+                    (x, y, box_width, box_height), task3_accepted_cards
+                )
+            ):
+                continue
             if self._overlaps_known_task2_card((x, y, box_width, box_height), task2_known_cards):
                 continue
             if rotation_invariant:
@@ -623,14 +654,29 @@ class ABCDDetector:
                         break
                 if duplicate:
                     continue
-                classified_rects.append(candidate_rect)
+                if not task3_a_recovery:
+                    classified_rects.append(candidate_rect)
             rectified = self._rectify(frame, box, 128)
             rotation_angle = None
             margin = None
             if rotation_invariant:
-                letter, confidence, occupancy, rotation_angle, margin = (
-                    self._classify_rotation_invariant(rectified)
-                )
+                cache_key = box.tobytes()
+                classification = (task3_classification_cache.get(cache_key)
+                                  if task3_classification_cache is not None else None)
+                if classification is None:
+                    classification = self._classify_rotation_invariant(rectified)
+                    if task3_classification_cache is not None:
+                        task3_classification_cache[cache_key] = classification
+                letter, confidence, occupancy, rotation_angle, margin = classification
+                if task3_a_recovery and letter == "A" and (
+                    confidence < TASK3_A_RECOVERY_MIN_CONFIDENCE
+                ):
+                    inner_result = self._classify_rotation_invariant(
+                        rectified, inset=TASK3_A_RECOVERY_INSET
+                    )
+                    if (inner_result[0] == "A"
+                            and inner_result[1] >= TASK3_A_RECOVERY_MIN_CONFIDENCE):
+                        letter, confidence, occupancy, rotation_angle, margin = inner_result
                 if task2_reject_green and (
                     letter is None or confidence < TASK2_GLARE_MIN_CONFIDENCE
                 ):
@@ -658,6 +704,14 @@ class ABCDDetector:
                 continue
             if confidence < max(self.min_confidence, 0.45):
                 continue
+            if task3_a_recovery:
+                # A large closing kernel can join a card to nearby chassis
+                # highlights. A rejected merged contour must not suppress a
+                # tighter overlapping card from the other mask. Only accepted
+                # recovered A glyphs reserve a rectangle for de-duplication.
+                if letter != "A" or confidence < TASK3_A_RECOVERY_MIN_CONFIDENCE:
+                    continue
+                classified_rects.append(candidate_rect)
             detection = {
                     "kind": "letter",
                     "letter": letter,
@@ -677,6 +731,18 @@ class ABCDDetector:
                 detection["classification_margin"] = round(float(margin), 4)
             results.append(detection)
         return results
+
+    @staticmethod
+    def _overlaps_task3_accepted_card(bbox, cards):
+        """A recovery must not compete with an already accepted A/B/C/D."""
+        x, y, width, height = bbox
+        for card in cards:
+            cx, cy, cw, ch = card["bbox"]
+            intersection = (max(0, min(x + width, cx + cw) - max(x, cx))
+                            * max(0, min(y + height, cy + ch) - max(y, cy)))
+            if intersection / float(max(1, min(width * height, cw * ch))) >= 0.35:
+                return True
+        return False
 
     @staticmethod
     def _overlaps_known_task2_card(bbox, cards):

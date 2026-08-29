@@ -8297,7 +8297,29 @@ class TargetDetector:
             cv2.countNonZero(white[y:y + box_height, x + box_width - edge_band:x + box_width]) / float(max(1, box_height * edge_band)),
         )
         if min(edge_ratios) < COLUMN_BLOCK_INFERRED_MIN_EDGE_WHITE_RATIO:
-            return None
+            if (str(letter.get("letter", "")).upper() != "A"
+                    or float(letter.get("confidence") or 0.0) < 65.0):
+                return None
+            # At roughly 45 degrees, a valid card occupies only the middle of
+            # each axis-aligned edge band. Check its actual rectified borders
+            # before rejecting this already-classified A. B/C/D keep the old gate.
+            box = np.asarray(letter.get("box", ()), dtype=np.float32)
+            if box.size != 8 or not np.isfinite(box).all():
+                return None
+            quad = self._ordered_quad(box.reshape(4, 2))
+            if (np.any(quad[:, 0] < 0) or np.any(quad[:, 0] >= width)
+                    or np.any(quad[:, 1] < 0) or np.any(quad[:, 1] >= height)
+                    or abs(cv2.contourArea(quad)) < COLUMN_BLOCK_MIN_AREA):
+                return None
+            destination = np.array(((0, 0), (127, 0), (127, 127), (0, 127)),
+                                   dtype=np.float32)
+            transform = cv2.getPerspectiveTransform(quad, destination)
+            rectified_white = cv2.warpPerspective(white, transform, (128, 128))
+            oriented_edges = (rectified_white[:15, :], rectified_white[-15:, :],
+                              rectified_white[:, :15], rectified_white[:, -15:])
+            if min(cv2.countNonZero(edge) / float(edge.size)
+                   for edge in oriented_edges) < COLUMN_BLOCK_INFERRED_MIN_EDGE_WHITE_RATIO:
+                return None
         margin_x = max(4, int(round(box_width * 0.16)))
         margin_y = max(4, int(round(box_height * 0.16)))
         inner = white[y + margin_y:y + box_height - margin_y, x + margin_x:x + box_width - margin_x]
@@ -8377,11 +8399,17 @@ class TargetDetector:
                 ring for ring in platform_rings
                 if ring.get("color") == opponent_ring_color
             ]
+            # Keep every recognized task-two letter in the result so the
+            # preview and station diagnostics can show a real detection even
+            # when it is not one of the two secondary-camera selections. The
+            # controller and PlatformTask still enforce the selected pair
+            # before lock/grasp. Preserve the opponent-ring interlock for a
+            # selected C/D target, where it can affect an actual pickup.
             letters = [
                 det for det in self._detect_task2_letters(frame)
-                if det.get("letter") in selected_letters
-                and not (
-                    det.get("letter") in {"C", "D"}
+                if not (
+                    det.get("letter") in selected_letters
+                    and det.get("letter") in {"C", "D"}
                     and any(
                         self._platform_letter_overlaps_ring(det, ring)
                         for ring in opponent_rings

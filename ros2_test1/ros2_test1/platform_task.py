@@ -9,6 +9,7 @@ import time
 
 from .grasp_calibration import calibrated_grasp_ticks
 from .task2_fixed_letters import load_fixed_letters
+from .task2_pose_offsets import apply_final_offsets, config_path, load_offsets
 
 HIGH = (650, 600, 415)
 INTERMEDIATE_HIGH = (650, 400, 415)
@@ -33,7 +34,8 @@ PLATFORM_LETTER_PLACE_TIME_MS = 500
 PLATFORM_CENTER_TIME_MS = 80
 PLATFORM_LETTER_SUCCESS_QUOTA = 2
 PLATFORM_LETTER_REACQUIRE_FALLBACK_SLOTS = frozenset({3, 4, 5, 6})
-PLATFORM_LETTER_REACQUIRE_FALLBACK_DESCENT = (600, 512)
+PLATFORM_LETTER_REACQUIRE_FALLBACK_ID2_RETREAT = 510
+PLATFORM_LETTER_REACQUIRE_FALLBACK_DESCENT = (600, PLATFORM_LETTER_REACQUIRE_FALLBACK_ID2_RETREAT)
 POST_OPEN_ID2_RETREAT_TICKS_BY_KIND = {
     "letter": 30,
     "ring": 50,
@@ -49,6 +51,8 @@ FORMAL_ID2_FINAL_CORRECTION_TICKS = 70
 FORMAL_LETTER_ID2_REDUCTION_TICKS = 40
 FORMAL_LETTER_7_13_ID2_ADJUSTMENT_TICKS = -3
 FORMAL_LETTER_7_13_FINAL_ID2_INCREASE_TICKS = 5
+FORMAL_LETTER_FIXED_UNDER_DISTANCE_CM = 10.0
+FORMAL_LETTER_FIXED_UNDER_10_POSE = (600, 510)
 FORMAL_RING_ID2_REDUCTION_TICKS = 40
 FORMAL_RING_7_13_FINAL_ID2_ANCHORS = (
     (7.0, 558),
@@ -103,9 +107,10 @@ CENTER_ID6_RANGE = (0, 700)
 # letter/own-field ring has been seen, the grasp transaction is allowed to
 # finish without the no-target watchdog interrupting it.
 PLATFORM_NO_TARGET_TIMEOUT_S = 3.0
-# After a centering move, allow one second to reacquire the same target and
-# a valid depth before ending this slot and returning to the high pose.
+# After a centering move, reacquire the same target before returning high.
+# Slots 1/2 need more time after motion; retain the other station budgets.
 PLATFORM_CENTER_REACQUIRE_TIMEOUT_S = 1.0
+PLATFORM_CENTER_REACQUIRE_TIMEOUT_BY_SLOT_S = {1: 3.0, 2: 3.0}
 # Once a stable, centered target is visible, do not wait indefinitely for its
 # depth measurement. A continuous invalid-depth window skips this station.
 PLATFORM_DEPTH_INVALID_TIMEOUT_S = 4.0
@@ -115,6 +120,12 @@ PLATFORM_FULLSCREEN_SLOTS = frozenset({4, 5})
 SECONDARY_PAIR_REQUIRED_FRAMES = 1
 SECONDARY_PRESELECT_TIMEOUT_S = 9.0
 SECONDARY_PRESELECT_FALLBACK_WINDOW_S = 2.0
+TASK2_SPECIAL_BAND_OFFSETS = load_offsets()
+print(
+    f"PLATFORM_PICK TASK2_OFFSET_CONFIG path={config_path()} "
+    f"values={TASK2_SPECIAL_BAND_OFFSETS}",
+    flush=True,
+)
 
 
 def _formal_ring_7_13_final_id2(depth_cm):
@@ -155,6 +166,14 @@ def _formal_task2_19_20_5_final_pose(depth_cm, target_kind):
         int(round(left_id1 + ratio * (right_id1 - left_id1))),
         int(round(left_id2 + ratio * (right_id2 - left_id2))),
     )
+
+
+def _formal_task2_fixed_letter_under_10(depth_cm, target_kind, id1, id2):
+    """Apply the final task-two-only fixed pose for letters below 10 cm."""
+    if (str(target_kind).strip().lower() == "letter"
+            and float(depth_cm) < FORMAL_LETTER_FIXED_UNDER_DISTANCE_CM):
+        return (*FORMAL_LETTER_FIXED_UNDER_10_POSE, True)
+    return int(id1), int(id2), False
 
 
 def _target_in_center_window(target, frame_shape, *, full_frame=False):
@@ -556,7 +575,9 @@ class PlatformTask:
             if not self._command("CENTER_STEP", self.center, id2, id6):
                 return
             self.center_reacquire_deadline = (
-                self.deadline + PLATFORM_CENTER_REACQUIRE_TIMEOUT_S
+                self.deadline + PLATFORM_CENTER_REACQUIRE_TIMEOUT_BY_SLOT_S.get(
+                    self.current_slot, PLATFORM_CENTER_REACQUIRE_TIMEOUT_S,
+                )
             )
             self.votes.clear()
             self.discard = 1
@@ -673,6 +694,35 @@ class PlatformTask:
         if (FORMAL_RING_MID_MAX_DISTANCE_CM < depth
                 < FORMAL_RING_LONG_RANGE_MIN_DISTANCE_CM):
             id1, id2 = _formal_task2_19_20_5_final_pose(depth, key[0])
+        base_id1, base_id2 = id1, id2
+        id1, id2, offset_band, extra_id1, extra_id2 = apply_final_offsets(
+            depth,
+            key[0],
+            id1,
+            id2,
+            TASK2_SPECIAL_BAND_OFFSETS,
+        )
+        id1 = max(0, min(1000, id1))
+        id2 = max(CENTER_ID2_RANGE[0], min(CENTER_ID2_RANGE[1], id2))
+        offset_id1, offset_id2 = id1, id2
+        id1, id2, fixed_letter_under_10 = _formal_task2_fixed_letter_under_10(
+            depth, key[0], id1, id2,
+        )
+        if offset_band is not None:
+            print(
+                "PLATFORM_PICK TASK2_FINAL_OFFSET "
+                f"band={offset_band} kind={key[0]} depth_cm={depth:.2f} "
+                f"extra_id1={extra_id1:+d} extra_id2={extra_id2:+d} "
+                f"base={base_id1}/{base_id2} final={id1}/{id2}",
+                flush=True,
+            )
+        if fixed_letter_under_10:
+            print(
+                "PLATFORM_PICK TASK2_LETTER_UNDER_10_FIXED "
+                f"depth_cm={depth:.2f} "
+                f"pre_fixed={offset_id1}/{offset_id2} final={id1}/{id2}",
+                flush=True,
+            )
         self.high_ready = False
         placement = LETTER_PLACE if key[0] == "letter" else RING_PLACE
         print(f"PLATFORM_PICK TARGET kind={key[0]} label={key[1]} depth_cm={depth:.2f} "
@@ -769,6 +819,11 @@ class PlatformTask:
             return False
 
         id1, id2 = PLATFORM_LETTER_REACQUIRE_FALLBACK_DESCENT
+        # Keep the requested fallback order: first retreat ID2 to 510 for
+        # 500 ms, then descend ID1 to 600 for 500 ms while holding ID6 at the
+        # current centered value. The callbacks retain their existing timed
+        # arm profiles (retreat=500 ms, pose=500 ms).
+        fallback_id2 = PLATFORM_LETTER_REACQUIRE_FALLBACK_ID2_RETREAT
         placement = LETTER_PLACE
         self.finish_reason = "PICKED_LETTER_REACQUIRE_FALLBACK"
         self.high_ready = False
@@ -778,8 +833,10 @@ class PlatformTask:
         self.actions = deque([
             ("FALLBACK_GRIPPER_OPEN", self.gripper_open,
              (PLATFORM_GRIPPER_OPEN,)),
-            ("FALLBACK_DESCEND", self.pose,
-             ((id1, id2, self.center_id6), False)),
+            ("FALLBACK_ID2_RETREAT", self.retreat_pose,
+             ((self.center_id1, fallback_id2, self.center_id6), False)),
+            ("FALLBACK_ID1_DESCEND", self.pose,
+             ((id1, fallback_id2, self.center_id6), False)),
             ("FALLBACK_GRIPPER_CLOSE", self.gripper_close,
              (PLATFORM_GRIPPER_CLOSED,)),
             ("LIFT_LETTER_HIGH_ID1", self.letter_return_high_id1,
