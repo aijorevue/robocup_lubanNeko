@@ -192,11 +192,13 @@ COLUMN_LOCKED_LETTER_REACQUIRE_MAX_JUMP_PX = 360.0
 COLUMN_LOCKED_LETTER_REACQUIRE_MAX_SIZE_RATIO = 3.2
 COLUMN_H7_PAUSE_TIMEOUT_S = 3.0
 COLUMN_H7_RESUME_TIMEOUT_S = 3.0
-# Formal task-three letter-grasp window in the original main-camera
-# coordinates. Only the centered 500x600 region may authorize a pickup.
-# Keep this gate task-three-only; task one and task two use their own windows.
-COLUMN_TASK3_CAPTURE_WINDOW_X_MIN = 50.0
-COLUMN_TASK3_CAPTURE_WINDOW_X_MAX = 750.0
+# Formal task-three letter-grasp windows in the original main-camera
+# coordinates. The red and blue fields use different horizontal margins.
+# Keep these gates task-three-only; task one and task two use their own windows.
+COLUMN_TASK3_CAPTURE_WINDOW_RED_X_MIN = 50.0
+COLUMN_TASK3_CAPTURE_WINDOW_RED_X_MAX = 650.0
+COLUMN_TASK3_CAPTURE_WINDOW_BLUE_X_MIN = 150.0
+COLUMN_TASK3_CAPTURE_WINDOW_BLUE_X_MAX = 750.0
 COLUMN_TASK3_CAPTURE_WINDOW_Y_MIN = 100.0
 COLUMN_TASK3_CAPTURE_WINDOW_Y_MAX = 700.0
 
@@ -3705,7 +3707,7 @@ class TargetGraspController:
         )
 
     @staticmethod
-    def _column_task3_capture_window_contains(detection):
+    def _column_task3_capture_window_contains(detection, field_name="red"):
         """Return whether a task-three target center is in the grab window."""
         center = detection.get("center") if detection else None
         if not isinstance(center, (tuple, list)) or len(center) < 2:
@@ -3715,13 +3717,20 @@ class TargetGraspController:
             center_y = float(center[1])
         except (TypeError, ValueError):
             return False
+        field_name = str(field_name or "red").strip().lower()
+        if field_name == "blue":
+            window_x_min = COLUMN_TASK3_CAPTURE_WINDOW_BLUE_X_MIN
+            window_x_max = COLUMN_TASK3_CAPTURE_WINDOW_BLUE_X_MAX
+        else:
+            window_x_min = COLUMN_TASK3_CAPTURE_WINDOW_RED_X_MIN
+            window_x_max = COLUMN_TASK3_CAPTURE_WINDOW_RED_X_MAX
         return (
-            COLUMN_TASK3_CAPTURE_WINDOW_X_MIN <= center_x <= COLUMN_TASK3_CAPTURE_WINDOW_X_MAX
+            window_x_min <= center_x <= window_x_max
             and COLUMN_TASK3_CAPTURE_WINDOW_Y_MIN <= center_y <= COLUMN_TASK3_CAPTURE_WINDOW_Y_MAX
         )
 
     @classmethod
-    def _column_letters_in_block(cls, detections, block):
+    def _column_letters_in_block(cls, detections, block, field_name="red"):
         if block is None:
             return []
         bbox = block.get("bbox", ())
@@ -3737,7 +3746,7 @@ class TargetGraspController:
                 or not det.get("observed", True)
                 or not det.get("fully_visible", True)
                 or str(det.get("letter", "")).upper() not in LETTERS
-                or not cls._column_task3_capture_window_contains(det)
+                or not cls._column_task3_capture_window_contains(det, field_name)
             ):
                 continue
             center = np.asarray(det.get("center", ()), dtype=np.float32)
@@ -3757,7 +3766,9 @@ class TargetGraspController:
         )
 
     @classmethod
-    def _column_locked_letter_fallback(cls, detections, reference, block):
+    def _column_locked_letter_fallback(
+        cls, detections, reference, block, field_name="red"
+    ):
         """Recover the locked glyph if its white border is briefly hidden."""
         if reference is None or block is None:
             return None
@@ -3781,7 +3792,7 @@ class TargetGraspController:
                 or not det.get("observed", True)
                 or not det.get("fully_visible", True)
                 or str(det.get("letter", "")).upper() != label
-                or not cls._column_task3_capture_window_contains(det)
+                or not cls._column_task3_capture_window_contains(det, field_name)
             ):
                 continue
             center = np.asarray(det.get("center", ()), dtype=np.float32)
@@ -3884,7 +3895,9 @@ class TargetGraspController:
                 block.get("kind") != "column_block"
                 or not block.get("observed", True)
                 or not block.get("fully_visible", True)
-                or not self._column_task3_capture_window_contains(block)
+                or not self._column_task3_capture_window_contains(
+                    block, self.field_mode.value
+                )
             ):
                 continue
             block_center = np.asarray(block.get("center", ()), dtype=np.float32)
@@ -3942,7 +3955,9 @@ class TargetGraspController:
                 or not detection.get("observed", True)
                 or not detection.get("fully_visible", True)
                 or str(detection.get("letter", "")).upper() != label
-                or not self._column_task3_capture_window_contains(detection)
+                or not self._column_task3_capture_window_contains(
+                    detection, self.field_mode.value
+                )
             ):
                 continue
             center = np.asarray(detection.get("center", ()), dtype=np.float32)
@@ -3992,7 +4007,9 @@ class TargetGraspController:
                 detection.get("kind") != "column_block"
                 or not detection.get("observed", True)
                 or not detection.get("fully_visible", True)
-                or not self._column_task3_capture_window_contains(detection)
+                or not self._column_task3_capture_window_contains(
+                    detection, self.field_mode.value
+                )
             ):
                 continue
             center = np.asarray(detection.get("center", ()), dtype=np.float32)
@@ -4028,7 +4045,9 @@ class TargetGraspController:
             if det.get("kind") == "column_block"
             and det.get("observed", True)
             and det.get("fully_visible", True)
-            and self._column_task3_capture_window_contains(det)
+            and self._column_task3_capture_window_contains(
+                det, self.field_mode.value
+            )
             and not self._column_block_has_processed_letter(detections, det)
         ]
         return max(
@@ -5092,7 +5111,9 @@ class TargetGraspController:
         # After PAUSE, bind classification to the block that caused PAUSE;
         # never promote an unrelated full-frame letter into a grasp target.
         column_letter_candidates = (
-            self._column_letters_in_block(detections, active_locked_block)
+            self._column_letters_in_block(
+                detections, active_locked_block, self.field_mode.value
+            )
             if detection_fresh and active_locked_block is not None
             else []
         )
@@ -5108,6 +5129,7 @@ class TargetGraspController:
                 detections,
                 self.locked_target or self.last_visual_target,
                 self.column_locked_block,
+                self.field_mode.value,
             )
             if recovered is not None:
                 column_letter_candidates = [recovered]
@@ -5123,7 +5145,10 @@ class TargetGraspController:
             ]
             if not column_letter_candidates:
                 recovered = self._column_locked_letter_fallback(
-                    detections, self.locked_target, active_locked_block
+                    detections,
+                    self.locked_target,
+                    active_locked_block,
+                    self.field_mode.value,
                 )
                 if recovered is not None:
                     column_letter_candidates = [recovered]
@@ -5314,7 +5339,9 @@ class TargetGraspController:
             self.state = "COLUMN_CATCH classify paused block"
             if stable_letter_target is not None:
                 stable_selected = (
-                    self._column_task3_capture_window_contains(stable_letter_target)
+                    self._column_task3_capture_window_contains(
+                        stable_letter_target, self.field_mode.value
+                    )
                     and
                     self.target_policy.matches_column_letter(
                         stable_letter_target, self.target_letters
