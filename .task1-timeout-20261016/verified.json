@@ -1,0 +1,10 @@
+{
+  "runtime": "/home/cat/ros2_ws/build/ros2_test1/ros2_test1/target_vision.py",
+  "hashes": {
+    "/home/cat/ros2_ws/ros2_test1/ros2_test1/target_vision.py": "e9e512c684b21d2875ca0e323a3624492de495f3001d3e310635678776979338",
+    "/home/cat/ros2_ws/build/ros2_test1/ros2_test1/target_vision.py": "e9e512c684b21d2875ca0e323a3624492de495f3001d3e310635678776979338"
+  },
+  "total_timeout_s": 30.0,
+  "no_ball_timeout_s": 4.0,
+  "service": "inactive"
+}

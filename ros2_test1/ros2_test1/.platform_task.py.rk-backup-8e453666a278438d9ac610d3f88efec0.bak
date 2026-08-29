@@ -1,0 +1,768 @@
+"""Formal task-two sequencing; hardware writes are injected for replay tests.
+
+PRESELECT_DONE is a timed high-pose barrier. Slot DONE is emitted only after
+the final high pose has settled. Depth uses the standalone measured mapping.
+"""
+from collections import Counter, deque
+import math
+import time
+
+from .grasp_calibration import calibrated_grasp_ticks
+from .task2_fixed_letters import load_fixed_letters
+
+HIGH = (650, 600, 415)
+INTERMEDIATE_HIGH = (650, 400, 415)
+PREPLACE_ID2 = 400
+LETTER_PLACE = (530, 350, 650)
+RING_PLACE = (545, 350, 171)
+HTD85_AUX_HIGH = (300, 510, 265)  # physical ID14, ID15, ID17; ID14 retracted
+PLATFORM_GRIPPER_CLOSED = 265
+PLATFORM_GRIPPER_OPEN = 405
+PLATFORM_RING_GRIPPER_OPEN = 395
+PLATFORM_ARM_TIME_MS = 500
+PLATFORM_AUX_TIME_MS = 200
+PLATFORM_GRIPPER_TIME_MS = 200
+PLATFORM_GRIPPER_CLOSE_TIME_MS = 150
+PLATFORM_PLACE_GRIPPER_TIME_MS = 150
+PLATFORM_RETREAT_TIME_MS = 500
+PLATFORM_RETURN_HIGH_TIME_MS = 500
+PLATFORM_RING_PLACE_TIME_MS = 600
+PLATFORM_RING_AXIS_TIME_MS = 500
+PLATFORM_RING_RELEASE_HOLD_S = 1.0
+PLATFORM_LETTER_PLACE_TIME_MS = 500
+PLATFORM_CENTER_TIME_MS = 80
+PLATFORM_LETTER_SUCCESS_QUOTA = 2
+POST_OPEN_ID2_RETREAT_TICKS_BY_KIND = {
+    "letter": 30,
+    "ring": 50,
+}
+NEAR_GRASP_MIN_DISTANCE_CM = 7.0
+NEAR_GRASP_MAX_DISTANCE_CM = 10.0
+NEAR_RING_ID2_RETREAT_EXTRA_TICKS = 30
+FORMAL_ID2_CORRECTION_MIN_DISTANCE_CM = 7.0
+FORMAL_ID2_CORRECTION_MAX_DISTANCE_CM = 13.0
+FORMAL_ID2_CORRECTION_TICKS = 20
+FORMAL_ID1_FINAL_CORRECTION_TICKS = 20
+FORMAL_ID2_FINAL_CORRECTION_TICKS = 70
+FORMAL_LETTER_ID2_REDUCTION_TICKS = 40
+FORMAL_LETTER_7_13_ID2_ADJUSTMENT_TICKS = -10
+FORMAL_RING_ID2_REDUCTION_TICKS = 40
+FORMAL_RING_7_13_FINAL_ID2_ANCHORS = (
+    (7.0, 558),
+    (8.0, 553),
+    (9.0, 548),
+    (13.0, 528),
+)
+# Keep the current 13 cm endpoints from the smoothed 7..13 curves and the
+# existing 15 cm final poses, then interpolate both target kinds across 13..15
+# so leaving the 7..13 band cannot create a depth-boundary jump.
+FORMAL_TASK2_13_15_SMOOTH_MIN_CM = 13.0
+FORMAL_TASK2_13_15_SMOOTH_MAX_CM = 15.0
+FORMAL_TASK2_13_15_LETTER_ANCHORS = (
+    (13.0, 570, 560),
+    (15.0, 517, 503),
+)
+FORMAL_TASK2_13_15_RING_ANCHORS = (
+    (13.0, 570, 528),
+    (15.0, 517, 513),
+)
+# Task-two rings use one final caller-only ID2 reduction across both the
+# 7..13 cm curve and the 13..15 cm bridge. Apply it after all segment solves
+# so the shared calibration, task-two letters, and task three stay unchanged.
+FORMAL_TASK2_RING_7_15_FINAL_ID2_REDUCTION_TICKS = 30
+FORMAL_RING_MID_MIN_DISTANCE_CM = 15.0
+FORMAL_RING_MID_MAX_DISTANCE_CM = 19.0
+FORMAL_RING_MID_ID2_INCREASE_TICKS = 25
+FORMAL_RING_LONG_RANGE_MIN_DISTANCE_CM = 20.5
+FORMAL_RING_LONG_RANGE_MAX_DISTANCE_CM = 25.0
+FORMAL_RING_LONG_RANGE_ID1_REDUCTION_TICKS = 30
+FORMAL_RING_LONG_RANGE_ID2_INCREASE_TICKS = 20
+FORMAL_LONG_RANGE_FINAL_ID2_INCREASE_TICKS = 10
+PLATFORM_GRASP_ID1_OFFSET_TICKS = 40
+CENTER_DEADBAND_PX = 45
+RING_CENTER_DEADBAND_PX = 30
+CENTER_ID6_STEP_TICKS = 5
+CENTER_ID2_STEP_TICKS = 7
+CENTER_ID2_RANGE = (450, 700)
+CENTER_ID6_RANGE = (0, 700)
+# Only the target-observation phase is bounded.  Once a valid selected
+# letter/own-field ring has been seen, the grasp transaction is allowed to
+# finish without the no-target watchdog interrupting it.
+PLATFORM_NO_TARGET_TIMEOUT_S = 3.0
+# After a centering move, allow one second to reacquire the same target and
+# a valid depth before ending this slot and returning to the high pose.
+PLATFORM_CENTER_REACQUIRE_TIMEOUT_S = 1.0
+# Once a stable, centered target is visible, do not wait indefinitely for its
+# depth measurement. A continuous invalid-depth window skips this station.
+PLATFORM_DEPTH_INVALID_TIMEOUT_S = 4.0
+TARGET_WINDOW_SIZE_PX = 520
+TARGET_WINDOW_MIN_AREA_FRACTION = 0.80
+PLATFORM_FULLSCREEN_SLOTS = frozenset({4, 5})
+SECONDARY_PAIR_REQUIRED_FRAMES = 1
+SECONDARY_PRESELECT_TIMEOUT_S = 9.0
+SECONDARY_PRESELECT_FALLBACK_WINDOW_S = 2.0
+
+
+def _formal_ring_7_13_final_id2(depth_cm):
+    """Interpolate the task-two ring-only final ID2 calibration."""
+    anchors = FORMAL_RING_7_13_FINAL_ID2_ANCHORS
+    for (left_depth, left_ticks), (right_depth, right_ticks) in zip(
+            anchors, anchors[1:]):
+        if depth_cm <= right_depth:
+            ratio = (depth_cm - left_depth) / (right_depth - left_depth)
+            return int(round(left_ticks + ratio * (right_ticks - left_ticks)))
+    return anchors[-1][1]
+
+
+def _formal_task2_13_15_final_pose(depth_cm, target_kind):
+    """Smoothly bridge the current 13 cm and 15 cm task-two final poses."""
+    anchors = (
+        FORMAL_TASK2_13_15_RING_ANCHORS
+        if str(target_kind).strip().lower() == "ring"
+        else FORMAL_TASK2_13_15_LETTER_ANCHORS
+    )
+    left_depth, left_id1, left_id2 = anchors[0]
+    right_depth, right_id1, right_id2 = anchors[1]
+    ratio = (float(depth_cm) - left_depth) / (right_depth - left_depth)
+    return (
+        int(round(left_id1 + ratio * (right_id1 - left_id1))),
+        int(round(left_id2 + ratio * (right_id2 - left_id2))),
+    )
+
+
+def _target_in_center_window(target, frame_shape, *, full_frame=False):
+    """Require at least 80% of a target bbox inside the active observation window."""
+    bbox = target.get("bbox")
+    if bbox is None or len(bbox) != 4:
+        return False
+    try:
+        x, y, width, height = (float(value) for value in bbox)
+    except (TypeError, ValueError):
+        return False
+    if width <= 0.0 or height <= 0.0:
+        return False
+    frame_height, frame_width = frame_shape[:2]
+    if full_frame:
+        window_left = 0.0
+        window_top = 0.0
+        window_width = float(frame_width)
+        window_height = float(frame_height)
+    else:
+        window_size = min(
+            float(TARGET_WINDOW_SIZE_PX), float(frame_width), float(frame_height)
+        )
+        window_left = (float(frame_width) - window_size) / 2.0
+        window_top = (float(frame_height) - window_size) / 2.0
+        window_width = window_size
+        window_height = window_size
+    intersection_width = max(
+        0.0,
+        min(x + width, window_left + window_width) - max(x, window_left),
+    )
+    intersection_height = max(
+        0.0,
+        min(y + height, window_top + window_height) - max(y, window_top),
+    )
+    inside_fraction = (intersection_width * intersection_height) / (width * height)
+    return inside_fraction >= TARGET_WINDOW_MIN_AREA_FRACTION
+
+
+class PlatformTask:
+    def __init__(self, pose, gripper, center, *, retreat_pose=None,
+                 gripper_open=None, gripper_close=None,
+                 place_open=None, place_close=None,
+                 ring_place_id6=None,
+                 ring_place_id2=None, ring_place_id1=None,
+                 ring_place_id12=None,
+                 ring_return_high_id1=None, ring_return_high_id2=None,
+                 ring_return_high_id6=None, letter_place_id6=None,
+                 letter_place_id2=None, letter_place_id1=None,
+                 letter_place_id12=None,
+                 letter_return_high_id1=None, letter_return_high_id2=None,
+                  letter_return_high_id6=None, letter_success_counts=None,
+                  clock=time.monotonic):
+        self.pose = pose
+        self.retreat_pose = retreat_pose or pose
+        self.gripper = gripper
+        self.gripper_open = gripper_open or gripper
+        self.gripper_close = gripper_close or gripper
+        self.place_open = place_open or gripper
+        self.place_close = place_close or gripper
+        self.center = center
+        self.ring_place_id6 = ring_place_id6
+        self.ring_place_id2 = ring_place_id2
+        self.ring_place_id1 = ring_place_id1
+        self.ring_place_id12 = ring_place_id12
+        self.ring_return_high_id1 = ring_return_high_id1
+        self.ring_return_high_id2 = ring_return_high_id2
+        self.ring_return_high_id6 = ring_return_high_id6
+        self.letter_place_id6 = letter_place_id6
+        self.letter_place_id2 = letter_place_id2
+        self.letter_place_id1 = letter_place_id1
+        self.letter_place_id12 = letter_place_id12
+        self.letter_return_high_id1 = letter_return_high_id1
+        self.letter_return_high_id2 = letter_return_high_id2
+        self.letter_return_high_id6 = letter_return_high_id6
+        self.letter_success_counts = (
+            letter_success_counts if letter_success_counts is not None else {}
+        )
+        self.clock = clock
+        self.reset()
+
+    def reset(self):
+        self.stage = None
+        self.selected = ()
+        self.done = self.error = None
+        self.deadline = 0.0
+        self.center_reacquire_deadline = 0.0
+        self.actions = deque()
+        self.high_ready = False
+        self.target_seen = False
+        self.target_key = None
+        self.depth_invalid_deadline = 0.0
+        self.finish_reason = None
+        self.pair_streak = 0
+        self.last_pair = None
+        self.letter_observations = Counter()
+        self.letter_confidence = Counter()
+        self.letter_x = {}
+        self.preselect_lock_source = None
+        self.pending_slot_field = None
+        self.pending_slot_index = None
+        self.current_slot = None
+        self.status = "PLATFORM_PICK idle"
+
+    def _fail(self, reason):
+        self.error = reason
+        self.done = None
+        self.stage = "platform_fault"
+        self.high_ready = False
+        self.actions.clear()
+        self.status = f"PLATFORM_PICK ERR {reason}"
+
+    def _command(self, label, callback, *args):
+        try:
+            settle = callback(*args)
+            if settle is None or settle is False:
+                raise RuntimeError("write failed")
+        except Exception as exc:
+            self._fail(f"SERVO_WRITE_FAILED_{label}")
+            print(f"{self.status}: {exc}", flush=True)
+            return False
+        self.deadline = self.clock() + float(settle)
+        self.status = f"PLATFORM_PICK {label}"
+        print(self.status, flush=True)
+        return True
+
+    @staticmethod
+    def ring_release_hold():
+        return PLATFORM_RING_RELEASE_HOLD_S
+
+    def begin_preselect(self):
+        self.reset()
+        self.stage = "platform_preselect"
+        self.pairs = deque(maxlen=12)
+        self.warmup = 1
+        self.timeout = self.clock() + SECONDARY_PRESELECT_TIMEOUT_S
+        self.status = "PLATFORM_PICK secondary: waiting two distinct letters"
+
+    def _lock_selected(self, selected, source):
+        self.selected = tuple(selected)
+        self.preselect_lock_source = str(source)
+        print(
+            "PLATFORM_PICK LETTERS_LOCKED "
+            f"L1={self.selected[0]} L2={self.selected[1]} source={source}",
+            flush=True,
+        )
+        self.stage = "platform_raise"
+        self._command("ARM_HIGH", self.pose, HIGH, True)
+
+    def _persistent_pair(self):
+        selected = load_fixed_letters()
+        if len(selected) != 2:
+            return ()
+        return tuple(selected)
+
+    def _start_slot_detection(self, field, slot=None):
+        """Enter the normal main-camera station after the high pose settles."""
+        self.done = self.error = None
+        self.field = str(field).lower()
+        try:
+            self.current_slot = int(slot) if slot is not None else None
+        except (TypeError, ValueError):
+            self.current_slot = None
+        self.stage = "platform_detect"
+        self.timeout = self.clock() + PLATFORM_NO_TARGET_TIMEOUT_S
+        self.deadline = 0.0
+        self.discard = 8
+        self.votes = deque(maxlen=8)
+        self.target_key = None
+        self.target_center = None
+        self.target_seen = False
+        self.center_reacquire_deadline = 0.0
+        self.center_id1 = HIGH[0]
+        self.center_id2, self.center_id6 = HIGH[1:]
+        self.status = "PLATFORM_PICK main camera: waiting target"
+
+    def _fallback_pair(self):
+        """Select the two best-supported distinct labels before timeout."""
+        ranked = sorted(
+            (
+                label,
+                self.letter_observations.get(label, 0),
+                self.letter_confidence.get(label, 0.0),
+            )
+            for label in {"A", "B", "C", "D"}
+            if self.letter_observations.get(label, 0) > 0
+        )
+        ranked.sort(key=lambda item: (-item[1], -item[2], item[0]))
+        if len(ranked) < 2:
+            return False
+        labels = [ranked[0][0], ranked[1][0]]
+        labels.sort(key=lambda label: (self.letter_x.get(label, 10**9), label))
+        print(
+            "PLATFORM_PICK SECONDARY_FALLBACK "
+            f"L1={labels[0]} L2={labels[1]} "
+            f"counts={ranked[0][0]}:{ranked[0][1]},{ranked[1][0]}:{ranked[1][1]}",
+            flush=True,
+        )
+        self._lock_selected(labels, "HISTORY_FALLBACK")
+        return True
+
+    def preselect(self, detections, fresh=True):
+        if self.stage != "platform_preselect" or not fresh:
+            return
+        if self.warmup:
+            self.warmup -= 1
+            return
+        candidates = sorted(
+            (d for d in detections if d.get("kind") == "letter"
+             and d.get("letter") in {"A", "B", "C", "D"}
+             and float(d.get("confidence") or 0) >= 38),
+            key=lambda d: d["center"][0],
+        )
+        per_label = {}
+        for candidate in candidates:
+            label = str(candidate["letter"]).upper()
+            confidence = float(candidate.get("confidence") or 0.0)
+            previous = per_label.get(label)
+            if previous is None or confidence > previous[0]:
+                per_label[label] = (confidence, candidate)
+            self.letter_x[label] = float(candidate["center"][0])
+        for label, (confidence, _) in per_label.items():
+            self.letter_observations[label] += 1
+            self.letter_confidence[label] += confidence
+        distinct = sorted(
+            (item[1] for item in per_label.values()),
+            key=lambda d: d["center"][0],
+        )
+        pair = (
+            (str(distinct[0]["letter"]).upper(), str(distinct[-1]["letter"]).upper())
+            if len(distinct) >= 2 else None
+        )
+        self.pairs.append(pair if pair and pair[0] != pair[1] else None)
+        if pair is not None and pair == self.last_pair:
+            self.pair_streak += 1
+        elif pair is not None:
+            self.pair_streak = 1
+        else:
+            self.pair_streak = 0
+        self.last_pair = pair
+        if self.pair_streak >= SECONDARY_PAIR_REQUIRED_FRAMES:
+            self._lock_selected(
+                pair, f"PAIR_{SECONDARY_PAIR_REQUIRED_FRAMES}_FRAME"
+            )
+            return
+        # Keep the complete preselection budget available to the secondary
+        # camera.  Fallback selection is committed only at the hard deadline;
+        # otherwise a late but valid camera pair could be replaced by stale
+        # history or the persistent pair before the normal lock path runs.
+
+    def begin_slot(self, field, slot=None):
+        if len(self.selected) != 2:
+            selected = self._persistent_pair()
+            if selected:
+                self._lock_selected(selected, "PERSISTED_FALLBACK")
+                if self.stage == "platform_fault":
+                    return
+        if len(self.selected) != 2:
+            self._fail("PRESELECT_HIGH_NOT_READY")
+            return
+        if not self.high_ready:
+            # H7 may already have moved on after an earlier preselect error.
+            # Finish the high-pose barrier locally, then begin this slot instead
+            # of rejecting every following station.
+            if self.stage != "platform_raise":
+                self.stage = "platform_slot_raise"
+                if not self._command("ARM_HIGH", self.pose, HIGH, True):
+                    return
+            self.pending_slot_field = str(field)
+            self.pending_slot_index = slot
+            self.stage = "platform_slot_raise"
+            self.status = (
+                "PLATFORM_PICK persisted letters; completing high pose before slot"
+            )
+            return
+        self._start_slot_detection(field, slot)
+
+    @staticmethod
+    def _key(target):
+        return (target.get("kind"), target.get("letter") if target.get("kind") == "letter"
+                else target.get("color"))
+
+    def _allowed(self, target):
+        kind, label = self._key(target)
+        # The secondary camera is authoritative for platform letters.  An
+        # empty selection must reject every letter, never use a launch-time
+        # A/B/C/D fallback.
+        return ((kind == "letter" and bool(self.selected) and label in self.selected
+                 and self.letter_success_counts.get(label, 0)
+                 < PLATFORM_LETTER_SUCCESS_QUOTA)
+                or (kind == "ring" and label == self.field))
+
+    def skip(self, reason):
+        self.done = self.error = None
+        self.high_ready = False
+        self.finish_reason = f"SKIPPED:{reason}"
+        self.actions = deque([("RETURN_HIGH", self.pose, (HIGH, True))])
+        self.stage = "platform_actions"
+        self.deadline = 0.0
+        self.center_reacquire_deadline = 0.0
+        self.depth_invalid_deadline = 0.0
+        self.status = f"PLATFORM_PICK {self.finish_reason}; returning high"
+
+    def stop_keep_high(self, reason="STOPPED_BY_CHASSIS"):
+        """Abort only the current slot and leave the arm at task-two high."""
+        self.done = self.error = None
+        self.high_ready = False
+        self.finish_reason = f"SKIPPED:{reason}"
+        self.target_key = None
+        self.target_center = None
+        self.target_seen = False
+        self.votes.clear()
+        self.actions = deque([
+            ("STOP_CLOSE", self.gripper_close, (PLATFORM_GRIPPER_CLOSED,)),
+            ("RETURN_HIGH", self.pose, (HIGH, True)),
+        ])
+        self.stage = "platform_actions"
+        self.deadline = 0.0
+        self.center_reacquire_deadline = 0.0
+        self.depth_invalid_deadline = 0.0
+        self.status = f"PLATFORM_PICK {self.finish_reason}; keeping high"
+
+    def _detect(self, detections, shape):
+        if self.discard:
+            self.discard -= 1
+            return
+        if shape is None or len(shape) < 2:
+            return
+        height, width = shape[:2]
+        candidates = [d for d in detections
+                      if d.get("kind") in {"letter", "ring"}
+                      and d.get("observed", True)
+                      and (float(d.get("confidence") or 0) >= 45 if d.get("kind") == "letter"
+                           else float(d.get("score") or 0) >= 0.55)
+                      and d.get("center") is not None
+                      and _target_in_center_window(
+                          d,
+                          shape,
+                          full_frame=self.current_slot in PLATFORM_FULLSCREEN_SLOTS,
+                      )]
+        # Ignore opponent rings and letters that were not selected by the
+        # secondary camera.  Waiting for a valid candidate lets the station
+        # timeout path advance safely without ever grabbing the wrong letter.
+        candidates = [d for d in candidates if self._allowed(d)]
+        if self.target_key is not None:
+            candidates = [d for d in candidates if self._key(d) == self.target_key
+                          and math.dist(d["center"], self.target_center) <= 320]
+        target = min(candidates, key=lambda d: math.dist(
+            d["center"], self.target_center or (width / 2, height / 2)), default=None)
+        if target is None:
+            self.votes.append(None)
+            self.depth_invalid_deadline = 0.0
+            return
+        key = self._key(target)
+        point = tuple(target["center"])
+        if not self.target_seen:
+            # A first valid candidate starts the stability vote; it does not
+            # release the station's bounded observation window.
+            self.target_seen = True
+            self.status = (
+                "PLATFORM_PICK target observed; "
+                "waiting for 3-frame stability vote"
+            )
+        self.votes.append((key, point))
+        if sum(v is not None and v[0] == key and math.dist(v[1], point) <= 140
+               for v in self.votes) < 3:
+            return
+        if not self._allowed(target):
+            self.skip("TARGET_NOT_SELECTED")
+            return
+        self.status = (
+            "PLATFORM_PICK target locked; "
+            "grasp transaction has no deadline"
+        )
+        self.target_key, self.target_center = key, point
+        dx, dy = point[0] - width / 2, point[1] - height / 2
+        center_deadband = (
+            RING_CENTER_DEADBAND_PX
+            if key[0] == "ring" else CENTER_DEADBAND_PX
+        )
+        if abs(dx) > center_deadband or abs(dy) > center_deadband:
+            self.depth_invalid_deadline = 0.0
+            id2 = max(CENTER_ID2_RANGE[0], min(CENTER_ID2_RANGE[1], self.center_id2 + (
+                -CENTER_ID2_STEP_TICKS if dy > center_deadband
+                else CENTER_ID2_STEP_TICKS if dy < -center_deadband else 0
+            )))
+            id6 = max(
+                CENTER_ID6_RANGE[0],
+                min(CENTER_ID6_RANGE[1], self.center_id6 + (
+                    -CENTER_ID6_STEP_TICKS if dx > center_deadband
+                    else CENTER_ID6_STEP_TICKS if dx < -center_deadband else 0
+                )),
+            )
+            if (id2, id6) == (self.center_id2, self.center_id6):
+                self.skip("CENTER_LIMIT")
+                return
+            self.high_ready = False
+            self.center_id2, self.center_id6 = id2, id6
+            if not self._command("CENTER_STEP", self.center, id2, id6):
+                return
+            self.center_reacquire_deadline = (
+                self.deadline + PLATFORM_CENTER_REACQUIRE_TIMEOUT_S
+            )
+            self.votes.clear()
+            self.discard = 1
+            return
+        try:
+            depth = float(target.get("distance_cm"))
+            if not math.isfinite(depth):
+                raise ValueError("non-finite depth")
+            id1, id2 = calibrated_grasp_ticks(
+                depth, id1_offset_ticks=PLATFORM_GRASP_ID1_OFFSET_TICKS,
+                target_kind=key[0],
+            )
+        except (ValueError, TypeError):
+            now = self.clock()
+            if self.depth_invalid_deadline <= 0.0:
+                self.depth_invalid_deadline = now + PLATFORM_DEPTH_INVALID_TIMEOUT_S
+            if now >= self.depth_invalid_deadline:
+                self.skip("DEPTH_INVALID_TIMEOUT")
+                return
+            self.status = (
+                "PLATFORM_PICK waiting valid measured depth 7..30cm; "
+                f"timeout_in={self.depth_invalid_deadline - now:.2f}s"
+            )
+            return
+        self.depth_invalid_deadline = 0.0
+        near_grasp = NEAR_GRASP_MIN_DISTANCE_CM <= depth <= NEAR_GRASP_MAX_DISTANCE_CM
+        if (FORMAL_ID2_CORRECTION_MIN_DISTANCE_CM <= depth
+                <= FORMAL_ID2_CORRECTION_MAX_DISTANCE_CM):
+            id1 += FORMAL_ID1_FINAL_CORRECTION_TICKS
+            id2 = min(
+                CENTER_ID2_RANGE[1],
+                id2 + FORMAL_ID2_CORRECTION_TICKS
+                + FORMAL_ID2_FINAL_CORRECTION_TICKS,
+            )
+        if key[0] == "ring":
+            if (FORMAL_ID2_CORRECTION_MIN_DISTANCE_CM <= depth
+                    <= FORMAL_ID2_CORRECTION_MAX_DISTANCE_CM):
+                target_id2 = _formal_ring_7_13_final_id2(depth)
+                ring_segment_correction = target_id2 - id2
+                id2 = max(CENTER_ID2_RANGE[0], min(
+                    CENTER_ID2_RANGE[1], id2 + ring_segment_correction,
+                ))
+            elif (FORMAL_RING_LONG_RANGE_MIN_DISTANCE_CM <= depth
+                  <= FORMAL_RING_LONG_RANGE_MAX_DISTANCE_CM):
+                id1 -= FORMAL_RING_LONG_RANGE_ID1_REDUCTION_TICKS
+                id2 = min(
+                    CENTER_ID2_RANGE[1],
+                    id2 + FORMAL_RING_LONG_RANGE_ID2_INCREASE_TICKS,
+                )
+            else:
+                id2 = max(
+                    CENTER_ID2_RANGE[0],
+                    id2 - FORMAL_RING_ID2_REDUCTION_TICKS,
+                )
+        elif (key[0] == "letter"
+              and FORMAL_ID2_CORRECTION_MIN_DISTANCE_CM <= depth
+              <= FORMAL_ID2_CORRECTION_MAX_DISTANCE_CM):
+            id2 = max(
+                CENTER_ID2_RANGE[0],
+                id2 - FORMAL_LETTER_ID2_REDUCTION_TICKS,
+            )
+            id2 = max(
+                CENTER_ID2_RANGE[0],
+                min(CENTER_ID2_RANGE[1],
+                    id2 + FORMAL_LETTER_7_13_ID2_ADJUSTMENT_TICKS),
+            )
+        if (key[0] == "ring" and FORMAL_RING_MID_MIN_DISTANCE_CM <= depth
+                <= FORMAL_RING_MID_MAX_DISTANCE_CM):
+            id2 = min(CENTER_ID2_RANGE[1], id2 + FORMAL_RING_MID_ID2_INCREASE_TICKS)
+        if (key[0] == "letter"
+                and FORMAL_RING_LONG_RANGE_MIN_DISTANCE_CM <= depth
+                <= FORMAL_RING_LONG_RANGE_MAX_DISTANCE_CM):
+            id2 = min(CENTER_ID2_RANGE[1], id2 + FORMAL_LONG_RANGE_FINAL_ID2_INCREASE_TICKS)
+        if (FORMAL_TASK2_13_15_SMOOTH_MIN_CM <= depth
+                <= FORMAL_TASK2_13_15_SMOOTH_MAX_CM):
+            id1, id2 = _formal_task2_13_15_final_pose(depth, key[0])
+        if (key[0] == "ring"
+                and FORMAL_ID2_CORRECTION_MIN_DISTANCE_CM <= depth
+                <= FORMAL_TASK2_13_15_SMOOTH_MAX_CM):
+            id2 = max(
+                CENTER_ID2_RANGE[0],
+                id2 - FORMAL_TASK2_RING_7_15_FINAL_ID2_REDUCTION_TICKS,
+            )
+        # Formal task-two request: preserve the original measured solve through
+        # 24 cm. Beyond that boundary, hold the original 24 cm final pose.
+        # Keep this caller-only so shared calibration and task-three solving
+        # remain unchanged.
+        if depth > 24.0:
+            id1, id2 = (
+                (447, 488)
+                if key[0] == "ring"
+                else (457, 478)
+            )
+        self.high_ready = False
+        placement = LETTER_PLACE if key[0] == "letter" else RING_PLACE
+        print(f"PLATFORM_PICK TARGET kind={key[0]} label={key[1]} depth_cm={depth:.2f} "
+              f"down={id1}/{id2}/{self.center_id6} model=measured_7_30cm", flush=True)
+        self.finish_reason = f"PICKED_{key[0].upper()}"
+        retreat_ticks = POST_OPEN_ID2_RETREAT_TICKS_BY_KIND[key[0]]
+        if key[0] == "ring" and near_grasp:
+            retreat_ticks += NEAR_RING_ID2_RETREAT_EXTRA_TICKS
+        retreat_id2 = max(
+            CENTER_ID2_RANGE[0],
+            self.center_id2 - retreat_ticks,
+        )
+        grasp_open = (
+            PLATFORM_RING_GRIPPER_OPEN
+            if key[0] == "ring"
+            else PLATFORM_GRIPPER_OPEN
+        )
+        actions = [
+            ("GRIPPER_OPEN", self.gripper_open, (grasp_open,)),
+            ("POST_OPEN_ID2_RETREAT", self.retreat_pose,
+             ((self.center_id1, retreat_id2, self.center_id6), False)),
+            ("DESCEND", self.pose, ((id1, id2, self.center_id6), False)),
+            ("GRIPPER_CLOSE", self.gripper_close, (PLATFORM_GRIPPER_CLOSED,)),
+        ]
+        if key[0] == "ring":
+            # Return high in the required joint order, settle ID2 at the
+            # pre-placement clearance, then enter the ring placement pose.
+            actions.extend([
+                ("LIFT_RING_HIGH_ID1", self.ring_return_high_id1,
+                 (HIGH[0],)),
+                ("LIFT_RING_HIGH_ID2", self.ring_return_high_id2,
+                 (HIGH[1],)),
+                ("LIFT_RING_HIGH_ID6", self.ring_return_high_id6,
+                 (HIGH[2],)),
+                ("PREPLACE_ID2", self.ring_place_id2, (PREPLACE_ID2,)),
+                ("PLACE_RING_ID6", self.ring_place_id6,
+                 (RING_PLACE[2],)),
+                ("PLACE_RING_ID1_ID2", self.ring_place_id12,
+                 (RING_PLACE[0], RING_PLACE[1])),
+                ("RING_RELEASE_HOLD", self.ring_release_hold, ()),
+            ])
+        else:
+            # Letter placement uses the same high-pose and clearance barrier.
+            actions.extend([
+                ("LIFT_LETTER_HIGH_ID1", self.letter_return_high_id1,
+                 (HIGH[0],)),
+                ("LIFT_LETTER_HIGH_ID2", self.letter_return_high_id2,
+                 (HIGH[1],)),
+                ("LIFT_LETTER_HIGH_ID6", self.letter_return_high_id6,
+                 (HIGH[2],)),
+                ("PREPLACE_ID2", self.letter_place_id2, (PREPLACE_ID2,)),
+                ("PLACE_LETTER_ID6", self.letter_place_id6,
+                 (placement[2],)),
+                ("PLACE_LETTER_ID1_ID2", self.letter_place_id12,
+                 (placement[0], placement[1])),
+            ])
+        actions.extend([
+            ("PLACE_OPEN", self.place_open, (PLATFORM_GRIPPER_OPEN,)),
+            ("PLACE_CLOSE", self.place_close, (PLATFORM_GRIPPER_CLOSED,)),
+            # Clear the released object before the ordered final high return.
+            ("RETURN_INTERMEDIATE_HIGH", self.pose,
+             (INTERMEDIATE_HIGH, True)),
+        ])
+        if key[0] == "ring":
+            actions.extend([
+                ("RETURN_RING_HIGH_ID1", self.ring_return_high_id1,
+                 (HIGH[0],)),
+                ("RETURN_RING_HIGH_ID2", self.ring_return_high_id2,
+                 (HIGH[1],)),
+                ("RETURN_RING_HIGH_ID6", self.ring_return_high_id6,
+                (HIGH[2],)),
+            ])
+        else:
+            actions.extend([
+                ("RETURN_LETTER_HIGH_ID1", self.letter_return_high_id1,
+                 (HIGH[0],)),
+                ("RETURN_LETTER_HIGH_ID2", self.letter_return_high_id2,
+                 (HIGH[1],)),
+                ("RETURN_LETTER_HIGH_ID6", self.letter_return_high_id6,
+                 (HIGH[2],)),
+            ])
+        self.actions = deque(actions)
+        self.stage = "platform_actions"
+
+    def tick(self, detections=(), shape=None, fresh=False):
+        now = self.clock()
+        if self.stage == "platform_preselect" and now >= self.timeout:
+            selected = self._persistent_pair()
+            if selected:
+                self._lock_selected(selected, "PERSISTED_FALLBACK")
+            elif not self._fallback_pair():
+                self._fail("SECONDARY_PAIR_TIMEOUT")
+        elif self.stage == "platform_raise" and now >= self.deadline:
+            self.high_ready = True
+            self.stage = "platform_entry_hold"
+            self.done = "PRESELECT_DONE:" + ":".join(self.selected)
+            self.status = "PLATFORM_PICK ARM_HIGH_READY; release H7 approach"
+        elif self.stage == "platform_slot_raise" and now >= self.deadline:
+            self.high_ready = True
+            field = self.pending_slot_field
+            slot = self.pending_slot_index
+            self.pending_slot_field = None
+            self.pending_slot_index = None
+            self._start_slot_detection(field, slot)
+        elif self.stage == "platform_detect":
+            # The station budget covers the complete search/lock window.  A
+            # single noisy sighting must not disable the timeout while the
+            # required stable vote is still missing.
+            if self.target_key is None and now >= self.timeout:
+                self.skip("MAIN_TARGET_OR_DEPTH_TIMEOUT")
+            elif (
+                self.target_seen
+                and self.center_reacquire_deadline > 0.0
+                and now >= self.center_reacquire_deadline
+            ):
+                self.skip("CENTER_REACQUIRE_TIMEOUT")
+            elif now >= self.deadline and fresh:
+                self._detect(detections, shape)
+        elif self.stage == "platform_actions" and now >= self.deadline:
+            if self.actions:
+                label, callback, args = self.actions.popleft()
+                self._command(label, callback, *args)
+            else:
+                if (
+                    self.target_key is not None
+                    and self.target_key[0] == "letter"
+                    and self.finish_reason == "PICKED_LETTER"
+                ):
+                    label = self.target_key[1]
+                    self.letter_success_counts[label] = (
+                        self.letter_success_counts.get(label, 0) + 1
+                    )
+                    print(
+                        "PLATFORM_PICK LETTER_SUCCESS "
+                        f"letter={label} count={self.letter_success_counts[label]}/"
+                        f"{PLATFORM_LETTER_SUCCESS_QUOTA}",
+                        flush=True,
+                    )
+                self.high_ready = True
+                self.stage = "platform_high_hold"
+                self.done = self.finish_reason
+                self.status = f"PLATFORM_PICK ARM_HIGH_READY; {self.finish_reason}; release H7 next slot"
+        return self.status

@@ -1,0 +1,1161 @@
+import unittest
+from unittest import mock
+
+import numpy as np
+import cv2
+
+from ros2_test1 import target_vision
+
+
+class FakeArmPreview:
+    def __init__(self):
+        self.id6 = target_vision.BASE_YAW_CENTER_TICK
+        self.targets = None
+        self.messages = []
+
+    def set_targets(self, id1, id2, id4, id6):
+        self.targets = (id1, id2, id4, id6)
+
+    def publish(self, message, *_args):
+        self.messages.append(message)
+
+    def publish_plan_marker(self, *_args):
+        pass
+
+
+class FakeServoBridge:
+    def __init__(self):
+        self.enabled = True
+        self.write_enabled = True
+        self.assumed_feedback = True
+        self.arm_time_ms = 1
+        self.gripper_time_ms = 1
+        self.aux_time_ms = 1
+        self.splitter_time_ms = 1
+        self.last_command_ok = True
+        self.status = "fake ready"
+        self.fail_writes = False
+        self.ports_open = True
+        self.sent = []
+        self.timed_sent = []
+
+    def send_targets(self, **targets):
+        self.sent.append(targets)
+        self.timed_sent.append(
+            (targets, self.arm_time_ms, self.gripper_time_ms)
+        )
+        self.last_command_ok = not self.fail_writes
+        self.status = "fake write failed" if self.fail_writes else "fake write ok"
+        return self.status
+
+    def ready_for_commands(self):
+        return (
+            self.enabled
+            and self.write_enabled
+            and self.ports_open
+            and self.last_command_ok
+        )
+
+
+def make_controller(bridge=None, field_mode=target_vision.FieldMode.RED):
+    bridge = bridge or FakeServoBridge()
+    preview = FakeArmPreview()
+    controller = target_vision.TargetGraspController(
+        True,
+        bridge,
+        preview,
+        550,
+        300,
+        310,
+        450,
+        35,
+        3,
+        0.2,
+        0.0,
+        0.1,
+        0.08,
+        30,
+        0.0,
+        0.0,
+        50.0,
+        0.0,
+        5.0,
+        24,
+        target_vision.ID1_SAFE_LIMITS,
+        target_vision.ID2_SAFE_LIMITS,
+        20.0,
+        startup_sequence=False,
+        one_shot=False,
+        camera_gripper_vertical_offset_mm=0.0,
+        max_lateral_offset_mm=300.0,
+        max_one_shot_ik_error_mm=30.0,
+        post_center_retreat_mm=52.0,
+        post_center_down_mm=150.0,
+        post_center_ik_error_mm=30.0,
+        field_mode=field_mode,
+    )
+    controller.startup_stage = "complete"
+    controller.algorithm_stage = "centering"
+    return controller, bridge, preview
+
+
+class ChassisStationSafetyTests(unittest.TestCase):
+    def test_task3_id2_smooth_curve_is_caller_only(self):
+        expected = {
+            7.0: 510,
+            8.0: 505,
+            9.0: 500,
+            10.0: 495,
+            11.0: 490,
+            12.0: 485,
+            13.0: 480,
+            14.0: 477,
+            15.0: 473,
+        }
+        for distance_cm, final_id2 in expected.items():
+            with self.subTest(distance_cm=distance_cm):
+                _, solved_id2 = target_vision.calibrated_grasp_ticks(distance_cm)
+                self.assertEqual(
+                    target_vision.column_catch_final_id2_tick(
+                        solved_id2,
+                        distance_cm,
+                    ),
+                    final_id2,
+                )
+
+        self.assertEqual(
+            target_vision.calibrated_grasp_ticks(10.0),
+            (590, 450),
+        )
+
+    def test_blue_orbit_hold_runs_one_quota_supplement_before_release(self):
+        controller, bridge, _ = make_controller(
+            field_mode=target_vision.FieldMode.BLUE
+        )
+        controller.active_chassis_station = "COLUMN_CATCH"
+        controller.platform_selected_letters = frozenset({"A", "B"})
+        controller.letter_success_counts.update({"A": 2, "B": 1})
+
+        status = controller.hold_blue_task3_arm()
+        self.assertIn("HOLD_EXPANDED_HIGH", status)
+        self.assertEqual(controller.task3_supplement_label, "B")
+        self.assertTrue(controller.task3_supplement_pending())
+        self.assertFalse(controller.consume_task3_supplement_done())
+
+        with mock.patch.object(target_vision.time, "monotonic", return_value=1000.0):
+            for _ in range(20):
+                controller.chassis_station_deadline = 0.0
+                controller.update_chassis_station(
+                    "COLUMN_CATCH", [], (600, 800, 3), detection_fresh=False
+                )
+                if controller.task3_supplement_done:
+                    break
+
+        self.assertTrue(controller.consume_task3_supplement_done())
+        self.assertFalse(controller.task3_supplement_pending())
+        self.assertEqual(controller.letter_success_counts["B"], 2)
+        self.assertEqual(
+            (controller.id1, controller.id2, controller.id6), (650, 570, 413)
+        )
+        self.assertEqual(controller.id7, 265)
+        commands = bridge.sent
+        timed_commands = bridge.timed_sent
+        descend_index = next(
+            index for index, command in enumerate(commands)
+            if command.get("id1") == 580
+        )
+        close_index = next(
+            index for index, command in enumerate(commands)
+            if index > descend_index and command.get("id4") == 265
+        )
+        place_id6_index = next(
+            index for index, command in enumerate(commands)
+            if index > close_index and command.get("id6") == 620
+        )
+        place_id2_index = next(
+            index for index, command in enumerate(commands)
+            if index > place_id6_index and command.get("id2") == 365
+        )
+        place_id1_index = next(
+            index for index, command in enumerate(commands)
+            if index > place_id2_index and command.get("id1") == 545
+        )
+        release_index = next(
+            index for index, command in enumerate(commands)
+            if index > place_id1_index and command.get("id4") == 405
+        )
+        reclose_index = next(
+            index for index, command in enumerate(commands)
+            if index > release_index and command.get("id4") == 265
+        )
+        final_high_index = next(
+            index for index, command in enumerate(commands)
+            if index > reclose_index and command.get("id6") == 413
+        )
+        self.assertLess(descend_index, close_index)
+        self.assertLess(close_index, place_id6_index)
+        self.assertLess(place_id6_index, place_id2_index)
+        self.assertLess(place_id2_index, place_id1_index)
+        self.assertLess(place_id1_index, release_index)
+        self.assertLess(release_index, reclose_index)
+        self.assertLess(reclose_index, final_high_index)
+
+        def sent_timings(predicate):
+            return [
+                (arm_ms, gripper_ms)
+                for targets, arm_ms, gripper_ms in timed_commands[1:]
+                if predicate(targets)
+            ]
+
+        self.assertEqual(
+            sent_timings(lambda item: item.get("id1") == 650
+                         and item.get("id2") == 600
+                         and item.get("id6") == 413
+                         and item.get("id4") == 405),
+            [(500, 500)],
+        )
+        self.assertEqual(
+            sent_timings(lambda item: item.get("id1") == 580), [(800, 800)]
+        )
+        self.assertEqual(
+            sent_timings(lambda item: item.get("id1") == 650
+                         and len(item) == 1),
+            [(200, 200), (500, 500)],
+        )
+        self.assertEqual(
+            sent_timings(lambda item: item.get("id2") == 570),
+            [(200, 200), (500, 500)],
+        )
+        self.assertEqual(
+            sent_timings(lambda item: item.get("id6") == 413
+                         and len(item) == 1),
+            [(200, 200), (500, 500)],
+        )
+        self.assertEqual(
+            sent_timings(lambda item: item.get("id6") == 620), [(300, 300)]
+        )
+        self.assertEqual(
+            sent_timings(lambda item: item.get("id2") == 365), [(300, 300)]
+        )
+        self.assertEqual(
+            sent_timings(lambda item: item.get("id1") == 545), [(300, 300)]
+        )
+        self.assertEqual(target_vision.COLUMN_CATCH_LETTER_PLACE, (580, 300, 610))
+        self.assertEqual(target_vision.TASK3_SUPPLEMENT_PLACE, (580, 300, 610))
+        self.assertEqual(
+            sent_timings(lambda item: item.get("id4") == 405),
+            [(500, 500), (1, 200)],
+        )
+        self.assertEqual(
+            sent_timings(lambda item: item.get("id4") == 265),
+            [(1, 200), (1, 200)],
+        )
+
+    def test_repeated_blue_hold_does_not_restart_supplement_queue(self):
+        controller, bridge, _ = make_controller(
+            field_mode=target_vision.FieldMode.BLUE
+        )
+        controller.active_chassis_station = "COLUMN_CATCH"
+        controller.platform_selected_letters = frozenset({"A", "B"})
+        controller.letter_success_counts.update({"A": 2, "B": 1})
+
+        controller.hold_blue_task3_arm()
+        with mock.patch.object(target_vision.time, "monotonic", return_value=1000.0):
+            controller.chassis_station_deadline = 0.0
+            controller.update_chassis_station(
+                "COLUMN_CATCH", [], (600, 800, 3), detection_fresh=False
+            )
+
+        sent_after_open = list(bridge.sent)
+        status = controller.hold_blue_task3_arm()
+
+        self.assertIn("supplement in progress", status)
+        self.assertEqual(bridge.sent, sent_after_open)
+        self.assertTrue(controller.task3_supplement_pending())
+
+    def test_repeated_blue_hold_does_not_start_supplement_after_complete(self):
+        controller, bridge, _ = make_controller(
+            field_mode=target_vision.FieldMode.BLUE
+        )
+        controller.active_chassis_station = "COLUMN_CATCH"
+        controller.platform_selected_letters = frozenset({"A", "B"})
+        controller.letter_success_counts.update({"A": 2, "B": 2})
+
+        controller.hold_blue_task3_arm()
+        sent_after_first_hold = list(bridge.sent)
+        status = controller.hold_blue_task3_arm()
+
+        self.assertIn("supplement already complete", status)
+        self.assertEqual(bridge.sent, sent_after_first_hold)
+        self.assertFalse(controller.task3_supplement_pending())
+
+    def test_blue_orbit_hold_skips_supplement_when_both_quotas_are_complete(self):
+        controller, _bridge, _ = make_controller(
+            field_mode=target_vision.FieldMode.BLUE
+        )
+        controller.active_chassis_station = "COLUMN_CATCH"
+        controller.platform_selected_letters = frozenset({"A", "B"})
+        controller.letter_success_counts.update({"A": 2, "B": 2})
+
+        controller.hold_blue_task3_arm()
+
+        self.assertFalse(controller.task3_supplement_pending())
+        self.assertIsNone(controller.task3_supplement_label)
+        self.assertEqual(controller.chassis_station_stage, None)
+
+    def test_blue_orbit_supplement_write_failure_does_not_mark_done(self):
+        controller, bridge, _ = make_controller(
+            field_mode=target_vision.FieldMode.BLUE
+        )
+        controller.active_chassis_station = "COLUMN_CATCH"
+        controller.platform_selected_letters = frozenset({"A", "B"})
+        controller.letter_success_counts.update({"A": 2, "B": 1})
+        controller.hold_blue_task3_arm()
+        bridge.fail_writes = True
+
+        with mock.patch.object(target_vision.time, "monotonic", return_value=1000.0):
+            result = controller.update_chassis_station(
+                "COLUMN_CATCH", [], (600, 800, 3), detection_fresh=False
+            )
+
+        self.assertIn("failed", result)
+        self.assertFalse(controller.consume_task3_supplement_done())
+        self.assertEqual(
+            controller.consume_chassis_station_error(),
+            "TASK3_SUPPLEMENT_OPEN_HIGH_FAILED",
+        )
+        self.assertEqual(controller.letter_success_counts["B"], 1)
+
+    def test_blue_disc_detector_rejects_dark_cyan_ball(self):
+        detector = target_vision.TargetDetector()
+        frame = np.zeros((600, 800, 3), dtype=np.uint8)
+        # Cyan-blue motion is deliberately outside the tightened blue mask.
+        cv2.circle(frame, (400, 300), 42, (150, 95, 35), -1)
+        detections = detector.detect(
+            frame,
+            mode=target_vision.DETECTION_MODE_DISC_BALLS,
+            field_name="blue",
+        )
+        balls = [d for d in detections if d.get("kind") == "ball"]
+        self.assertFalse(any(d.get("color") == "blue" for d in balls))
+
+    def test_platform_detector_rejects_opponent_ring_mislabeled_as_cd(self):
+        frame = np.zeros((600, 800, 3), dtype=np.uint8)
+        cases = (
+            ("red", "blue", "C"),
+            ("red", "blue", "D"),
+            ("blue", "red", "C"),
+            ("blue", "red", "D"),
+        )
+        for field_name, opponent_color, letter in cases:
+            with self.subTest(field=field_name, letter=letter):
+                detector = target_vision.TargetDetector()
+                false_letter = {
+                    "kind": "letter",
+                    "letter": letter,
+                    "bbox": (300, 200, 80, 80),
+                    "center": (340, 240),
+                }
+                real_letter = {
+                    "kind": "letter",
+                    "letter": letter,
+                    "bbox": (500, 200, 80, 80),
+                    "center": (540, 240),
+                }
+                opponent_ring = {
+                    "kind": "ring",
+                    "color": opponent_color,
+                    "bbox": (290, 190, 100, 100),
+                    "center": (340, 240),
+                }
+                with mock.patch.object(
+                    detector,
+                    "_detect_task2_letters",
+                    return_value=[false_letter, real_letter],
+                ), mock.patch.object(
+                    target_vision,
+                    "detect_platform_rings",
+                    return_value=[opponent_ring],
+                ):
+                    detections = detector.detect(
+                        frame,
+                        mode=target_vision.DETECTION_MODE_PLATFORM_TARGETS,
+                        field_name=field_name,
+                        target_letters=(letter,),
+                    )
+
+                self.assertNotIn(false_letter, detections)
+                self.assertIn(real_letter, detections)
+                self.assertIn(opponent_ring, detections)
+
+    def test_platform_detector_keeps_cd_overlapping_own_field_ring(self):
+        detector = target_vision.TargetDetector()
+        frame = np.zeros((600, 800, 3), dtype=np.uint8)
+        letter = {
+            "kind": "letter",
+            "letter": "C",
+            "bbox": (300, 200, 80, 80),
+            "center": (340, 240),
+        }
+        own_ring = {
+            "kind": "ring",
+            "color": "red",
+            "bbox": (290, 190, 100, 100),
+            "center": (340, 240),
+        }
+        with mock.patch.object(
+            detector, "_detect_task2_letters", return_value=[letter]
+        ), mock.patch.object(
+            target_vision, "detect_platform_rings", return_value=[own_ring]
+        ):
+            detections = detector.detect(
+                frame,
+                mode=target_vision.DETECTION_MODE_PLATFORM_TARGETS,
+                field_name="red",
+                target_letters=("C",),
+            )
+
+        self.assertIn(letter, detections)
+        self.assertIn(own_ring, detections)
+
+    def test_mixed_bridge_routes_85kg_targets_to_htd85_binary(self):
+        bridge = target_vision.HiwonderSingleBusServoBridge(
+            "/dev/missing", 115200, enabled=False, write_enabled=False
+        )
+        bridge.enabled = True
+        bridge.write_enabled = True
+        bridge.arm_fd = 10
+        writes = []
+        bridge._write_payload = lambda payload, repeat=None: writes.append((bridge.arm_fd, payload))
+        bridge.send_targets(id1=650, id2=500, id6=415)
+
+        self.assertTrue(bridge.last_command_ok)
+        self.assertEqual(
+            [
+                (10, target_vision.htd85_move_packet(1, 650, bridge.arm_time_ms)),
+                (10, target_vision.htd85_move_packet(2, 500, bridge.arm_time_ms)),
+                (10, target_vision.htd85_move_packet(6, 415, bridge.arm_time_ms)),
+            ],
+            writes,
+        )
+
+    def test_disc_prep_high_keeps_id6_at_415_and_is_idempotent(self):
+        controller, bridge, _ = make_controller()
+        prep = {"task": "DISC_CATCH", "id1": 650, "id2": 600}
+        with mock.patch.object(target_vision.time, "sleep") as sleep_mock:
+            controller.prepare_chassis_station_high(prep)
+            first_command_count = len(bridge.sent)
+            controller.prepare_chassis_station_high(prep)
+
+        self.assertEqual(controller.id6, 415)
+        self.assertEqual(bridge.sent[-2]["id1"], 650)
+        self.assertEqual(bridge.sent[-2]["id6"], 415)
+        self.assertNotIn("id2", bridge.sent[-2])
+        self.assertEqual(bridge.sent[-1], {"id2": 600})
+        sleep_mock.assert_called_once_with(target_vision.ARM_JOINT_SEQUENCE_DELAY_S)
+        self.assertEqual(len(bridge.sent), first_command_count)
+
+    def test_chassis_ready_requires_writable_servo_link(self):
+        controller, bridge, _ = make_controller()
+        self.assertTrue(controller.ready_for_chassis_link(True))
+        bridge.write_enabled = False
+        self.assertFalse(controller.ready_for_chassis_link(True))
+        self.assertTrue(controller.ready_for_chassis_link(False))
+
+    def test_chassis_ready_rejects_stale_command_success_after_port_loss(self):
+        controller, bridge, _ = make_controller()
+        bridge.last_command_ok = True
+        bridge.ports_open = False
+
+        self.assertFalse(controller.ready_for_chassis_link(True))
+
+    def test_direct_bridge_missing_ports_clears_stale_success(self):
+        bridge = target_vision.HiwonderSingleBusServoBridge(
+            "/dev/missing", 115200, enabled=False, write_enabled=False
+        )
+        bridge.enabled = True
+        bridge.write_enabled = True
+        bridge.last_command_ok = True
+
+        bridge.send_targets(id1=550)
+
+        self.assertFalse(bridge.last_command_ok)
+        self.assertFalse(bridge.ready_for_commands())
+
+    def test_locked_grasp_advances_without_fresh_camera_frame(self):
+        controller, bridge, _ = make_controller()
+        controller.locked_target = {"kind": "letter", "letter": "A", "color": "white"}
+        controller.algorithm_stage = "close"
+        controller.id4 = controller.id4_open
+        controller.update(None, (600, 800, 3), detection_fresh=False)
+
+        self.assertEqual(bridge.sent[-1]["id4"], controller.id4_closed)
+        self.assertEqual(controller.algorithm_stage, "close_wait")
+
+    def test_disc_no_frame_timeout_retracts_and_completes(self):
+        controller, bridge, _ = make_controller()
+        clock = [100.0]
+        with mock.patch.object(target_vision.time, "monotonic", lambda: clock[0]), mock.patch.object(
+            target_vision.time, "sleep"
+        ):
+            controller.begin_chassis_station("DISC_CATCH")
+            clock[0] = 100.2
+            controller.update_chassis_station(
+                "DISC_CATCH", [], (600, 800, 3), detection_fresh=False
+            )
+            clock[0] = 100.5
+            controller.update_chassis_station(
+                "DISC_CATCH", [], (600, 800, 3), detection_fresh=False
+            )
+            clock[0] = 100.8
+            controller.update_chassis_station(
+                "DISC_CATCH", [], (600, 800, 3), detection_fresh=False
+            )
+            clock[0] = 111.0
+            controller.update_chassis_station(
+                "DISC_CATCH", [], (600, 800, 3), detection_fresh=False
+            )
+
+        self.assertIsNone(controller.active_chassis_station)
+        self.assertEqual(
+            controller.consume_chassis_station_done(),
+            "NO_RED_OR_YELLOW_BALL_4.0S",
+        )
+        high_first = next(
+            item for item in bridge.sent
+            if item.get("id1") == target_vision.DISC_CATCH_PREP_ID1_TICK
+            and item.get("id6") == target_vision.DISC_CATCH_ID6_TICK
+            and "id2" not in item
+        )
+        high_second_index = next(
+            index for index, item in enumerate(bridge.sent)
+            if item == {"id2": target_vision.DISC_CATCH_PREP_ID2_TICK}
+        )
+        home_id2_index = next(
+            index for index, item in enumerate(bridge.sent)
+            if item.get("id2") == target_vision.HOME_ID2_TICK
+        )
+        self.assertEqual(high_first["id1"], 650)
+        self.assertEqual(high_first["id6"], 415)
+        self.assertLess(high_second_index, home_id2_index)
+        self.assertEqual(bridge.sent[-1]["id1"], target_vision.HOME_ID1_TICK)
+        self.assertNotIn("id2", bridge.sent[-1])
+        self.assertEqual(
+            bridge.sent[-1]["id5"],
+            target_vision.CATCHER_HOME_TICK,
+        )
+
+
+    def test_disc_red_field_rejects_blue_ball(self):
+        controller, _bridge, _ = make_controller(field_mode=target_vision.FieldMode.RED)
+
+        self.assertIsNone(
+            controller._disc_catch_ball_visible([{"kind": "ball", "color": "blue", "center": (320, 240), "area_percent": 1.0}])
+        )
+
+    def test_disc_blue_field_rejects_red_ball_and_accepts_blue_first_frame(self):
+        controller, _bridge, _ = make_controller(field_mode=target_vision.FieldMode.BLUE)
+        red_ball = {"kind": "ball", "color": "red", "center": (320, 240), "area_percent": 1.0}
+        blue_ball = {"kind": "ball", "color": "blue", "center": (322, 241), "area_percent": 1.0}
+
+        self.assertIsNone(controller._disc_catch_ball_visible([red_ball]))
+        self.assertIs(controller._disc_catch_ball_visible([blue_ball]), blue_ball)
+
+    def test_disc_blue_field_does_not_filter_by_previous_target_position(self):
+        controller, _bridge, _ = make_controller(field_mode=target_vision.FieldMode.BLUE)
+        blue_ball = {
+            "kind": "ball",
+            "color": "blue",
+            "center": (320, 240),
+            "area_percent": 1.0,
+        }
+        controller.disc_pulse_done = True
+        controller.disc_last_pulsed_color = "blue"
+        controller.disc_last_pulsed_center = (320.0, 240.0)
+
+        self.assertIs(controller._disc_catch_ball_visible([blue_ball]), blue_ball)
+        moved_ball = dict(blue_ball, center=(410, 240))
+        self.assertIs(controller._disc_catch_ball_visible([moved_ball]), moved_ball)
+
+    def test_disc_blue_field_waits_for_target_clear_after_cooldown(self):
+        controller, bridge, _ = make_controller(field_mode=target_vision.FieldMode.BLUE)
+        controller.disc_pulse_done = True
+        controller.disc_last_pulsed_color = "blue"
+        controller.disc_last_pulsed_center = (320.0, 240.0)
+        blue_ball = {
+            "kind": "ball",
+            "color": "blue",
+            "center": (320, 240),
+            "area_percent": 1.0,
+        }
+        controller.active_chassis_station = "DISC_CATCH"
+        controller.chassis_station_stage = "disc_close_wait"
+        controller.chassis_station_deadline = 100.0
+        controller.chassis_station_no_target_deadline = 100000000000.0
+        controller.disc_blue_channel_hold_deadline = 100.5
+
+        clock = [100.0]
+        with mock.patch.object(target_vision.time, "monotonic", lambda: clock[0]):
+            result = controller.update_chassis_station(
+                "DISC_CATCH", [blue_ball], (600, 800, 3), detection_fresh=True
+            )
+            self.assertIn("blue-field ID17 closed", result)
+            self.assertEqual(controller.chassis_station_stage, "disc_blue_channel_wait")
+            self.assertEqual(controller.chassis_station_deadline, 100.5)
+
+            sent_before_cooldown = len(bridge.sent)
+            clock[0] = 100.49
+            controller.update_chassis_station(
+                "DISC_CATCH", [blue_ball], (600, 800, 3), detection_fresh=True
+            )
+            self.assertEqual(len(bridge.sent), sent_before_cooldown)
+            self.assertTrue(controller.disc_pulse_done)
+
+            clock[0] = 100.5
+            result = controller.update_chassis_station(
+                "DISC_CATCH", [blue_ball], (600, 800, 3), detection_fresh=True
+            )
+            self.assertEqual(len(bridge.sent), sent_before_cooldown)
+            self.assertEqual(controller.chassis_station_stage, "disc_detect")
+            self.assertIn("waiting for blue target to clear", result)
+            self.assertTrue(controller.disc_pulse_done)
+            self.assertEqual(controller.disc_last_pulsed_color, "blue")
+
+            clock[0] = 100.51
+            result = controller.update_chassis_station(
+                "DISC_CATCH", [blue_ball], (600, 800, 3), detection_fresh=True
+            )
+            self.assertIn("already pulsed", result)
+            self.assertEqual(len(bridge.sent), sent_before_cooldown)
+
+            for _ in range(3):
+                controller.update_chassis_station(
+                    "DISC_CATCH", [], (600, 800, 3), detection_fresh=True
+                )
+            controller.update_chassis_station(
+                "DISC_CATCH", [blue_ball], (600, 800, 3), detection_fresh=True
+            )
+
+        self.assertEqual(controller.chassis_station_stage, "disc_open_wait")
+        self.assertEqual(
+            bridge.sent[-1]["id4"], controller._disc_catch_gripper_open_tick()
+        )
+
+    def test_disc_blue_field_yellow_holds_channel_then_returns_to_blue(self):
+        controller, bridge, _ = make_controller(field_mode=target_vision.FieldMode.BLUE)
+        controller.active_chassis_station = "DISC_CATCH"
+        controller.chassis_station_stage = "disc_close_wait"
+        controller.chassis_station_deadline = 200.0
+        controller.chassis_station_no_target_deadline = 100000000000.0
+        controller.disc_pulse_done = True
+        controller.disc_last_pulsed_color = "yellow"
+        controller.disc_last_pulsed_center = (320.0, 240.0)
+        controller.disc_blue_channel_hold_deadline = 200.2
+
+        clock = [200.0]
+        with mock.patch.object(target_vision.time, "monotonic", lambda: clock[0]):
+            result = controller.update_chassis_station(
+                "DISC_CATCH", [], (600, 800, 3), detection_fresh=True
+            )
+            self.assertEqual(controller.chassis_station_deadline, 200.2)
+
+            sent_before_switch = len(bridge.sent)
+            clock[0] = 200.19
+            controller.update_chassis_station(
+                "DISC_CATCH", [], (600, 800, 3), detection_fresh=True
+            )
+            self.assertEqual(len(bridge.sent), sent_before_switch)
+            clock[0] = 200.2
+            controller.update_chassis_station(
+                "DISC_CATCH", [], (600, 800, 3), detection_fresh=True
+            )
+
+        self.assertEqual(len(bridge.sent), sent_before_switch + 1)
+        self.assertEqual(bridge.sent[-1]["splitter_id4"], target_vision.DISC_CATCH_SPLITTER_FIELD_TICK)
+        self.assertEqual(controller.chassis_station_stage, "disc_detect")
+        self.assertFalse(controller.disc_pulse_done)
+        self.assertIsNone(controller.disc_last_pulsed_color)
+
+    def test_disc_red_field_uses_fast_80ms_gripper_cycle(self):
+        controller, bridge, _ = make_controller(field_mode=target_vision.FieldMode.RED)
+        red_ball = {
+            "kind": "ball",
+            "color": "red",
+            "center": (320, 240),
+            "area_percent": 1.0,
+        }
+        controller.active_chassis_station = "DISC_CATCH"
+        controller.chassis_station_stage = "disc_detect"
+        controller.chassis_station_deadline = 0.0
+        controller.chassis_station_no_target_deadline = 110.0
+
+        with mock.patch.object(target_vision.time, "monotonic", return_value=100.0):
+            controller.update_chassis_station(
+                "DISC_CATCH", [red_ball], (600, 800, 3), detection_fresh=True
+            )
+
+        self.assertTrue(controller.disc_fast_blue_cycle)
+        self.assertEqual(controller.chassis_station_stage, "disc_open_wait")
+        self.assertEqual(bridge.sent[-1]["id4"], 480)
+        self.assertEqual(bridge.timed_sent[-1][2], 80)
+
+    def test_disc_red_field_waits_for_target_clear_after_cooldown(self):
+        controller, bridge, _ = make_controller(field_mode=target_vision.FieldMode.RED)
+        red_ball = {
+            "kind": "ball",
+            "color": "red",
+            "center": (320, 240),
+            "area_percent": 1.0,
+        }
+        controller.active_chassis_station = "DISC_CATCH"
+        controller.chassis_station_stage = "disc_close_wait"
+        controller.chassis_station_deadline = 100.0
+        controller.chassis_station_no_target_deadline = 100000000000.0
+        controller.disc_pulse_done = True
+        controller.disc_last_pulsed_color = "red"
+        controller.disc_last_pulsed_center = (320.0, 240.0)
+        controller.disc_blue_channel_hold_deadline = 100.5
+
+        clock = [100.0]
+        with mock.patch.object(target_vision.time, "monotonic", lambda: clock[0]):
+            result = controller.update_chassis_station(
+                "DISC_CATCH", [red_ball], (600, 800, 3), detection_fresh=True
+            )
+            self.assertIn("red-field ID17 closed", result)
+            self.assertTrue(controller.disc_pulse_done)
+            self.assertEqual(controller.disc_last_pulsed_color, "red")
+            self.assertEqual(controller.chassis_station_stage, "disc_blue_channel_wait")
+            self.assertEqual(controller.chassis_station_deadline, 100.5)
+
+            sent_before_cooldown = len(bridge.sent)
+            clock[0] = 100.49
+            controller.update_chassis_station(
+                "DISC_CATCH", [red_ball], (600, 800, 3), detection_fresh=True
+            )
+            self.assertEqual(len(bridge.sent), sent_before_cooldown)
+
+            clock[0] = 100.5
+            result = controller.update_chassis_station(
+                "DISC_CATCH", [red_ball], (600, 800, 3), detection_fresh=True
+            )
+            self.assertEqual(controller.chassis_station_stage, "disc_detect")
+            self.assertIn("waiting for red target to clear", result)
+
+            clock[0] = 100.51
+            result = controller.update_chassis_station(
+                "DISC_CATCH", [red_ball], (600, 800, 3), detection_fresh=True
+            )
+            self.assertIn("already pulsed", result)
+            self.assertEqual(len(bridge.sent), sent_before_cooldown)
+
+            for _ in range(3):
+                controller.update_chassis_station(
+                    "DISC_CATCH", [], (600, 800, 3), detection_fresh=True
+                )
+            controller.update_chassis_station(
+                "DISC_CATCH", [red_ball], (600, 800, 3), detection_fresh=True
+            )
+
+        self.assertEqual(controller.chassis_station_stage, "disc_open_wait")
+        self.assertEqual(
+            bridge.sent[-1]["splitter_id4"],
+            target_vision.DISC_CATCH_SPLITTER_FIELD_TICK,
+        )
+        self.assertEqual(
+            bridge.sent[-1]["id4"], controller._disc_catch_gripper_open_tick()
+        )
+
+    def test_disc_station_starts_with_app_low_pose(self):
+        controller, bridge, _ = make_controller()
+        controller.id1 = target_vision.DISC_CATCH_PREP_ID1_TICK
+        controller.id2 = target_vision.DISC_CATCH_PREP_ID2_TICK
+        controller.id6 = target_vision.DISC_CATCH_ID6_TICK
+        with mock.patch.object(target_vision.time, "monotonic", return_value=100.0), mock.patch.object(
+            target_vision.time, "sleep"
+        ) as sleep_mock:
+            controller.begin_chassis_station("DISC_CATCH")
+
+        self.assertEqual(controller.chassis_station_stage, "disc_app_low_settle")
+        self.assertEqual(controller.id1, target_vision.DISC_CATCH_READY_ID1_TICK)
+        self.assertEqual(controller.id2, target_vision.DISC_CATCH_READY_ID2_TICK)
+        self.assertEqual(controller.id6, target_vision.DISC_CATCH_ID6_TICK)
+        self.assertEqual(controller.id5, target_vision.DISC_CATCH_CATCHER_READY_TICK)
+        self.assertEqual(controller.splitter_id4, target_vision.DISC_CATCH_SPLITTER_READY_TICK)
+        self.assertEqual(bridge.sent[-2]["id2"], 550)
+        self.assertNotIn("id1", bridge.sent[-2])
+        self.assertEqual(bridge.sent[-2]["id4"], 310)
+        self.assertEqual(
+            bridge.sent[-2]["id5"],
+            target_vision.DISC_CATCH_CATCHER_READY_TICK,
+        )
+        self.assertEqual(bridge.sent[-2]["splitter_id4"], target_vision.SPLITTER_RETRACT_TICK)
+        self.assertEqual(bridge.sent[-1]["id1"], 560)
+        self.assertEqual(bridge.sent[-1]["id6"], 415)
+        self.assertNotIn("id2", bridge.sent[-1])
+        sleep_mock.assert_called_once_with(target_vision.ARM_JOINT_SEQUENCE_DELAY_S)
+
+    def test_control_fault_attempts_home_before_reporting_error(self):
+        controller, bridge, _ = make_controller()
+        with mock.patch.object(target_vision.time, "sleep"):
+            controller.begin_chassis_station("PLATFORM_PICK")
+            result = controller.abort_chassis_station("SERVO_OR_CONTROL_FAULT")
+
+        self.assertIn("shutdown contracted", result)
+        self.assertIsNone(controller.active_chassis_station)
+        self.assertEqual(
+            controller.consume_chassis_station_error(),
+            "SERVO_OR_CONTROL_FAULT",
+        )
+        self.assertEqual(controller.algorithm_stage, "centering")
+        self.assertEqual(bridge.sent[-1]["id6"], target_vision.BASE_YAW_CENTER_TICK)
+
+    def test_failed_home_is_reported_as_station_error(self):
+        controller, bridge, _ = make_controller()
+        controller.begin_chassis_station("PLATFORM_PICK")
+        bridge.fail_writes = True
+        with mock.patch.object(target_vision.time, "sleep"):
+            controller.abort_chassis_station("SERVO_OR_CONTROL_FAULT")
+
+        self.assertEqual(
+            controller.consume_chassis_station_error(),
+            "SERVO_OR_CONTROL_FAULT_HOME_FAILED",
+        )
+        self.assertEqual(controller.algorithm_stage, "fault")
+
+    def test_splitter_write_failure_enters_fault_for_station_abort(self):
+        controller, bridge, _ = make_controller()
+        controller.begin_chassis_station("DISC_CATCH")
+        bridge.fail_writes = True
+        controller._send_splitter_id4(1600, "test splitter")
+
+        self.assertEqual(controller.algorithm_stage, "fault")
+        self.assertIn("automatic motion stopped", controller.status)
+
+    def test_column_ready_uses_formal_task_three_pose(self):
+        controller, bridge, _ = make_controller()
+        with mock.patch.object(target_vision.time, "sleep"):
+            controller.begin_chassis_station("COLUMN_CATCH")
+
+        self.assertEqual(
+            (controller.id1, controller.id2, controller.id6),
+            (650, 570, 415),
+        )
+        self.assertEqual(controller.id5, target_vision.TASK1_ID15_RETRACT_TICK)
+        self.assertEqual(controller.splitter_id4, target_vision.SPLITTER_RETRACT_TICK)
+        self.assertEqual(controller.id7, 310)
+        self.assertEqual(bridge.sent[-2], {
+            "id1": 650,
+            "id6": 415,
+            "id4": 310,
+            "id5": target_vision.TASK1_ID15_RETRACT_TICK,
+            "splitter_id4": target_vision.SPLITTER_RETRACT_TICK,
+        })
+        self.assertEqual(bridge.sent[-1], {"id2": 570})
+
+    def test_task3_ring_place_waits_then_finishes_contracted(self):
+        self.assertEqual(target_vision.TASK3_RING_PLACE_HIGH, (650, 550, 413))
+        self.assertEqual(target_vision.TASK3_RING_PLACE_POSE, (470, 350, 171))
+        self.assertEqual(target_vision.TASK3_RING_PLACE_RETURN_HIGH, (620, 440, 413))
+        self.assertEqual(target_vision.TASK3_RING_PLACE_RELEASE_ID1_TICK, 590)
+        self.assertEqual(target_vision.TASK3_RING_PLACE_RELEASE_ID2_TICK, 420)
+        self.assertEqual(target_vision.TASK3_RING_PLACE_GRIPPER_TIME_MS, 200)
+        self.assertEqual(target_vision.TASK3_RING_PLACE_SLOW_CLOSE_TIME_MS, 2000)
+        self.assertEqual(target_vision.TASK3_RING_PLACE_RELEASE_GRIPPER_TIME_MS, 1000)
+        self.assertEqual(target_vision.TASK3_RING_PLACE_RELEASE_HOLD_MS, 1500)
+        self.assertEqual(target_vision.TASK3_RING_PLACE_CONTRACT_AXIS_TIME_MS, 500)
+        controller, bridge, _ = make_controller()
+        with mock.patch.object(target_vision.time, "monotonic", return_value=1000.0), mock.patch.object(
+            target_vision.time, "sleep"
+        ):
+            controller.begin_chassis_station("TASK3_RING_PLACE")
+            for _ in range(32):
+                controller.chassis_station_deadline = 0.0
+                controller.update_chassis_station(
+                    "TASK3_RING_PLACE", [], (600, 800, 3), detection_fresh=False
+                )
+
+        self.assertEqual(controller.consume_chassis_station_done(), "TASK3_RING_PLACE_DONE")
+        self.assertEqual(
+            controller.id7,
+            target_vision.TASK3_RING_PLACE_GRIPPER_CLOSED_TICK,
+        )
+        self.assertEqual(
+            bridge.sent[-1]["id4"],
+            target_vision.TASK3_RING_PLACE_GRIPPER_CLOSED_TICK,
+        )
+        self.assertEqual(bridge.sent[-4], {"id6": target_vision.BASE_YAW_HOME_TICK})
+        self.assertEqual(bridge.sent[-3], {"id2": target_vision.HOME_ID2_TICK})
+        self.assertEqual(bridge.sent[-2], {"id1": target_vision.HOME_ID1_TICK})
+        self.assertEqual(bridge.sent[-1]["id3"], target_vision.TASK1_ID3_RETRACT_TICK)
+        self.assertEqual(
+            bridge.sent[-1]["id4"],
+            target_vision.TASK3_RING_PLACE_GRIPPER_CLOSED_TICK,
+        )
+        self.assertEqual(
+            (controller.id1, controller.id2, controller.id6),
+            (
+                target_vision.HOME_ID1_TICK,
+                target_vision.HOME_ID2_TICK,
+                target_vision.BASE_YAW_HOME_TICK,
+            ),
+        )
+
+    def test_task3_ring_place_second_release_returns_high_before_close(self):
+        controller, _bridge, _ = make_controller()
+        with mock.patch.object(target_vision.time, "monotonic", return_value=1000.0), mock.patch.object(
+            target_vision.time, "sleep"
+        ):
+            controller.begin_chassis_station("TASK3_RING_PLACE")
+            controller.chassis_station_deadline = 0.0
+            controller.update_chassis_station(
+                "TASK3_RING_PLACE", [], (600, 800, 3), detection_fresh=False
+            )
+
+        action_list = list(controller.task3_ring_place_actions)
+        actions = {name: args for name, _handler, args in action_list}
+        names = [name for name, _handler, _args in action_list]
+        self.assertEqual(actions["OPEN_ID17"][1], 200)
+        self.assertEqual(actions["SLOW_CLOSE_ID17"][1], 2000)
+        self.assertEqual(actions["OPEN_ID17_AGAIN"][1], 1000)
+        self.assertEqual(actions["CLOSE_ID17_AGAIN"][1], 1000)
+        release_start = names.index("OPEN_ID17_AGAIN")
+        self.assertEqual(
+            names[release_start:release_start + 5],
+            [
+                "OPEN_ID17_AGAIN",
+                "ID1_RELEASE_HIGH",
+                "ID2_RELEASE_HIGH",
+                "ID6_RELEASE_HIGH",
+                "CLOSE_ID17_AGAIN",
+            ],
+        )
+        self.assertEqual(actions["ID1_RELEASE_HIGH"][:3], ("id1", 650, 1000))
+        self.assertEqual(actions["ID2_RELEASE_HIGH"][:3], ("id2", 550, 1000))
+        self.assertEqual(actions["ID6_RELEASE_HIGH"][:3], ("id6", 413, 1000))
+
+    def test_column_centering_uses_seven_and_five_tick_steps(self):
+        controller, bridge, _ = make_controller()
+        controller.active_chassis_station = "COLUMN_CATCH"
+        controller.chassis_station_stage = "column_centering"
+        controller.id1, controller.id2, controller.id6 = 650, 500, 415
+        result, _message = controller._visual_center_step(
+            {"center": (500, 400)},
+            (600, 800, 3),
+            now=1.0,
+            can_preview_step=True,
+            label="COLUMN_CATCH center",
+        )
+
+        self.assertFalse(result)
+        self.assertEqual((controller.id2, controller.id6), (493, 410))
+        self.assertEqual(bridge.sent[-1], {"id2": 493, "id6": 410})
+        self.assertEqual(bridge.arm_time_ms, 1)
+
+    def test_column_pause_classification_window_is_three_seconds(self):
+        self.assertEqual(target_vision.COLUMN_BLOCK_CLASSIFY_TIMEOUT_S, 3.0)
+
+    def test_column_committed_capture_uses_last_plan_when_geometry_is_lost(self):
+        controller, bridge, _ = make_controller()
+        controller.active_chassis_station = "COLUMN_CATCH"
+        controller.chassis_station_stage = "column_centering"
+        controller.column_capture_authorized = True
+        controller.column_locked_block = {
+            "bbox": (350, 250, 100, 100),
+            "center": (400, 300),
+            "distance_cm": 15.0,
+        }
+        controller.column_last_grasp_plan = {
+            "id1": 530,
+            "id2": 503,
+            "target_distance_mm": 150.0,
+            "ik_error_mm": 0.0,
+        }
+        controller.locked_target = {
+            "kind": "letter",
+            "letter": "A",
+            "bbox": (350, 250, 100, 100),
+            "center": (400, 300),
+        }
+
+        class FakeColumnLink:
+            def __init__(self):
+                self.resume_requests = 0
+
+            def formal_column_pause_state(self):
+                return "PAUSED"
+
+            def request_formal_column_resume(self):
+                self.resume_requests += 1
+
+        link = FakeColumnLink()
+        with mock.patch.object(target_vision.time, "monotonic", return_value=100.0):
+            status = controller.update_chassis_station(
+                "COLUMN_CATCH", [], (600, 800, 3), detection_fresh=True,
+                chassis_link=link,
+            )
+        self.assertIn("BLIND_GRASP_LAST_PLAN", status)
+        self.assertEqual(controller.chassis_station_stage, "column_open")
+        self.assertEqual(controller.locked_plan["id1"], 530)
+        self.assertEqual(controller.locked_plan["id2"], 503)
+        self.assertTrue(controller.column_capture_blind)
+        self.assertEqual(bridge.sent, [{"splitter_id4": 300}])
+        self.assertEqual(link.resume_requests, 0)
+
+    def test_column_blind_grasp_counts_once_marks_handled_and_rearms_after_leave(self):
+        controller, _bridge, _ = make_controller()
+        controller.active_chassis_station = "COLUMN_CATCH"
+        controller.chassis_station_stage = "column_resume_request"
+        controller.column_capture_authorized = True
+        controller.column_capture_blind = True
+        controller.column_target_armed = False
+        controller.locked_target = {"kind": "letter", "letter": "C"}
+        controller.column_locked_block = {
+            "kind": "column_block",
+            "bbox": (350, 250, 100, 100),
+            "center": (400, 300),
+        }
+        controller.letter_success_counts["C"] = 0
+
+        class ResumedColumnLink:
+            @staticmethod
+            def formal_column_pause_state():
+                return "RESUMED"
+
+        status = controller.update_chassis_station(
+            "COLUMN_CATCH", [], (600, 800, 3), detection_fresh=True,
+            chassis_link=ResumedColumnLink(),
+        )
+
+        self.assertIn("grasp complete", status)
+        self.assertEqual(controller.letter_success_counts["C"], 1)
+        self.assertEqual(len(controller.column_handled_blocks), 1)
+        self.assertEqual(controller.column_handled_blocks[0]["label"], "C")
+        self.assertFalse(controller.column_target_armed)
+        self.assertEqual(controller.chassis_station_stage, "column_detect")
+        self.assertFalse(controller.column_capture_blind)
+
+        for _ in range(3):
+            controller.update_chassis_station(
+                "COLUMN_CATCH", [], (600, 800, 3), detection_fresh=True,
+                chassis_link=ResumedColumnLink(),
+            )
+        self.assertEqual(controller.letter_success_counts["C"], 1)
+        self.assertTrue(controller.column_target_armed)
+        self.assertTrue(controller._column_letter_quota_available("C"))
+
+    def test_column_committed_loss_without_safe_plan_still_aborts_safely(self):
+        controller, _bridge, _ = make_controller()
+        controller.active_chassis_station = "COLUMN_CATCH"
+        controller.chassis_station_stage = "column_centering"
+        controller.column_capture_authorized = True
+        controller.locked_target = {
+            "kind": "letter",
+            "letter": "C",
+            "bbox": (350, 250, 100, 100),
+            "center": (400, 300),
+        }
+        controller.column_target_lost_since = 100.0
+
+        with mock.patch.object(target_vision.time, "monotonic", return_value=110.1):
+            status = controller.update_chassis_station(
+                "COLUMN_CATCH", [], (600, 800, 3), detection_fresh=True,
+            )
+
+        self.assertIn("ABORT_REASON=NO_VALID_IK_PLAN", status)
+        self.assertEqual(controller.chassis_station_stage, "column_resume_abort")
+
+    def test_column_committed_center_uses_cached_geometry_without_letter(self):
+        controller, _bridge, _ = make_controller()
+        controller.active_chassis_station = "COLUMN_CATCH"
+        controller.chassis_station_stage = "column_centering"
+        controller.column_capture_authorized = True
+        controller.column_locked_block = {
+            "kind": "column_block",
+            "bbox": (350, 250, 100, 100),
+            "center": (400, 300),
+        }
+        controller.column_locked_letter_track = {
+            "kind": "letter",
+            "letter": "A",
+            "bbox": (350, 250, 100, 100),
+            "center": (400, 300),
+            "distance_cm": 15.0,
+        }
+        controller.locked_target = dict(controller.column_locked_letter_track)
+        controller.column_locked_distance_cm = 15.0
+        controller.centered_frames = 2
+
+        fresh_block = {
+            **controller.column_locked_block,
+            "observed": True,
+            "fully_visible": True,
+        }
+        with mock.patch.object(target_vision.time, "monotonic", return_value=100.0):
+            status = controller.update_chassis_station(
+                "COLUMN_CATCH", [fresh_block], (600, 800, 3), detection_fresh=True
+            )
+
+        self.assertIn("GRAB_COMMITTED centered", status)
+        self.assertEqual(controller.chassis_station_stage, "column_open")
+        self.assertIsNotNone(controller.locked_plan)
+
+    def test_column_committed_missing_depth_retries_without_abort(self):
+        controller, _bridge, _ = make_controller()
+        controller.active_chassis_station = "COLUMN_CATCH"
+        controller.chassis_station_stage = "column_centering"
+        controller.column_capture_authorized = True
+        controller.column_locked_block = {
+            "kind": "column_block",
+            "bbox": (350, 250, 100, 100),
+            "center": (400, 300),
+        }
+        controller.column_locked_letter_track = {
+            "kind": "letter",
+            "letter": "A",
+            "bbox": (350, 250, 100, 100),
+            "center": (400, 300),
+            "distance_cm": None,
+        }
+        controller.locked_target = dict(controller.column_locked_letter_track)
+        controller.centered_frames = 2
+
+        fresh_block = {
+            **controller.column_locked_block,
+            "observed": True,
+            "fully_visible": True,
+        }
+        with mock.patch.object(target_vision.time, "monotonic", return_value=100.0):
+            status = controller.update_chassis_station(
+                "COLUMN_CATCH", [fresh_block], (600, 800, 3), detection_fresh=True
+            )
+
+        self.assertIn("depth temporarily invalid", status)
+        self.assertEqual(controller.chassis_station_stage, "column_centering")
+        self.assertTrue(controller.column_capture_authorized)
+
+    def test_column_stop_retracts_before_done(self):
+        controller, bridge, _ = make_controller()
+        with mock.patch.object(target_vision.time, "sleep"):
+            controller.begin_chassis_station("COLUMN_CATCH")
+            controller.stop_chassis_station("COLUMN_CATCH")
+
+        self.assertEqual(
+            controller.consume_chassis_station_done(),
+            "STOPPED_BY_CHASSIS",
+        )
+        self.assertIsNone(controller.active_chassis_station)
+        self.assertEqual(bridge.sent[-1]["id4"], 310)
+        self.assertEqual(bridge.sent[-1]["splitter_id4"], target_vision.SPLITTER_RETRACT_TICK)
+
+
+def test_platform_letter_policy_matches_selected_letters():
+    controller, _bridge, _ = make_controller()
+    policy = controller.target_policy
+    letter = {"kind": "letter", "letter": "B", "color": "white"}
+    ring = {"kind": "ring", "color": policy.platform_ring_color}
+    assert policy.matches_platform_target(letter, "letter", {"A", "B"})
+    assert not policy.matches_platform_target(letter, "letter", {"A", "C"})
+    assert policy.matches_platform_target(ring, "ring", {"A", "C"})
+
+if __name__ == "__main__":
+    unittest.main()

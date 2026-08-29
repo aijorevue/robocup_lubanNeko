@@ -32,6 +32,8 @@ PLATFORM_RING_RELEASE_HOLD_S = 1.0
 PLATFORM_LETTER_PLACE_TIME_MS = 500
 PLATFORM_CENTER_TIME_MS = 80
 PLATFORM_LETTER_SUCCESS_QUOTA = 2
+PLATFORM_LETTER_REACQUIRE_FALLBACK_SLOTS = frozenset({3, 4, 5, 6})
+PLATFORM_LETTER_REACQUIRE_FALLBACK_DESCENT = (600, 512)
 POST_OPEN_ID2_RETREAT_TICKS_BY_KIND = {
     "letter": 30,
     "ring": 50,
@@ -46,6 +48,7 @@ FORMAL_ID1_FINAL_CORRECTION_TICKS = 20
 FORMAL_ID2_FINAL_CORRECTION_TICKS = 70
 FORMAL_LETTER_ID2_REDUCTION_TICKS = 40
 FORMAL_LETTER_7_13_ID2_ADJUSTMENT_TICKS = -3
+FORMAL_LETTER_7_13_FINAL_ID2_INCREASE_TICKS = 5
 FORMAL_RING_ID2_REDUCTION_TICKS = 40
 FORMAL_RING_7_13_FINAL_ID2_ANCHORS = (
     (7.0, 558),
@@ -630,6 +633,15 @@ class PlatformTask:
         if (FORMAL_TASK2_13_15_SMOOTH_MIN_CM <= depth
                 <= FORMAL_TASK2_13_15_SMOOTH_MAX_CM):
             id1, id2 = _formal_task2_13_15_final_pose(depth, key[0])
+        # Task-two letter-only final correction for the near band. Apply this
+        # after the bridge so exact 13 cm also belongs to 7..13 cm.
+        if (key[0] == "letter"
+                and FORMAL_ID2_CORRECTION_MIN_DISTANCE_CM <= depth
+                <= FORMAL_ID2_CORRECTION_MAX_DISTANCE_CM):
+            id2 = min(
+                CENTER_ID2_RANGE[1],
+                id2 + FORMAL_LETTER_7_13_FINAL_ID2_INCREASE_TICKS,
+            )
         if (key[0] == "ring"
                 and FORMAL_ID2_CORRECTION_MIN_DISTANCE_CM <= depth
                 <= FORMAL_TASK2_13_15_SMOOTH_MAX_CM):
@@ -745,6 +757,62 @@ class PlatformTask:
         self.actions = deque(actions)
         self.stage = "platform_actions"
 
+    def _queue_letter_reacquire_fallback(self):
+        """Use the locked letter label when centering reacquisition expires."""
+        if (self.current_slot not in PLATFORM_LETTER_REACQUIRE_FALLBACK_SLOTS
+                or self.target_key is None
+                or self.target_key[0] != "letter"):
+            return False
+        label = self.target_key[1]
+        if label not in self.selected or not self._allowed(
+                {"kind": "letter", "letter": label}):
+            return False
+
+        id1, id2 = PLATFORM_LETTER_REACQUIRE_FALLBACK_DESCENT
+        placement = LETTER_PLACE
+        self.finish_reason = "PICKED_LETTER_REACQUIRE_FALLBACK"
+        self.high_ready = False
+        self.center_reacquire_deadline = 0.0
+        self.depth_invalid_deadline = 0.0
+        self.votes.clear()
+        self.actions = deque([
+            ("FALLBACK_GRIPPER_OPEN", self.gripper_open,
+             (PLATFORM_GRIPPER_OPEN,)),
+            ("FALLBACK_DESCEND", self.pose,
+             ((id1, id2, self.center_id6), False)),
+            ("FALLBACK_GRIPPER_CLOSE", self.gripper_close,
+             (PLATFORM_GRIPPER_CLOSED,)),
+            ("LIFT_LETTER_HIGH_ID1", self.letter_return_high_id1,
+             (HIGH[0],)),
+            ("LIFT_LETTER_HIGH_ID2", self.letter_return_high_id2,
+             (HIGH[1],)),
+            ("LIFT_LETTER_HIGH_ID6", self.letter_return_high_id6,
+             (HIGH[2],)),
+            ("PREPLACE_ID2", self.letter_place_id2, (PREPLACE_ID2,)),
+            ("PLACE_LETTER_ID6", self.letter_place_id6,
+             (placement[2],)),
+            ("PLACE_LETTER_ID1_ID2", self.letter_place_id12,
+             (placement[0], placement[1])),
+            ("PLACE_OPEN", self.place_open, (PLATFORM_GRIPPER_OPEN,)),
+            ("PLACE_CLOSE", self.place_close,
+             (PLATFORM_GRIPPER_CLOSED,)),
+            ("RETURN_INTERMEDIATE_HIGH", self.pose,
+             (INTERMEDIATE_HIGH, True)),
+            ("RETURN_LETTER_HIGH_ID1", self.letter_return_high_id1,
+             (HIGH[0],)),
+            ("RETURN_LETTER_HIGH_ID2", self.letter_return_high_id2,
+             (HIGH[1],)),
+            ("RETURN_LETTER_HIGH_ID6", self.letter_return_high_id6,
+             (HIGH[2],)),
+        ])
+        self.stage = "platform_actions"
+        print(
+            f"PLATFORM_PICK LETTER_REACQUIRE_FALLBACK slot={self.current_slot} "
+            f"letter={label} descend={id1}/{id2}/{self.center_id6}",
+            flush=True,
+        )
+        return True
+
     def tick(self, detections=(), shape=None, fresh=False):
         now = self.clock()
         if self.stage == "platform_preselect" and now >= self.timeout:
@@ -776,7 +844,8 @@ class PlatformTask:
                 and self.center_reacquire_deadline > 0.0
                 and now >= self.center_reacquire_deadline
             ):
-                self.skip("CENTER_REACQUIRE_TIMEOUT")
+                if not self._queue_letter_reacquire_fallback():
+                    self.skip("CENTER_REACQUIRE_TIMEOUT")
             elif now >= self.deadline and fresh:
                 self._detect(detections, shape)
         elif self.stage == "platform_actions" and now >= self.deadline:
@@ -787,7 +856,10 @@ class PlatformTask:
                 if (
                     self.target_key is not None
                     and self.target_key[0] == "letter"
-                    and self.finish_reason == "PICKED_LETTER"
+                    and self.finish_reason in {
+                        "PICKED_LETTER",
+                        "PICKED_LETTER_REACQUIRE_FALLBACK",
+                    }
                 ):
                     label = self.target_key[1]
                     self.letter_success_counts[label] = (

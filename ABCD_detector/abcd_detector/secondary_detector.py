@@ -31,6 +31,10 @@ SECONDARY_C_DARK_THRESHOLDS = (40, 45, 50, 55, 60, 65)
 SECONDARY_C_MIN_CONFIDENCE = 0.60
 SECONDARY_C_MIN_AREA = 250.0
 SECONDARY_FAST_MIN_CONFIDENCE = 0.50
+# A distant B can retain the correct coarse class while its tight crop has a
+# weak score. Keep this rescue narrow: both the padded and tight classifiers
+# must agree on B before using the lower acceptance floor.
+SECONDARY_B_RESCUE_MIN_CONFIDENCE = 0.30
 
 
 class SecondaryLetterDetector:
@@ -132,8 +136,12 @@ class SecondaryLetterDetector:
             roi = frame[y0:y1, x0:x1]
             letter, confidence, occupancy = self._classify(roi)
             # Low-contrast cards can make the padded Otsu window absorb the
-            # wall and card edge. Reclassify weak C/D candidates in the tight
+            # wall and card edge. Reclassify weak candidates in the tight
             # contour box so the serif's dark body is scored independently.
+            # This also matters for B: its two bowls often score weakly in the
+            # padded crop, while the tight glyph is a strong B. If we leave
+            # that weak B in place, the card-interior C/D recovery below can
+            # incorrectly promote the same card to D.
             if allow_fallbacks:
                 tight = (None, 0.0, 0.0)
                 min_tight_size = max(
@@ -146,12 +154,19 @@ class SecondaryLetterDetector:
                     )
                 tight_letter, tight_confidence, tight_occupancy = tight
                 if (
-                    tight_letter in {"C", "D"}
+                    tight_letter in LETTERS
                     and tight_confidence >= SECONDARY_TIGHT_MIN_CONFIDENCE
                     and (
-                        letter not in {"C", "D"}
+                        letter is None
+                        or confidence < SECONDARY_TIGHT_MIN_CONFIDENCE
                         or tight_confidence > confidence + 0.05
                     )
+                ):
+                    letter, confidence, occupancy = tight
+                elif (
+                    letter == "B"
+                    and tight_letter == "B"
+                    and tight_confidence >= SECONDARY_B_RESCUE_MIN_CONFIDENCE
                 ):
                     letter, confidence, occupancy = tight
                 card = (None, 0.0, 0.0)
@@ -163,10 +178,16 @@ class SecondaryLetterDetector:
                 if (
                     card_letter in {"C", "D"}
                     and card_confidence >= SECONDARY_CARD_MIN_CONFIDENCE
+                    and letter != "B"
                     and confidence < SECONDARY_CARD_OVERRIDE_MAX_BASE_CONFIDENCE
                 ):
                     letter, confidence, occupancy = card
-            if letter is None or confidence < self.min_confidence:
+            min_confidence = (
+                SECONDARY_B_RESCUE_MIN_CONFIDENCE
+                if letter == "B"
+                else self.min_confidence
+            )
+            if letter is None or confidence < min_confidence:
                 continue
             min_candidate_size = max(
                 32, int(round(min(height, width) * SECONDARY_TIGHT_MIN_SIZE_FRACTION))
