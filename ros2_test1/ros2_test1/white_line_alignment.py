@@ -11,6 +11,11 @@ TASK3_ABSOLUTE_WHITE_SATURATION_MAX = 100
 TASK3_SCANLINE_MIN_ABSOLUTE_WHITE_RATIO = 0.08
 TASK3_MIN_ABSOLUTE_WHITE_PIXEL_RATIO = 0.06
 TASK3_MIN_ABSOLUTE_WHITE_COLUMN_RATIO = 0.20
+TASK3_RIGHT_EDGE_MAX_GAP = 3
+TASK3_RIGHT_EDGE_MIN_RUN_RATIO = 0.05
+TASK3_RIGHT_EDGE_MIN_PIXEL_RATIO = 0.055
+TASK3_RIGHT_EDGE_MAX_STEP_RATIO = 0.05
+TASK3_RIGHT_EDGE_CONFIRM_FRAMES = 2
 
 
 class WhiteLineAlignmentDetector:
@@ -34,6 +39,8 @@ class WhiteLineAlignmentDetector:
         self._task3_edge_history = []
         self._task3_last_measurement = None
         self._task3_missed_frames = 0
+        self._task3_pending_right_edge = None
+        self._task3_pending_right_edge_frames = 0
 
     def reset_tracking(self):
         """Discard stale geometry when a new white-line phase begins."""
@@ -44,6 +51,8 @@ class WhiteLineAlignmentDetector:
         self._task3_edge_history = []
         self._task3_last_measurement = None
         self._task3_missed_frames = 0
+        self._task3_pending_right_edge = None
+        self._task3_pending_right_edge_frames = 0
 
     @staticmethod
     def _fitted_line(contour, frame_width, frame_height):
@@ -895,6 +904,123 @@ class WhiteLineAlignmentDetector:
         self._last_measurement = measurement
         return measurement
 
+    @staticmethod
+    def _task3_absolute_white_edge(
+        hsv,
+        y0,
+        y1,
+        x0,
+        x1,
+        previous_right=None,
+    ):
+        """Find a sustained true-white terminal run in a task-three band.
+
+        Enhanced-gray masks are useful for recovering a dim strip, but they
+        also turn dark-cloth reflections into bright candidates.  The right
+        endpoint is therefore derived from absolute HSV-white support only;
+        a few missing columns are tolerated inside a run, while an isolated
+        bright fragment cannot become the endpoint.
+        """
+        height, width = hsv.shape[:2]
+        y0 = max(0, int(y0))
+        y1 = min(height, int(y1))
+        x0 = max(0, int(x0))
+        x1 = min(width, int(x1))
+        if x1 <= x0 or y1 <= y0:
+            return None
+
+        sample = hsv[y0:y1, x0:x1]
+        absolute_white = (
+            (sample[:, :, 2] >= TASK3_ABSOLUTE_WHITE_VALUE_MIN)
+            & (sample[:, :, 1] <= TASK3_ABSOLUTE_WHITE_SATURATION_MAX)
+        )
+        support = np.count_nonzero(absolute_white, axis=0).astype(np.int32)
+        band_height = max(1, y1 - y0)
+        minimum_support = max(2, int(round(band_height * 0.12)))
+        valid = support >= minimum_support
+
+        runs = []
+        run_start = None
+        last_valid = None
+        gap = 0
+        for index, is_valid in enumerate(valid):
+            if is_valid:
+                if run_start is None:
+                    run_start = index
+                last_valid = index
+                gap = 0
+                continue
+            if run_start is None:
+                continue
+            gap += 1
+            if gap > TASK3_RIGHT_EDGE_MAX_GAP:
+                runs.append((run_start, last_valid))
+                run_start = None
+                last_valid = None
+                gap = 0
+        if run_start is not None:
+            runs.append((run_start, last_valid))
+
+        minimum_run = max(
+            24,
+            int(round((x1 - x0) * TASK3_RIGHT_EDGE_MIN_RUN_RATIO)),
+        )
+        candidates = []
+        for start, end in runs:
+            run_width = int(end - start + 1)
+            if run_width < minimum_run:
+                continue
+            run_support = support[start:end + 1]
+            pixel_ratio = float(
+                np.count_nonzero(absolute_white[:, start:end + 1])
+                / max(1, run_width * band_height)
+            )
+            if pixel_ratio < TASK3_RIGHT_EDGE_MIN_PIXEL_RATIO:
+                continue
+            edge_x = float(x0 + end)
+            width_score = run_width / max(1.0, float(x1 - x0))
+            density_score = float(
+                np.mean(run_support) / max(1.0, float(band_height))
+            )
+            continuity_score = 0.0
+            if previous_right is not None:
+                continuity_score = max(
+                    0.0,
+                    1.0
+                    - abs(edge_x - float(previous_right))
+                    / max(60.0, float(width) * 0.25),
+                )
+            score = (
+                2.4 * width_score
+                + 3.0 * pixel_ratio
+                + 1.2 * density_score
+                + 1.0 * continuity_score
+            )
+            candidates.append(
+                (
+                    score,
+                    run_width,
+                    edge_x,
+                    x0 + start,
+                    pixel_ratio,
+                    density_score,
+                )
+            )
+
+        if not candidates:
+            return None
+        _, run_width, edge_x, left_x, pixel_ratio, density_score = max(
+            candidates,
+            key=lambda item: (item[0], item[1], item[2]),
+        )
+        return {
+            "left_edge_x": float(left_x),
+            "right_edge_x": edge_x,
+            "run_width": float(run_width),
+            "white_pixel_ratio": pixel_ratio,
+            "white_density": density_score,
+        }
+
     def _task3_scanline_fallback(
         self, frame, threshold_floor=135, saturation_limit=150
     ):
@@ -996,9 +1122,11 @@ class WhiteLineAlignmentDetector:
             )
 
         def group_score(candidate):
-            # Long merged groups occur where the white strip touches the
-            # wooden box.  Use the rows at the group's terminal plateau for
-            # geometry, while using the complete group for white validation.
+            # Do not use the globally rightmost enhanced-gray run.  A gray
+            # reflection can extend farther right than the actual strip.
+            # Use the terminal row plateau to isolate the horizontal strip's
+            # Y band, but derive its X endpoint only from absolute-white
+            # support within that band.
             maximum_end = max(item[3] for item in candidate)
             edge_tolerance = max(12, int(width * 0.03))
             terminal_rows = [
@@ -1009,26 +1137,41 @@ class WhiteLineAlignmentDetector:
                 terminal_rows = candidate
             group_y = float(np.median([item[0] for item in terminal_rows]))
             max_width = max(item[1] for item in terminal_rows)
-            group_left = max(0, int(np.percentile([item[2] for item in candidate], 10)))
-            group_right = min(width - 1, int(np.percentile([item[3] for item in candidate], 90)))
-            group_top = max(y0, candidate[0][0] - 3)
-            group_bottom = min(y1 - 1, candidate[-1][0] + 3)
+            group_left = max(0, int(min(item[2] for item in terminal_rows)))
+            group_right = min(width - 1, int(max(item[3] for item in terminal_rows)))
+            group_top = max(y0, terminal_rows[0][0] - 3)
+            group_bottom = min(y1 - 1, terminal_rows[-1][0] + 3)
             sample = hsv[group_top:group_bottom + 1, group_left:group_right + 1]
             absolute_white_ratio = float(np.mean(
                 (sample[:, :, 2] >= TASK3_ABSOLUTE_WHITE_VALUE_MIN)
                 & (sample[:, :, 1] <= TASK3_ABSOLUTE_WHITE_SATURATION_MAX)
             )) if sample.size else 0.0
+            white_edge = self._task3_absolute_white_edge(
+                hsv,
+                group_top,
+                group_bottom + 1,
+                group_left,
+                group_right + 1,
+                previous_right=(
+                    self._task3_last_measurement.get("right_edge_x")
+                    if self._task3_last_measurement is not None else None
+                ),
+            )
             if (
                 absolute_white_ratio < TASK3_SCANLINE_MIN_ABSOLUTE_WHITE_RATIO
-                or len(terminal_rows) < 3
+                or white_edge is None
+                or len(candidate) < 3
             ):
                 return -1.0e6
             y_score = max(
                 -1.0,
                 1.0 - abs(group_y - reference_y) / max(1.0, height * 0.30),
             )
-            width_score = min(1.0, max_width / max(1.0, width * 0.45))
-            row_score = min(1.0, len(terminal_rows) / max(1.0, height * 0.03))
+            width_score = min(
+                1.0,
+                white_edge["run_width"] / max(1.0, width * 0.45),
+            )
+            row_score = min(1.0, len(candidate) / max(1.0, height * 0.03))
             white_score = float(np.clip(
                 (absolute_white_ratio - 0.08) / 0.22, 0.0, 1.0
             ))
@@ -1040,6 +1183,7 @@ class WhiteLineAlignmentDetector:
                 + 2.2 * y_score
                 + 1.4 * width_score
                 + 0.3 * row_score
+                + 1.2 * white_edge["white_density"]
             )
 
         # Prefer the strip near the formal reference or the last accepted
@@ -1063,13 +1207,25 @@ class WhiteLineAlignmentDetector:
         ]
         if not terminal_rows:
             terminal_rows = group
-        if max(item[1] for item in terminal_rows) < width * 0.18:
-            return None
-
         band_top = max(y0, terminal_rows[0][0] - 3)
         band_bottom = min(y1 - 1, terminal_rows[-1][0] + 3)
-        right_edge_x = float(np.median([item[3] for item in terminal_rows]))
-        left_edge_x = float(np.median([item[2] for item in terminal_rows]))
+        group_left = max(0, int(min(item[2] for item in terminal_rows)))
+        group_right = min(width - 1, int(max(item[3] for item in terminal_rows)))
+        white_edge = self._task3_absolute_white_edge(
+            hsv,
+            band_top,
+            band_bottom + 1,
+            group_left,
+            group_right + 1,
+            previous_right=(
+                self._task3_last_measurement.get("right_edge_x")
+                if self._task3_last_measurement is not None else None
+            ),
+        )
+        if white_edge is None:
+            return None
+        right_edge_x = float(white_edge["right_edge_x"])
+        left_edge_x = float(white_edge["left_edge_x"])
         if right_edge_x - left_edge_x < width * 0.15:
             return None
 
@@ -1353,6 +1509,12 @@ class WhiteLineAlignmentDetector:
 
     def _task3_accept_measurement(self, frame, measurement):
         """Accept only continuous geometry or recover the last valid strip."""
+        if measurement is not None and frame is not None and frame.size:
+            refined_right_edge = self._task3_refine_right_boundary(
+                frame, measurement
+            )
+            measurement = dict(measurement)
+            measurement["right_edge_x"] = refined_right_edge
         if (
             measurement is not None
             and not self._task3_has_absolute_white_support(frame, measurement)
@@ -1379,6 +1541,8 @@ class WhiteLineAlignmentDetector:
     def _task3_recover_last(self):
         """Keep a confirmed result for only a few detector cycles."""
         self._task3_missed_frames += 1
+        self._task3_pending_right_edge = None
+        self._task3_pending_right_edge_frames = 0
         if (
             self._task3_last_measurement is not None
             and self._task3_missed_frames <= self.max_hold_frames
@@ -1680,7 +1844,57 @@ class WhiteLineAlignmentDetector:
         return self._task3_accept_measurement(frame, measurement)
 
     def _task3_stabilize(self, measurement):
-        """Apply task-three-only temporal stability to a fresh measurement."""
+        """Apply task-three-only temporal stability to a fresh measurement.
+
+        A new right endpoint is not allowed to replace the tracked endpoint
+        on one frame.  This is independent from the existing three-sample
+        median: that median can follow a wrong bright structure when it
+        survives for several frames.
+        """
+        raw_right_edge = float(measurement["right_edge_x"])
+        previous = self._task3_last_measurement
+        accepted_right_edge = raw_right_edge
+        confirmed_new_edge = False
+        if previous is not None:
+            previous_right_edge = float(
+                previous.get("right_edge_x", raw_right_edge)
+            )
+            width = float(measurement.get("frame_width", 800.0))
+            jump_limit = max(18.0, width * TASK3_RIGHT_EDGE_MAX_STEP_RATIO)
+            if abs(raw_right_edge - previous_right_edge) > jump_limit:
+                pending = self._task3_pending_right_edge
+                if (
+                    pending is None
+                    or abs(raw_right_edge - float(pending))
+                    > max(10.0, jump_limit * 0.5)
+                ):
+                    self._task3_pending_right_edge = raw_right_edge
+                    self._task3_pending_right_edge_frames = 1
+                else:
+                    self._task3_pending_right_edge_frames += 1
+                if (
+                    self._task3_pending_right_edge_frames
+                    < TASK3_RIGHT_EDGE_CONFIRM_FRAMES
+                ):
+                    accepted_right_edge = previous_right_edge
+                else:
+                    self._task3_pending_right_edge = None
+                    self._task3_pending_right_edge_frames = 0
+                    confirmed_new_edge = True
+            else:
+                self._task3_pending_right_edge = None
+                self._task3_pending_right_edge_frames = 0
+        else:
+            self._task3_pending_right_edge = None
+            self._task3_pending_right_edge_frames = 0
+
+        measurement = dict(measurement)
+        measurement["right_edge_held"] = accepted_right_edge != raw_right_edge
+        measurement["right_edge_x"] = accepted_right_edge
+        if confirmed_new_edge:
+            # Do not let the old endpoint median delay a transition that has
+            # already passed the explicit two-frame confirmation.
+            self._task3_edge_history = []
         self._task3_edge_history.append(
             (
                 float(measurement["y_at_center"]),
@@ -1746,6 +1960,19 @@ class WhiteLineAlignmentDetector:
             return float(measurement.get("right_edge_x", x))
 
         hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
+        absolute_white_edge = WhiteLineAlignmentDetector._task3_absolute_white_edge(
+            hsv,
+            0,
+            y1 - y0,
+            0,
+            x1 - x0,
+            previous_right=(
+                float(measurement.get("right_edge_x")) - x0
+                if measurement.get("right_edge_x") is not None else None
+            ),
+        )
+        if absolute_white_edge is not None:
+            return float(x0 + absolute_white_edge["right_edge_x"])
         value = hsv[:, :, 2]
         saturation = hsv[:, :, 1]
         bright = ((value >= 125) & (saturation <= 145)).astype(np.uint8)
