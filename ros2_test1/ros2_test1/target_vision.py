@@ -346,6 +346,7 @@ TASK3_RING_PLACE_HIGH = (650, 550, 413)
 TASK3_RING_PLACE_RETURN_HIGH = (620, 440, 413)
 TASK3_RING_PLACE_POSE = (470, 350, 171)
 TASK3_RING_PLACE_AXIS_TIME_MS = 500
+TASK3_RING_PLACE_INITIAL_HIGH_TIME_MS = 1000
 TASK3_RING_PLACE_ID1_TIME_MS = 700
 TASK3_RING_PLACE_HIGH_TIME_MS = 1000
 TASK3_RING_PLACE_GRIPPER_OPEN_TICK = PLATFORM_GRIPPER_OPEN
@@ -353,14 +354,15 @@ TASK3_RING_PLACE_GRIPPER_CLOSED_TICK = PLATFORM_GRIPPER_CLOSED
 TASK3_RING_PLACE_GRIPPER_TIME_MS = 200
 TASK3_RING_PLACE_SLOW_CLOSE_TIME_MS = 2000
 TASK3_RING_PLACE_RELEASE_GRIPPER_TIME_MS = 1000
-TASK3_RING_PLACE_RELEASE_HOLD_MS = 1500
+TASK3_RING_PLACE_PRE_OPEN_WAIT_MS = 1500
+TASK3_RING_PLACE_RELEASE_HOLD_MS = 1000
 TASK3_RING_PLACE_RELEASE_ID1_TICK = 590
-TASK3_RING_PLACE_RELEASE_ID2_TICK = 420
+TASK3_RING_PLACE_RELEASE_ID2_TICK = 423
 TASK3_RING_PLACE_RELEASE_ID1_TIME_MS = 1000
 TASK3_RING_PLACE_RELEASE_ID1_HOLD_MS = 1000
-TASK3_RING_PLACE_RELEASE_AFTER_HOLD_ID1_TICK = 570
-TASK3_RING_PLACE_RELEASE_AFTER_HOLD_ID2_TICK = 410
-TASK3_RING_PLACE_RELEASE_AFTER_HOLD_TIME_MS = 1000
+TASK3_RING_PLACE_RELEASE_POST_ID1_TICK = 570
+TASK3_RING_PLACE_RELEASE_POST_ID2_TICK = 430
+TASK3_RING_PLACE_RELEASE_POST_CONFIRM_TIME_MS = 1000
 TASK3_RING_PLACE_CONTRACT_AXIS_TIME_MS = 500
 COLUMN_CATCH_LETTER_PLACE = (535, 345, 630)
 COLUMN_CATCH_LETTER_PLACE_TIME_MS = 500
@@ -481,8 +483,16 @@ def load_last_gripper_target(default):
 
 
 def scale_detections(detections, scale_x, scale_y):
+    """Return scaled detections without mutating detector-owned mappings.
+
+    Preview and test consumers may retain the detector result while the worker
+    rescales it back to camera coordinates.  Copy each mapping so those
+    consumers never observe partially scaled coordinates or contours.
+    """
     radius_scale = (scale_x + scale_y) * 0.5
-    for detection in detections:
+    scaled_detections = []
+    for source_detection in detections:
+        detection = dict(source_detection)
         if "center" in detection:
             center_x, center_y = detection["center"]
             detection["center"] = (
@@ -516,7 +526,8 @@ def scale_detections(detections, scale_x, scale_y):
                 detection[key] = scaled.reshape(point_shape).astype(np.int32)
         if "projected_area" in detection:
             detection["projected_area"] *= scale_x * scale_y
-    return detections
+        scaled_detections.append(detection)
+    return scaled_detections
 
 
 class DetectionSmoother:
@@ -3104,7 +3115,7 @@ class TargetGraspController:
             getattr(bridge, "splitter_time_ms", PLATFORM_AUX_TIME_MS),
         )
         try:
-            bridge.arm_time_ms = TASK3_RING_PLACE_HIGH_TIME_MS
+            bridge.arm_time_ms = TASK3_RING_PLACE_INITIAL_HIGH_TIME_MS
             bridge.aux_time_ms = TASK3_RING_PLACE_GRIPPER_TIME_MS
             bridge.gripper_time_ms = TASK3_RING_PLACE_GRIPPER_TIME_MS
             bridge.splitter_time_ms = PLATFORM_AUX_TIME_MS
@@ -3129,7 +3140,7 @@ class TargetGraspController:
             self.chassis_station_error_reason = "TASK3_RING_PLACE_HIGH_FAILED"
             return self.status
         self.chassis_station_deadline = time.monotonic() + max(
-            self._arm_settle_s(), TASK3_RING_PLACE_HIGH_TIME_MS / 1000.0
+            self._arm_settle_s(), TASK3_RING_PLACE_INITIAL_HIGH_TIME_MS / 1000.0
         )
         self.status = (
             f"TASK3_RING_PLACE high ID1={self.id1} ID2={self.id2} "
@@ -3148,8 +3159,8 @@ class TargetGraspController:
                 return f"TASK3_RING_PLACE high settling {self.chassis_station_deadline - now:.1f}s"
             self.task3_ring_place_actions.extend([
                 ("WAIT_BEFORE_OPEN_ID17", self._task3_ring_wait,
-                 (TASK3_RING_PLACE_RELEASE_HOLD_MS,
-                  "wait before final ring release")),
+                (TASK3_RING_PLACE_PRE_OPEN_WAIT_MS,
+                  "wait before ring placement")),
                 ("OPEN_ID17", self._task3_ring_gripper,
                  (TASK3_RING_PLACE_GRIPPER_OPEN_TICK,
                   TASK3_RING_PLACE_GRIPPER_TIME_MS, "open ID17")),
@@ -3182,11 +3193,11 @@ class TargetGraspController:
                 ("WAIT_AFTER_ID1_RELEASE_CONFIRM", self._task3_ring_wait,
                  (TASK3_RING_PLACE_RELEASE_ID1_HOLD_MS,
                   "wait after ID1 release-confirm position")),
-                ("ID1_ID2_RELEASE_AFTER_HOLD", self._task3_ring_release_pose,
-                 (TASK3_RING_PLACE_RELEASE_AFTER_HOLD_ID1_TICK,
-                  TASK3_RING_PLACE_RELEASE_AFTER_HOLD_ID2_TICK,
-                  TASK3_RING_PLACE_RELEASE_AFTER_HOLD_TIME_MS,
-                  "move ID1/ID2 after release-confirm hold")),
+                ("ID1_ID2_RELEASE_ADJUST", self._task3_ring_release_pose,
+                 (TASK3_RING_PLACE_RELEASE_POST_ID1_TICK,
+                  TASK3_RING_PLACE_RELEASE_POST_ID2_TICK,
+                  TASK3_RING_PLACE_RELEASE_POST_CONFIRM_TIME_MS,
+                  "move ID1/ID2 after release confirmation")),
                 ("OPEN_ID17_AGAIN", self._task3_ring_gripper,
                  (TASK3_RING_PLACE_GRIPPER_OPEN_TICK,
                   TASK3_RING_PLACE_RELEASE_GRIPPER_TIME_MS, "open ID17 again")),
@@ -3698,16 +3709,18 @@ class TargetGraspController:
     def _column_task3_capture_window_contains(detection):
         """Return whether a task-three target center is in the grab window."""
         center = detection.get("center") if detection else None
-        if not isinstance(center, (tuple, list)) or len(center) < 2:
+        if center is None:
             return False
         try:
-            center_x = float(center[0])
-            center_y = float(center[1])
+            center_array = np.asarray(center, dtype=np.float64).reshape(-1)
         except (TypeError, ValueError):
             return False
+        if center_array.size < 2 or not np.isfinite(center_array[:2]).all():
+            return False
+        center_x, center_y = center_array[:2]
         return (
-            COLUMN_TASK3_CAPTURE_WINDOW_X_MIN <= center_x <= COLUMN_TASK3_CAPTURE_WINDOW_X_MAX
-            and COLUMN_TASK3_CAPTURE_WINDOW_Y_MIN <= center_y <= COLUMN_TASK3_CAPTURE_WINDOW_Y_MAX
+            COLUMN_TASK3_CAPTURE_WINDOW_X_MIN <= float(center_x) <= COLUMN_TASK3_CAPTURE_WINDOW_X_MAX
+            and COLUMN_TASK3_CAPTURE_WINDOW_Y_MIN <= float(center_y) <= COLUMN_TASK3_CAPTURE_WINDOW_Y_MAX
         )
 
     @classmethod
@@ -5471,43 +5484,12 @@ class TargetGraspController:
             return f"COLUMN_CATCH GRAB_COMMITTED centered; {plan_text}"
 
         if self.chassis_station_stage == "column_resume_abort":
-            self.state = "COLUMN_CATCH resume after abort"
-            if self.column_capture_abort_reason:
-                print(
-                    "CHASSIS STATION COLUMN_CATCH "
-                    f"ABORT_REASON={self.column_capture_abort_reason}",
-                    flush=True,
-                )
-            self.column_capture_authorized = False
-            if chassis_link is None:
-                return self._column_abort("NO_FORMAL_CHASSIS_LINK")
-            if self.column_resume_deadline <= 0.0:
-                self.column_resume_deadline = now + COLUMN_H7_RESUME_TIMEOUT_S
-            state = chassis_link.formal_column_pause_state()
-            if state == "RESUMED":
-                completed_label = str(
-                    (self.locked_target or {}).get("letter", "")
-                ).upper()
-                self._column_record_handled_block(
-                    completed_label, self.column_locked_block
-                )
-                self.locked_target = None
-                self.locked_plan = None
-                self.column_locked_block = None
-                self.column_locked_letter_track = None
-                self.column_locked_distance_cm = None
-                self.column_capture_abort_reason = None
-                self.column_resume_deadline = 0.0
-                self.column_target_lost_since = None
-                self.chassis_station_stage = "column_detect"
-                self.column_target_armed = False
-                return "COLUMN_CATCH resumed after skipped target"
-            if now >= self.column_resume_deadline:
-                return self._column_timeout_recover(
-                    "H7_RESUME_TIMEOUT_AFTER_SKIP", chassis_link
-                )
-            chassis_link.request_formal_column_resume()
-            return "COLUMN_CATCH waiting H7 RESUMED after skipped target"
+            # Once centering/authorization has moved the arm, every abort must
+            # pass through the same high-and-closed recovery used by timeout
+            # handling.  Resuming H7 directly can leave ID1/ID2/ID6 at a
+            # centering or half-descent pose when the IK solve disappears.
+            reason = self.column_capture_abort_reason or "AUTHORIZED_CAPTURE_ABORT"
+            return self._column_timeout_recover(reason, chassis_link)
 
         if self.chassis_station_stage == "column_timeout_resume":
             self.state = "COLUMN_CATCH waiting H7 RESUMED after local recovery"
@@ -5568,6 +5550,11 @@ class TargetGraspController:
             if self.servo_bridge.last_command_ok:
                 self.chassis_station_stage = "column_open_wait"
                 self.chassis_station_deadline = time.monotonic() + self._aux_settle_s()
+            elif self.servo_bridge.write_enabled:
+                self.column_capture_abort_reason = "OPEN_GRIPPER_FAILED"
+                return self._column_timeout_recover(
+                    self.column_capture_abort_reason, chassis_link
+                )
             return status
 
         if self.chassis_station_stage == "column_open_wait":
@@ -5602,9 +5589,10 @@ class TargetGraspController:
             status = self.servo_bridge.send_targets(id2=target_id2)
             self.last_command_time = now
             if not self.servo_bridge.last_command_ok:
-                self.state = "fault"
-                self.algorithm_stage = "fault"
-                return f"COLUMN_CATCH post-open ID2 retreat failed: {status}"
+                self.column_capture_abort_reason = "POST_OPEN_RETREAT_FAILED"
+                return self._column_timeout_recover(
+                    self.column_capture_abort_reason, chassis_link
+                )
             self.id2 = target_id2
             self.chassis_station_stage = "column_open_retreat_wait"
             self.chassis_station_deadline = time.monotonic() + self._arm_settle_s()
@@ -5631,7 +5619,10 @@ class TargetGraspController:
                 self.chassis_station_stage = "column_resume_abort"
                 return self.status
             if self.locked_plan is None:
-                return self._column_abort("NO_VALID_IK_PLAN")
+                self.column_capture_abort_reason = "NO_VALID_IK_PLAN"
+                return self._column_timeout_recover(
+                    self.column_capture_abort_reason, chassis_link
+                )
             target_id1 = self._clamp(self.locked_plan["id1"], self.id1_limits)
             solved_id2 = int(self.locked_plan["id2"])
             target_distance_cm = (
@@ -5665,8 +5656,10 @@ class TargetGraspController:
                 self.chassis_station_stage = "column_descend_wait"
                 self.chassis_station_deadline = time.monotonic() + self._arm_settle_s()
             else:
-                self.state = "fault"
-                self.algorithm_stage = "fault"
+                self.column_capture_abort_reason = "DESCEND_COMMAND_FAILED"
+                return self._column_timeout_recover(
+                    self.column_capture_abort_reason, chassis_link
+                )
             return (
                 "COLUMN_CATCH descend endpoint "
                 f"DISTANCE_CM={target_distance_cm!r} "
@@ -5697,6 +5690,11 @@ class TargetGraspController:
             if self.servo_bridge.last_command_ok:
                 self.chassis_station_stage = "column_close_wait"
                 self.chassis_station_deadline = time.monotonic() + self._aux_settle_s()
+            elif self.servo_bridge.write_enabled:
+                self.column_capture_abort_reason = "CLOSE_GRIPPER_FAILED"
+                return self._column_timeout_recover(
+                    self.column_capture_abort_reason, chassis_link
+                )
             return status
 
         if self.chassis_station_stage == "column_close_wait":
@@ -5724,8 +5722,10 @@ class TargetGraspController:
                 self.chassis_station_stage = "column_return_high_wait"
                 self.chassis_station_deadline = time.monotonic() + self._arm_settle_s()
             else:
-                self.state = "fault"
-                self.algorithm_stage = "fault"
+                self.column_capture_abort_reason = "RETURN_HIGH_FAILED"
+                return self._column_timeout_recover(
+                    self.column_capture_abort_reason, chassis_link
+                )
             return f"COLUMN_CATCH return high | {status}"
 
         if self.chassis_station_stage == "column_return_high_wait":
@@ -5752,6 +5752,11 @@ class TargetGraspController:
             elif self.servo_bridge.last_command_ok:
                 self.chassis_station_stage = "column_place_work_wait"
                 self.chassis_station_deadline = time.monotonic() + COLUMN_CATCH_LETTER_PLACE_TIME_MS / 1000.0
+            else:
+                self.column_capture_abort_reason = "PLACE_POSE_FAILED"
+                return self._column_timeout_recover(
+                    self.column_capture_abort_reason, chassis_link
+                )
             return f"COLUMN_CATCH letter placement pose | {status}"
 
         if self.chassis_station_stage == "column_place_work_wait":
@@ -5769,6 +5774,11 @@ class TargetGraspController:
             if not self.servo_bridge.write_enabled or self.servo_bridge.last_command_ok:
                 self.chassis_station_stage = "column_place_open_wait"
                 self.chassis_station_deadline = time.monotonic() + self._aux_settle_s()
+            elif self.servo_bridge.write_enabled:
+                self.column_capture_abort_reason = "PLACE_OPEN_FAILED"
+                return self._column_timeout_recover(
+                    self.column_capture_abort_reason, chassis_link
+                )
             return status
 
         if self.chassis_station_stage == "column_place_open_wait":
@@ -5786,6 +5796,11 @@ class TargetGraspController:
             if not self.servo_bridge.write_enabled or self.servo_bridge.last_command_ok:
                 self.chassis_station_stage = "column_place_close_wait"
                 self.chassis_station_deadline = time.monotonic() + self._aux_settle_s()
+            elif self.servo_bridge.write_enabled:
+                self.column_capture_abort_reason = "PLACE_CLOSE_FAILED"
+                return self._column_timeout_recover(
+                    self.column_capture_abort_reason, chassis_link
+                )
             return status
 
         if self.chassis_station_stage == "column_place_close_wait":
@@ -5809,6 +5824,11 @@ class TargetGraspController:
             if not self.servo_bridge.write_enabled or self.servo_bridge.last_command_ok:
                 self.chassis_station_stage = "column_place_return_high_wait"
                 self.chassis_station_deadline = time.monotonic() + self._arm_settle_s()
+            elif self.servo_bridge.write_enabled:
+                self.column_capture_abort_reason = "PLACE_RETURN_HIGH_FAILED"
+                return self._column_timeout_recover(
+                    self.column_capture_abort_reason, chassis_link
+                )
             return f"COLUMN_CATCH return high after letter placement | {status}"
 
         if self.chassis_station_stage == "column_place_return_high_wait":

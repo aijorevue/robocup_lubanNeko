@@ -11,11 +11,30 @@ TASK3_ABSOLUTE_WHITE_SATURATION_MAX = 100
 TASK3_SCANLINE_MIN_ABSOLUTE_WHITE_RATIO = 0.08
 TASK3_MIN_ABSOLUTE_WHITE_PIXEL_RATIO = 0.06
 TASK3_MIN_ABSOLUTE_WHITE_COLUMN_RATIO = 0.20
-TASK3_RIGHT_EDGE_MAX_GAP = 3
+# Camera exposure can leave a 4-6px dark seam inside the same tape strip.
+# Merge only this short gap; a detached bright mark remains a separate run.
+TASK3_RIGHT_EDGE_MAX_GAP = 6
 TASK3_RIGHT_EDGE_MIN_RUN_RATIO = 0.05
 TASK3_RIGHT_EDGE_MIN_PIXEL_RATIO = 0.055
 TASK3_RIGHT_EDGE_MAX_STEP_RATIO = 0.05
 TASK3_RIGHT_EDGE_CONFIRM_FRAMES = 2
+# A task-three strip may be high or low in the camera view.  Keep the whole
+# calibrated route ROI and let strip geometry, rather than a fixed lower-half
+# assumption, decide which bright object is the line.
+TASK3_MIN_LINE_Y_RATIO = 0.12
+TASK3_MAX_LINE_Y_RATIO = 0.72
+# Keep dim but continuous tape pixels; a higher value truncates the real
+# right half when the white strip is partly shadowed.  Thin protrusions still
+# fail because their support is far below the strip median and run continuity.
+TASK3_RIGHT_EDGE_SUPPORT_RATIO = 0.40
+TASK3_TERMINAL_ROW_QUANTILE = 0.70
+# Only bridge a short, moderately dim tape tail.  A long low-contrast run is
+# usually black-cloth reflection after the physical strip has ended.
+TASK3_DIM_EXTENSION_VALUE_MIN = 145
+TASK3_DIM_EXTENSION_SATURATION_MAX = 150
+TASK3_DIM_EXTENSION_SUPPORT_RATIO = 0.55
+TASK3_DIM_EXTENSION_MIN_WIDTH = 4
+TASK3_DIM_EXTENSION_MAX_WIDTH = 8
 
 
 class WhiteLineAlignmentDetector:
@@ -937,6 +956,15 @@ class WhiteLineAlignmentDetector:
         support = np.count_nonzero(absolute_white, axis=0).astype(np.int32)
         band_height = max(1, y1 - y0)
         minimum_support = max(2, int(round(band_height * 0.12)))
+        positive_support = support[support > 0]
+        support_reference = float(np.median(positive_support)) if positive_support.size else 0.0
+        # A one-pixel bright protrusion at the end of the strip must not move
+        # RX.  Use the strip's typical vertical support as a second gate.
+        if support_reference > 0.0:
+            minimum_support = max(
+                minimum_support,
+                int(round(support_reference * TASK3_RIGHT_EDGE_SUPPORT_RATIO)),
+            )
         valid = support >= minimum_support
 
         runs = []
@@ -977,7 +1005,20 @@ class WhiteLineAlignmentDetector:
             )
             if pixel_ratio < TASK3_RIGHT_EDGE_MIN_PIXEL_RATIO:
                 continue
-            edge_x = float(x0 + end)
+            # Trim a weak terminal tail.  The physical tape endpoint has a
+            # broad support plateau; a small bright mark to its right does
+            # not.  This keeps the endpoint stable even when the line is at
+            # the top of the view beside the white overhead box.
+            strong_threshold = max(
+                float(minimum_support),
+                float(np.median(run_support)) * TASK3_RIGHT_EDGE_SUPPORT_RATIO,
+            )
+            strong_indices = np.flatnonzero(run_support >= strong_threshold)
+            if strong_indices.size == 0:
+                continue
+            strong_end = int(strong_indices[-1])
+            edge_x = float(x0 + start + strong_end)
+            effective_run_width = max(1, strong_end + 1)
             width_score = run_width / max(1.0, float(x1 - x0))
             density_score = float(
                 np.mean(run_support) / max(1.0, float(band_height))
@@ -999,7 +1040,7 @@ class WhiteLineAlignmentDetector:
             candidates.append(
                 (
                     score,
-                    run_width,
+                    effective_run_width,
                     edge_x,
                     x0 + start,
                     pixel_ratio,
@@ -1013,6 +1054,53 @@ class WhiteLineAlignmentDetector:
             candidates,
             key=lambda item: (item[0], item[1], item[2]),
         )
+        # A shadowed tape end can fall just below the absolute-white gate.
+        # Extend only when a broad, low-saturation dim-white continuation
+        # follows the accepted strip.  A tiny bright protrusion has neither
+        # the vertical support nor the minimum horizontal width to pass.
+        edge_local = int(round(edge_x - x0))
+        dim_white = (
+            (sample[:, :, 2] >= TASK3_DIM_EXTENSION_VALUE_MIN)
+            & (sample[:, :, 1] <= TASK3_DIM_EXTENSION_SATURATION_MAX)
+        )
+        dim_support = np.count_nonzero(dim_white, axis=0).astype(np.int32)
+        baseline_start = max(0, edge_local - max(12, int(run_width * 0.12)))
+        baseline = dim_support[baseline_start:edge_local + 1]
+        baseline = baseline[baseline > 0]
+        if baseline.size:
+            extension_threshold = max(
+                2,
+                int(round(
+                    float(np.median(baseline))
+                    * TASK3_DIM_EXTENSION_SUPPORT_RATIO
+                )),
+            )
+            extension_end = edge_local
+            extension_valid = 0
+            extension_gap = 0
+            for index in range(edge_local + 1, len(dim_support)):
+                if dim_support[index] >= extension_threshold:
+                    extension_end = index
+                    extension_valid += 1
+                    extension_gap = 0
+                    continue
+                extension_gap += 1
+                if extension_gap > TASK3_RIGHT_EDGE_MAX_GAP:
+                    break
+            extension_end = min(
+                extension_end,
+                edge_local + TASK3_DIM_EXTENSION_MAX_WIDTH,
+            )
+            extension_width = extension_end - edge_local
+            if (
+                extension_width >= max(
+                    TASK3_DIM_EXTENSION_MIN_WIDTH,
+                    int(round(run_width * 0.03)),
+                )
+                and extension_valid / max(1, extension_width) >= 0.45
+            ):
+                edge_x = float(x0 + extension_end)
+                run_width = float(run_width + extension_width)
         return {
             "left_edge_x": float(left_x),
             "right_edge_x": edge_x,
@@ -1047,11 +1135,11 @@ class WhiteLineAlignmentDetector:
         # the upper bright hardware band before it can become a white-line
         # candidate; keeping this guard task-three-only avoids changing the
         # task-one/task-two camera contracts.
-        y0 = max(int(height * 0.24), int(height * 0.15))
+        y0 = max(int(height * TASK3_MIN_LINE_Y_RATIO), int(height * 0.15))
         # Exclude the lower vehicle/arm highlight from the task-three scan.
         # The formal reference is Y=300 in a 600px frame, so the extra lower
         # margin is unnecessary and can only admit chassis structure.
-        y1 = min(height, int(height * 0.64))
+        y1 = min(height, int(height * TASK3_MAX_LINE_Y_RATIO))
         if x1 <= x0 or y1 <= y0:
             return None
 
@@ -1127,18 +1215,21 @@ class WhiteLineAlignmentDetector:
             # Use the terminal row plateau to isolate the horizontal strip's
             # Y band, but derive its X endpoint only from absolute-white
             # support within that band.
-            maximum_end = max(item[3] for item in candidate)
+            end_values = np.asarray([item[3] for item in candidate], dtype=np.float32)
+            terminal_reference = float(
+                np.percentile(end_values, TASK3_TERMINAL_ROW_QUANTILE * 100.0)
+            )
             edge_tolerance = max(12, int(width * 0.03))
             terminal_rows = [
                 item for item in candidate
-                if item[3] >= maximum_end - edge_tolerance
+                if abs(float(item[3]) - terminal_reference) <= edge_tolerance
             ]
             if not terminal_rows:
                 terminal_rows = candidate
             group_y = float(np.median([item[0] for item in terminal_rows]))
             max_width = max(item[1] for item in terminal_rows)
             group_left = max(0, int(min(item[2] for item in terminal_rows)))
-            group_right = min(width - 1, int(max(item[3] for item in terminal_rows)))
+            group_right = min(width - 1, int(round(terminal_reference + edge_tolerance)))
             group_top = max(y0, terminal_rows[0][0] - 3)
             group_bottom = min(y1 - 1, terminal_rows[-1][0] + 3)
             sample = hsv[group_top:group_bottom + 1, group_left:group_right + 1]
@@ -1199,18 +1290,21 @@ class WhiteLineAlignmentDetector:
             return None
         _, group = max(scored_groups, key=lambda item: item[0])
 
-        maximum_end = max(item[3] for item in group)
+        end_values = np.asarray([item[3] for item in group], dtype=np.float32)
+        terminal_reference = float(
+            np.percentile(end_values, TASK3_TERMINAL_ROW_QUANTILE * 100.0)
+        )
         edge_tolerance = max(12, int(width * 0.03))
         terminal_rows = [
             item for item in group
-            if item[3] >= maximum_end - edge_tolerance
+            if abs(float(item[3]) - terminal_reference) <= edge_tolerance
         ]
         if not terminal_rows:
             terminal_rows = group
         band_top = max(y0, terminal_rows[0][0] - 3)
         band_bottom = min(y1 - 1, terminal_rows[-1][0] + 3)
         group_left = max(0, int(min(item[2] for item in terminal_rows)))
-        group_right = min(width - 1, int(max(item[3] for item in terminal_rows)))
+        group_right = min(width - 1, int(round(terminal_reference + edge_tolerance)))
         white_edge = self._task3_absolute_white_edge(
             hsv,
             band_top,
@@ -1247,9 +1341,11 @@ class WhiteLineAlignmentDetector:
         slope, intercept = np.polyfit(coordinates[:, 0], coordinates[:, 1], 1)
         angle_deg = float(np.degrees(np.arctan(float(slope))))
         y_at_center = float(intercept + slope * (width * 0.5))
-        if not height * 0.24 <= y_at_center <= height * 0.64:
+        if not height * TASK3_MIN_LINE_Y_RATIO <= y_at_center <= height * TASK3_MAX_LINE_Y_RATIO:
             return None
         if abs(angle_deg) > 25.0:
+            return None
+        if band_bottom - band_top + 1 > max(36, int(height * 0.07)):
             return None
 
         center_line = (
@@ -1297,8 +1393,8 @@ class WhiteLineAlignmentDetector:
         previous_left = float(bounds[0])
         previous_width = max(40.0, float(bounds[2]))
         y_margin = max(42, int(height * 0.09))
-        y0 = max(int(height * 0.24), int(round(previous_y - y_margin)))
-        y1 = min(int(height * 0.64), int(round(previous_y + y_margin)))
+        y0 = max(int(height * TASK3_MIN_LINE_Y_RATIO), int(round(previous_y - y_margin)))
+        y1 = min(int(height * TASK3_MAX_LINE_Y_RATIO), int(round(previous_y + y_margin)))
         x0 = max(0, int(round(previous_left - max(55, width * 0.07))))
         x1 = min(width, int(round(previous_right + max(55, width * 0.07))))
         if x1 <= x0 or y1 <= y0:
@@ -1401,7 +1497,7 @@ class WhiteLineAlignmentDetector:
         slope, intercept = np.polyfit(coordinates[:, 0], coordinates[:, 1], 1)
         angle_deg = float(np.degrees(np.arctan(float(slope))))
         y_at_center = float(intercept + slope * (width * 0.5))
-        if not height * 0.24 <= y_at_center <= height * 0.64:
+        if not height * TASK3_MIN_LINE_Y_RATIO <= y_at_center <= height * TASK3_MAX_LINE_Y_RATIO:
             return None
         if abs(angle_deg) > 25.0:
             return None
@@ -1585,7 +1681,8 @@ class WhiteLineAlignmentDetector:
             return self._task3_accept_measurement(frame, scanline)
 
         height, width = frame.shape[:2]
-        task3_max_line_y = height * 0.64
+        task3_min_line_y = height * TASK3_MIN_LINE_Y_RATIO
+        task3_max_line_y = height * TASK3_MAX_LINE_Y_RATIO
 
         strict = self.detect_task2(frame)
         if strict is not None and float(strict.get("y_at_center", 0.0)) > \
@@ -1627,10 +1724,10 @@ class WhiteLineAlignmentDetector:
         value_eq = clahe.apply(hsv[:, :, 2])
         x0 = int(width * self.roi_x[0])
         x1 = int(width * self.roi_x[1])
-        y0 = int(height * 0.24)
-        # Keep the lower vehicle body out of the task-three candidate ROI.
-        # The line target is centered at Y=300 in the 600px frame; pixels
-        # below this guard are reserved for the chassis and arm structure.
+        y0 = int(task3_min_line_y)
+        # Keep the route ROI broad: task-three's strip can be high or low
+        # during the orbit.  Candidate geometry and endpoint support reject
+        # the overhead box and the lower vehicle instead of a fixed Y band.
         y1 = min(height, int(task3_max_line_y))
         roi_mask = np.zeros((height, width), dtype=np.uint8)
         roi_mask[y0:y1, x0:x1] = 255
@@ -1753,7 +1850,7 @@ class WhiteLineAlignmentDetector:
                 )
             if (
                 y_at_center is None
-                or not height * 0.24 <= y_at_center <= task3_max_line_y
+                or not task3_min_line_y <= y_at_center <= task3_max_line_y
                 or abs(angle_deg) > 32.0
             ):
                 continue
