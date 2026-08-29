@@ -87,6 +87,15 @@ class ABCDDetectorTests(unittest.TestCase):
             self.assertEqual(task2_detections[0]["letter"], letter)
             self.assertEqual(task3_detections[0]["letter"], letter)
 
+    def test_task2_detects_randomly_rotated_letter_blocks(self):
+        detector = ABCDDetector()
+        for letter in "ABCD":
+            for angle in (-37, 23, 67, 121):
+                detections = detector.detect_task2(rotated_green_block(letter, angle))
+                self.assertTrue(detections, (letter, angle))
+                self.assertEqual(detections[0]["letter"], letter, (letter, angle))
+                self.assertIn("rotation_angle_deg", detections[0])
+
     def test_task3_bd_structure_correction_is_bidirectional(self):
         class AmbiguousBDetector(ABCDDetector):
             def _score_rotation_batch(self, normalized_glyphs):

@@ -254,12 +254,13 @@ DISC_CATCH_CATCHER_READY_TICK = TASK1_ID15_OPEN_TICK
 DISC_CATCH_PREP_SPLITTER_TICK = TASK1_ID14_PREP_TICK
 DISC_CATCH_SPLITTER_READY_TICK = TASK1_ID14_PREP_TICK
 DISC_CATCH_TARGET_TIMEOUT_S = 4.0
+DISC_CATCH_TOTAL_TIMEOUT_S = 30.0
 # Formal task-one physical HTD85 ID17 gripper contract.
 # Keep both field-specific values separate from the shared task-two/task-three
 # gripper values.
-DISC_CATCH_RED_GRIPPER_OPEN_TICK = 510
-DISC_CATCH_BLUE_GRIPPER_OPEN_TICK = 510
-DISC_CATCH_BLUE_GRIPPER_CLOSED_TICK = 265
+DISC_CATCH_RED_GRIPPER_OPEN_TICK = 500
+DISC_CATCH_BLUE_GRIPPER_OPEN_TICK = 500
+DISC_CATCH_BLUE_GRIPPER_CLOSED_TICK = 245
 # Task-one ball trigger window in the original 800x600 main-camera frame.
 # This gate is applied after field-color filtering and is not used by tasks 2/3.
 DISC_CATCH_WINDOW_X_MIN = 290
@@ -374,7 +375,7 @@ TASK3_RING_PLACE_RELEASE_AFTER_HOLD_ID1_TICK = 570
 TASK3_RING_PLACE_RELEASE_AFTER_HOLD_ID2_TICK = 410
 TASK3_RING_PLACE_RELEASE_AFTER_HOLD_TIME_MS = 1000
 TASK3_RING_PLACE_CONTRACT_AXIS_TIME_MS = 500
-COLUMN_CATCH_LETTER_PLACE = (535, 345, 630)
+COLUMN_CATCH_LETTER_PLACE = (580, 380, 610)
 COLUMN_CATCH_LETTER_PLACE_TIME_MS = 500
 # Formal BLUE task-three only: one fixed recovery grab before releasing the
 # post-orbit H7 hold when the selected letter pair still has a quota gap.
@@ -383,11 +384,11 @@ TASK3_SUPPLEMENT_EXPANDED_HIGH = (650, 590, 410)
 TASK3_SUPPLEMENT_DESCEND_ID1_TICK = 580
 TASK3_SUPPLEMENT_DESCEND_TIME_MS = 700
 TASK3_SUPPLEMENT_GRIPPER_TIME_MS = 200
-TASK3_SUPPLEMENT_GRIPPER_OPEN_TICK = 450
-TASK3_SUPPLEMENT_GRIPPER_CLOSED_TICK = 275
+TASK3_SUPPLEMENT_GRIPPER_OPEN_TICK = 430
+TASK3_SUPPLEMENT_GRIPPER_CLOSED_TICK = 245
 # Supplement return poses are calibrated separately from ordinary COLUMN_CATCH.
 TASK3_SUPPLEMENT_HIGH = (650, 570, 413)
-TASK3_SUPPLEMENT_PLACE = (530, 350, 620)
+TASK3_SUPPLEMENT_PLACE = (580, 380, 610)
 RING_DISTANCE_OFFSET_CM = BALL_DISTANCE_OFFSET_CM + RING_DISTANCE_EXTRA_CM
 RING_DISTANCE_SCALE_CM = (
     BALL_DISTANCE_SCALE_CM
@@ -1488,6 +1489,7 @@ class TargetGraspController:
         self.chassis_station_stage = None
         self.chassis_station_deadline = 0.0
         self.chassis_station_no_target_deadline = 0.0
+        self.disc_catch_total_deadline = None
         self.task3_ring_place_actions = deque()
         self.task3_supplement_actions = deque()
         self.task3_supplement_label = None
@@ -3356,6 +3358,7 @@ class TargetGraspController:
 
     def _begin_disc_catch_station(self):
         """Enter the task-one ball action used by the validated desktop app."""
+        self.disc_catch_total_deadline = None
         self.disc_prep_high_active = False
         self.id7 = self.id7_closed
         self.id5 = DISC_CATCH_CATCHER_READY_TICK
@@ -4141,6 +4144,7 @@ class TargetGraspController:
         )
         self.chassis_station_stage = None
         self.active_chassis_station = None
+        self.disc_catch_total_deadline = None
         if success:
             self.chassis_station_done_reason = reason
             self.chassis_station_error_reason = None
@@ -4152,6 +4156,7 @@ class TargetGraspController:
         return f"{reason}; {result}"
 
     def reset_from_chassis(self):
+        self.disc_catch_total_deadline = None
         self.platform_task.reset()
         self.task3_ring_place_actions.clear()
         """Retract and discard every task/cycle state for a new H7 route."""
@@ -4649,6 +4654,7 @@ class TargetGraspController:
     def abort_chassis_station(self, reason):
         """Best-effort home before reporting a station control failure to H7."""
 
+        self.disc_catch_total_deadline = None
         self.platform_task.reset()
         self.task3_ring_place_actions.clear()
         station = self.active_chassis_station or "UNKNOWN"
@@ -4712,6 +4718,16 @@ class TargetGraspController:
         if station != "DISC_CATCH" or self.chassis_station_stage is None:
             return None
         now = time.monotonic()
+        # This is a fixed budget for the entire low-pose ball action. Seeing
+        # another ball, a stale frame, or a pulse/cooldown must not extend it.
+        if (
+            self.disc_catch_total_deadline is not None
+            and now >= self.disc_catch_total_deadline
+        ):
+            self.state = "DISC_CATCH total timeout"
+            return self._finish_chassis_station_after_retract(
+                f"TOTAL_TIMEOUT_{DISC_CATCH_TOTAL_TIMEOUT_S:.1f}S"
+            )
         disc_open_tick = self._disc_catch_gripper_open_tick()
         disc_closed_tick = self._disc_catch_gripper_closed_tick()
         ball = self._disc_catch_ball_visible(detections) if detection_fresh else None
@@ -4736,6 +4752,9 @@ class TargetGraspController:
                 return f"DISC_CATCH app low pose settling {self.chassis_station_deadline - now:.1f}s"
             self.chassis_station_stage = "disc_detect"
             self.chassis_station_deadline = 0.0
+            # Arm descent/settling is complete: start the ball-action budget
+            # once, independently of the existing four-second no-ball timer.
+            self.disc_catch_total_deadline = now + DISC_CATCH_TOTAL_TIMEOUT_S
             self.chassis_station_no_target_deadline = now + DISC_CATCH_TARGET_TIMEOUT_S
             return (
                 "DISC_CATCH detecting "

@@ -41,6 +41,11 @@ class WhiteLineAlignmentDetector:
         self._task3_missed_frames = 0
         self._task3_pending_right_edge = None
         self._task3_pending_right_edge_frames = 0
+        self._task2_reference_last = None
+        self._task2_reference_history = []
+        self._task2_reference_pending = None
+        self._task2_reference_pending_frame = None
+        self._task2_reference_missed = 0
 
     def reset_tracking(self):
         """Discard stale geometry when a new white-line phase begins."""
@@ -53,6 +58,11 @@ class WhiteLineAlignmentDetector:
         self._task3_missed_frames = 0
         self._task3_pending_right_edge = None
         self._task3_pending_right_edge_frames = 0
+        self._task2_reference_last = None
+        self._task2_reference_history = []
+        self._task2_reference_pending = None
+        self._task2_reference_pending_frame = None
+        self._task2_reference_missed = 0
 
     @staticmethod
     def _fitted_line(contour, frame_width, frame_height):
@@ -781,7 +791,7 @@ class WhiteLineAlignmentDetector:
             # This keeps the normal task-one scoring and all task-two/task-
             # three entry points unchanged while recovering a real strip
             # whose outer contour has been vertically inflated.
-            recovery = self.detect_task2(frame)
+            recovery = self._detect_band(frame)
             if recovery is not None:
                 self._missed_frames = 0
                 self._last_measurement = dict(recovery)
@@ -869,13 +879,102 @@ class WhiteLineAlignmentDetector:
         return measurement
 
     def detect_task2(self, frame):
-        """Detect the lower ground strip used by formal task two.
+        """Task-two reference tape, with raw-white evidence and jump rejection.
+
+        Task one/three deliberately keep the legacy band solver below. Probe a
+        fresh task-two candidate before temporal filtering so a median cannot
+        hide a jump to another structure or contaminate the next observation.
+        """
+        if frame is None or frame.size == 0:
+            return None
+        probe = WhiteLineAlignmentDetector(
+            saturation_max=self.saturation_max, value_min=self.value_min,
+            roi_x=self.roi_x, roi_y=self.roi_y, max_hold_frames=0,
+        )
+        measurement = probe._detect_band(frame, reference_only=True)
+        previous = self._task2_reference_last
+        if measurement is None:
+            self._task2_reference_pending = None
+            self._task2_reference_pending_frame = None
+            self._task2_reference_missed += 1
+            if previous is not None and self._task2_reference_missed <= self.max_hold_frames:
+                return dict(previous, held=True)
+            self._task2_reference_last = None
+            self._task2_reference_history = []
+            return None
+
+        height, width = frame.shape[:2]
+        current = (float(measurement["y_at_center"]),
+                   float(measurement["angle_deg"]),
+                   float(measurement["right_edge_x"]))
+        if previous is not None and (
+            abs(current[0] - previous["y_at_center"]) > max(36.0, height * 0.08)
+            or abs(current[1] - previous["angle_deg"]) > 8.0
+            or abs(current[2] - previous["right_edge_x"]) > max(80.0, width * 0.12)
+        ):
+            pending = self._task2_reference_pending
+            if (pending is None or abs(current[0] - pending[0]) > 20.0
+                    or abs(current[1] - pending[1]) > 4.0
+                    or abs(current[2] - pending[2]) > 40.0):
+                self._task2_reference_pending = current
+                self._task2_reference_pending_frame = frame
+                # Do not report a new structure (or an old held point) as a
+                # fresh alignment result on the first large jump.
+                return None
+            if frame is self._task2_reference_pending_frame:
+                return None
+            self._task2_reference_history = []
+        self._task2_reference_pending = None
+        self._task2_reference_pending_frame = None
+        self._task2_reference_missed = 0
+        self._task2_reference_history.append(current)
+        self._task2_reference_history = self._task2_reference_history[-3:]
+        y, angle, right = np.median(self._task2_reference_history, axis=0)
+        result = dict(measurement, y_at_center=float(y), angle_deg=float(angle),
+                      right_edge_x=float(right), held=False)
+        # The displayed fitted line and H7 Y/A/RX must describe the same
+        # filtered geometry, not a raw line attached to a median Y value.
+        slope = float(np.tan(np.radians(angle)))
+        left = float(result.get("left_edge_x", result["bounds"][0]))
+        result["center_line"] = (
+            (left, float(y + slope * (left - width * 0.5))),
+            (float(right), float(y + slope * (right - width * 0.5))),
+        )
+        self._task2_reference_last = result
+        return result
+
+    @staticmethod
+    def _task2_raw_white_strength(hsv, white_mask, geometry):
+        """Require raw HSV support inside the fitted tape, not CLAHE alone."""
+        height, width = white_mask.shape[:2]
+        left = max(0, int(np.ceil(geometry["left_edge_x"])))
+        right = min(width - 1, int(np.floor(geometry["right_edge_x"])))
+        if right - left < 30:
+            return None
+        xs = np.arange(left, right + 1)
+        slope = np.tan(np.radians(geometry["angle_deg"]))
+        ys = np.rint(geometry["y_at_center"] + slope * (xs - width * 0.5)).astype(int)
+        radius = max(1, min(12, int(geometry["thickness"] * 0.30)))
+        rows = ys[None, :] + np.arange(-radius, radius + 1)[:, None]
+        valid = (rows >= 0) & (rows < height)
+        rows = np.clip(rows, 0, height - 1)
+        support = (white_mask[rows, xs[None, :]] > 0) & valid
+        if (float(np.mean(np.mean(support, axis=0) >= 0.5)) < 0.65
+                or float(np.mean(support)) < 0.50):
+            return None
+        pixels = hsv[rows, xs[None, :]]
+        brightness = float(np.median(pixels[:, :, 2])) / 255.0
+        neutrality = 1.0 - float(np.median(pixels[:, :, 1])) / 255.0
+        return brightness * neutrality * float(np.mean(support))
+
+    def _detect_band(self, frame, *, reference_only=False):
+        """Legacy band solver; preserve task-one/task-three recovery behavior.
 
         The generic detector has a deliberately permissive fallback for task
         one.  That fallback can accept the broad, slanted underside of the
         overhead box when the real strip is bright but solid.  Task two has a
         stable view: the reference strip is below the box, thin, and spans
-        most of the image.  Keep this path separate so task one is unchanged.
+        most of the image. reference_only adds task-two-only raw-white gates.
         """
         if frame is None or frame.size == 0:
             return None
@@ -1000,8 +1099,15 @@ class WhiteLineAlignmentDetector:
             if horizontal_coverage < 0.65:
                 continue
 
-            # Prefer the lowest thin strip in the valid band.  This is what
-            # separates the ground line from the larger slanted box edge.
+            white_strength = None
+            if reference_only:
+                white_strength = self._task2_raw_white_strength(hsv, white_mask, edge_geometry)
+                if white_strength is None:
+                    continue
+
+            # Preserve the legacy low-strip preference for other tasks. Task
+            # two ranks raw-white evidence first: grayscale enhancement can
+            # otherwise turn the lower mechanism into a stronger candidate.
             vertical_score = float(
                 np.clip(
                     (y_at_center - height * 0.22) /
@@ -1024,7 +1130,8 @@ class WhiteLineAlignmentDetector:
             )
             contrast_score = float(np.clip((contrast - 5.0) / 55.0, 0.0, 1.0))
             score = (
-                4.0 * vertical_score
+                (0.5 * vertical_score + 8.0 * white_strength
+                 if reference_only else 4.0 * vertical_score)
                 + 2.0 * span_score
                 + 2.0 * thin_score
                 + 1.5 * horizontal_coverage
@@ -1749,6 +1856,119 @@ class WhiteLineAlignmentDetector:
             and angle_delta <= 8.0
         )
 
+    @staticmethod
+    def _task3_bounded_strip_mask(frame):
+        """Keep complete thin vertical white runs, before any ROI clipping.
+
+        A clipped box face or its bright lower edge can look like a horizontal
+        strip. Measure both boundaries in the original image: a tape column
+        must end in darker pixels above AND below. Do not apply CLAHE or a
+        vertical close here; both can turn a box/cloth reflection into tape.
+        """
+        height, width = frame.shape[:2]
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        value = hsv[:, :, 2]
+        white = (value >= 135) & (hsv[:, :, 1] <= 150)
+        transitions = np.diff(
+            np.pad(white.T.astype(np.int8), ((0, 0), (1, 1))), axis=1
+        )
+        columns, tops = np.nonzero(transitions == 1)
+        _, bottoms = np.nonzero(transitions == -1)
+        thickness = bottoms - tops
+        margin = max(2, int(round(height * 0.004)))
+        keep = (
+            (thickness >= max(3, int(round(height * 0.005))))
+            & (thickness <= height * 0.10)
+            & (tops >= margin) & (bottoms + margin <= height)
+        )
+        columns, tops, bottoms = columns[keep], tops[keep], bottoms[keep]
+        if len(columns):
+            # Use the immediate outside boundary so a nearby upper box does
+            # not suppress a real tape separated from it by a narrow dark gap.
+            offsets = np.arange(margin)[:, None]
+            above = np.mean(value[tops[None, :] - 1 - offsets, columns], axis=0)
+            below = np.mean(value[bottoms[None, :] + offsets, columns], axis=0)
+            middle = value[(tops + bottoms - 1) // 2, columns].astype(float)
+            keep = (middle - above >= 14.0) & (middle - below >= 14.0)
+            columns, tops, bottoms = columns[keep], tops[keep], bottoms[keep]
+        changes = np.zeros((height + 1, width), dtype=np.int16)
+        changes[tops, columns] = 1
+        changes[bottoms, columns] = -1
+        return (np.cumsum(changes[:-1], axis=0) > 0).astype(np.uint8) * 255
+
+    @staticmethod
+    def _task3_has_bounded_strip_support(frame, measurement, strip_mask=None):
+        """Reject box edges on every task-three entry, including recovery."""
+        if measurement is None or frame is None or frame.size == 0:
+            return False
+        height, width = frame.shape[:2]
+        y = float(measurement.get("y_at_center", -1.0))
+        angle = float(measurement.get("angle_deg", 90.0))
+        thickness = float(measurement.get("thickness", 0.0))
+        if (not height * 0.24 <= y <= height * 0.64
+                or not np.isfinite(angle) or abs(angle) > 25.0
+                or not height * 0.005 <= thickness <= height * 0.10):
+            return False
+        line = measurement.get("center_line")
+        if line is None:
+            return False
+        left = max(0, int(np.ceil(min(line[0][0], line[1][0]))))
+        right = min(width - 1, int(np.floor(max(line[0][0], line[1][0]))))
+        if right - left + 1 < max(60, int(width * 0.12)):
+            return False
+        if strip_mask is None:
+            strip_mask = WhiteLineAlignmentDetector._task3_bounded_strip_mask(frame)
+        xs = np.arange(left, right + 1)
+        ys = np.rint(y + np.tan(np.radians(angle)) * (xs - width * 0.5)).astype(int)
+        radius = max(1, min(5, int(thickness * 0.20)))
+        rows = ys[None, :] + np.arange(-radius, radius + 1)[:, None]
+        valid = (rows >= 0) & (rows < height)
+        support = (strip_mask[np.clip(rows, 0, height - 1), xs] > 0) & valid
+        supported = np.mean(support, axis=0) >= 0.5
+        return (np.count_nonzero(supported) >= max(60, int(width * 0.10))
+                and float(np.mean(supported)) >= 0.60)
+
+    def _task3_bounded_strip_candidates(self, frame, strip_mask):
+        """Fit all genuine thin strips before selecting a box-adjacent tape."""
+        height, width = frame.shape[:2]
+        mask = strip_mask.copy()
+        x0, x1 = int(width * self.roi_x[0]), int(width * self.roi_x[1])
+        mask[:, :max(0, x0)] = 0
+        mask[:, min(width, x1):] = 0
+        mask = cv2.morphologyEx(
+            mask, cv2.MORPH_CLOSE,
+            cv2.getStructuringElement(cv2.MORPH_RECT, (9, 1)),
+        )
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        candidates = []
+        for contour in contours:
+            bounds = cv2.boundingRect(contour)
+            x, y, box_width, box_height = bounds
+            if box_width < max(80, width * 0.15):
+                continue
+            geometry = self._fit_task2_band_edges(contour, bounds, width, height)
+            if geometry is None:
+                continue
+            span = geometry["right_edge_x"] - geometry["left_edge_x"] + 1
+            if span < max(80, width * 0.15) or span / max(1.0, geometry["thickness"]) < 5.0:
+                continue
+            measurement = dict(
+                geometry, center_x=(geometry["left_edge_x"] + geometry["right_edge_x"]) * 0.5,
+                center_y=geometry["y_at_center"], length=span,
+                area=float(cv2.contourArea(contour)), bounds=bounds,
+                frame_width=width, frame_height=height, held=False,
+            )
+            if (not self._task3_has_bounded_strip_support(frame, measurement, strip_mask)
+                    or not self._task3_has_absolute_white_support(frame, measurement)):
+                continue
+            reference_y = height * 0.50
+            if self._task3_last_measurement is not None:
+                reference_y = self._task3_last_measurement["y_at_center"]
+            score = (2.0 * min(1.0, span / (width * 0.60))
+                     - abs(geometry["y_at_center"] - reference_y) / (height * 0.30))
+            candidates.append((score, measurement))
+        return [item[1] for item in sorted(candidates, key=lambda item: item[0], reverse=True)]
+
     def _task3_accept_measurement(self, frame, measurement):
         """Accept only continuous geometry or recover the last valid strip."""
         if measurement is not None and frame is not None and frame.size:
@@ -1759,7 +1979,8 @@ class WhiteLineAlignmentDetector:
             measurement["right_edge_x"] = refined_right_edge
         if (
             measurement is not None
-            and not self._task3_has_absolute_white_support(frame, measurement)
+            and (not self._task3_has_absolute_white_support(frame, measurement)
+                 or not self._task3_has_bounded_strip_support(frame, measurement))
         ):
             measurement = None
         if measurement is None:
@@ -1776,6 +1997,8 @@ class WhiteLineAlignmentDetector:
             if (
                 recovered is not None
                 and self._task3_measurement_is_continuous(recovered)
+                and self._task3_has_absolute_white_support(frame, recovered)
+                and self._task3_has_bounded_strip_support(frame, recovered)
             ):
                 return self._task3_stabilize(recovered)
         return self._task3_recover_last()
@@ -1797,316 +2020,54 @@ class WhiteLineAlignmentDetector:
         return None
 
     def detect_task3(self, frame):
-        """Detect the BLUE task-three strip with a recoverable fallback.
+        """Detect red/blue task-three tape with full-image boundary evidence.
 
-        Task three begins farther from the strip than task two. Perspective,
-        exposure, and partial frame entry can therefore make the strict
-        task-two band limits reject a real strip. Prefer the task-two band
-        geometry when it produces a fresh task-three-compatible strip: in the
-        shared close view it separates the actual tape from the upper box more
-        reliably than the relaxed task-three scanline score. Keep the
-        task-three-only relaxed candidate gate as a fallback for farther views
-        where task-two's width gates are too strict.
+        Prefer complete thin white runs. Legacy fitters remain recovery
+        candidates only: none can bypass the two-boundary and raw-white gates.
+        Probe the shared fitter without history so rejected box geometry never
+        contaminates later task-three candidates or receives a second vote.
         """
         if frame is None or frame.size == 0:
             return None
+        strip_mask = self._task3_bounded_strip_mask(frame)
+        previous = self._task3_last_measurement
+        if (previous is not None
+                and self._task3_has_absolute_white_support(frame, previous)
+                and not self._task3_has_bounded_strip_support(frame, previous, strip_mask)):
+            # Current white evidence contradicts the old tape geometry (for
+            # example, a broad box face). Do not keep reporting that box as a
+            # held FOUND or let its endpoint gate out the genuine lower tape.
+            # A blank/occluded frame still uses the existing bounded hold.
+            self._task3_last_measurement = None
+            self._task3_edge_history = []
+            self._task3_missed_frames = 0
+            self._task3_pending_right_edge = None
+            self._task3_pending_right_edge_frames = 0
+        candidates = self._task3_bounded_strip_candidates(frame, strip_mask)
 
-        height, width = frame.shape[:2]
-        task3_max_line_y = height * 0.64
+        def usable(measurement):
+            return (measurement is not None and not measurement.get("held", False)
+                    and self._task3_has_absolute_white_support(frame, measurement)
+                    and self._task3_has_bounded_strip_support(frame, measurement, strip_mask))
 
-        # The task-two band fitter has the stronger separation between the
-        # actual tape and the upper box in the close task-three view. Reuse
-        # only a fresh result, then keep task-three's absolute-white support
-        # and right-edge refinement contract local to this path.
-        strict = self.detect_task2(frame)
-        if (
-            strict is not None
-            and not strict.get("held", False)
-            and height * 0.24 <= float(strict.get("y_at_center", -1.0))
-            <= task3_max_line_y
-            and self._task3_has_absolute_white_support(frame, strict)
+        for measurement in candidates:
+            if self._task3_measurement_is_continuous(measurement):
+                return self._task3_accept_measurement(frame, measurement)
+
+        probe = WhiteLineAlignmentDetector(
+            saturation_max=self.saturation_max, value_min=self.value_min,
+            roi_x=self.roi_x, roi_y=self.roi_y, max_hold_frames=0,
+        )
+        for supplier in (
+            lambda: probe._detect_band(frame),
+            lambda: self._task3_scanline_fallback(frame),
+            lambda: self._task3_scanline_fallback(frame, threshold_floor=118, saturation_limit=175),
+            lambda: self._task3_local_recovery(frame, self._task3_last_measurement),
         ):
-            strict = dict(strict)
-            strict["right_edge_x"] = self._task3_refine_right_boundary(
-                frame, strict
-            )
-            return self._task3_accept_measurement(frame, strict)
-
-        # Prefer the task-three scanline geometry only after the stronger
-        # continuous-band candidate above has failed. In the close/mixed view
-        # the real strip can be joined to the upper box in the binary mask,
-        # while a lower arm/vehicle highlight remains a separate, thick
-        # contour. The scanline path remains task-three-only recovery.
-        scanline = self._task3_scanline_fallback(frame)
-        if scanline is None:
-            # A lower-contrast retry is still constrained by the same narrow
-            # ROI and thin horizontal-band geometry.
-            scanline = self._task3_scanline_fallback(
-                frame, threshold_floor=118, saturation_limit=175
-            )
-        if scanline is None and self._task3_last_measurement is not None:
-            scanline = self._task3_local_recovery(
-                frame, self._task3_last_measurement
-            )
-        if scanline is not None:
-            return self._task3_accept_measurement(frame, scanline)
-
-        # Re-run the strict task-two candidate only for the legacy fallback
-        # behavior when the scanline path also fails. Held geometry is never
-        # promoted to a fresh task-three detection.
-        strict = self.detect_task2(frame)
-        if strict is not None and float(strict.get("y_at_center", 0.0)) > \
-                task3_max_line_y:
-            strict = None
-        if (
-            strict is not None
-            and not self._task3_has_absolute_white_support(frame, strict)
-        ):
-            strict = None
-        if strict is not None and not strict.get("held", False):
-            # The strict edge fitter intentionally drops short support runs.
-            # That is useful for task two, but at the farther task-three view
-            # it can turn the middle of a real strip into a false right edge.
-            # Re-run the task-three fallback when RX ends well before the
-            # accepted component's actual right side.
-            bounds = strict.get("bounds")
-            strict_right = strict.get("right_edge_x")
-            if bounds is not None and strict_right is not None:
-                bounds_x, _, bounds_width, _ = bounds
-                if float(strict_right) >= float(
-                    bounds_x + max(12.0, bounds_width * 0.80)
-                ):
-                    strict = dict(strict)
-                    strict["right_edge_x"] = self._task3_refine_right_boundary(
-                        frame, strict
-                    )
-                    return self._task3_accept_measurement(frame, strict)
-        self._task2_edge_history = []
-        if frame is None or frame.size == 0:
-            return None
-
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-        gray_eq = clahe.apply(gray)
-        value_eq = clahe.apply(hsv[:, :, 2])
-        x0 = int(width * self.roi_x[0])
-        x1 = int(width * self.roi_x[1])
-        y0 = int(height * 0.24)
-        # Keep the lower vehicle body out of the task-three candidate ROI.
-        # The line target is centered at Y=300 in the 600px frame; pixels
-        # below this guard are reserved for the chassis and arm structure.
-        y1 = min(height, int(task3_max_line_y))
-        roi_mask = np.zeros((height, width), dtype=np.uint8)
-        roi_mask[y0:y1, x0:x1] = 255
-        roi_value = value_eq[y0:y1, x0:x1]
-        roi_gray = gray_eq[y0:y1, x0:x1]
-        adaptive_value = max(145, int(np.percentile(roi_value, 67)))
-        adaptive_gray = max(145, int(np.percentile(roi_gray, 69)))
-        white_mask = cv2.inRange(
-            hsv,
-            np.array((0, 0, adaptive_value), dtype=np.uint8),
-            np.array((179, min(135, self.saturation_max + 40), 255), dtype=np.uint8),
-        )
-        gray_mask = cv2.inRange(gray_eq, adaptive_gray, 255)
-        mask = cv2.bitwise_and(
-            cv2.bitwise_or(white_mask, gray_mask), roi_mask
-        )
-        # The real strip can touch the lower edge of the overhead box in the
-        # image. Any vertical close bridges those separate objects and turns
-        # the strip into a large box contour. Keep this close horizontal-only;
-        # the later horizontal close handles exposure gaps along the strip.
-        mask = cv2.morphologyEx(
-            mask,
-            cv2.MORPH_CLOSE,
-            cv2.getStructuringElement(cv2.MORPH_RECT, (13, 1)),
-        )
-        mask = cv2.morphologyEx(
-            mask,
-            cv2.MORPH_OPEN,
-            cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)),
-        )
-        # At the farther task-three distance the strip can be split by small
-        # exposure gaps. Bridge only along its long axis so separate vertical
-        # bright objects are not merged into the candidate.
-        mask = cv2.morphologyEx(
-            mask,
-            cv2.MORPH_CLOSE,
-            cv2.getStructuringElement(cv2.MORPH_RECT, (21, 3)),
-        )
-
-        # The real strip enters from the left, while the wood box occupies
-        # the upper-left part of the frame and can touch the strip in the
-        # threshold mask. Prefer a right-side strip segment where the box is
-        # absent. This path is task-three-only and keeps the full mask as a
-        # fallback for views where the segment is not visible yet.
-        right_window_x = int(width * 0.28)
-        preferred_mask = mask.copy()
-        preferred_mask[:, :right_window_x] = 0
-        contours, _ = cv2.findContours(
-            preferred_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-        )
-        using_preferred_window = bool(contours)
-        if not contours:
-            contours, _ = cv2.findContours(
-                mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-            )
-
-        candidates = []
-        for contour in contours:
-            x, y, box_width, box_height = cv2.boundingRect(contour)
-            area = float(cv2.contourArea(contour))
-            rect = cv2.minAreaRect(contour)
-            length = float(max(rect[1]))
-            thickness = float(min(rect[1]))
-            min_width_ratio = 0.16 if using_preferred_window else 0.30
-            if box_width < width * min_width_ratio or box_width > width * 0.98:
-                continue
-            if box_height > height * (0.12 if using_preferred_window else 0.14):
-                continue
-            min_area_ratio = 0.00025 if using_preferred_window else 0.0006
-            if area < width * height * min_area_ratio:
-                continue
-            if thickness < height * 0.003 or thickness > height * 0.105:
-                continue
-            if length / max(1.0, thickness) < 3.5:
-                continue
-
-            component = np.zeros((box_height, box_width), dtype=np.uint8)
-            shifted = contour.copy()
-            shifted[:, :, 0] -= x
-            shifted[:, :, 1] -= y
-            cv2.drawContours(component, [shifted], -1, 255, cv2.FILLED)
-            absolute_white = (
-                (hsv[y:y + box_height, x:x + box_width, 2]
-                 >= TASK3_ABSOLUTE_WHITE_VALUE_MIN)
-                & (hsv[y:y + box_height, x:x + box_width, 1]
-                   <= TASK3_ABSOLUTE_WHITE_SATURATION_MAX)
-            )
-            component_pixels = component > 0
-            absolute_white_ratio = float(
-                np.count_nonzero(absolute_white & component_pixels)
-                / max(1, np.count_nonzero(component_pixels))
-            )
-            if absolute_white_ratio < TASK3_SCANLINE_MIN_ABSOLUTE_WHITE_RATIO:
-                continue
-            horizontal_coverage = float(
-                np.count_nonzero(np.any(component > 0, axis=0)) /
-                max(1.0, box_width)
-            )
-            fill_ratio = float(
-                np.count_nonzero(component) /
-                max(1.0, box_width * box_height)
-            )
-            max_fill_ratio = 0.94 if using_preferred_window else 0.86
-            if horizontal_coverage < 0.50 or fill_ratio > max_fill_ratio:
-                continue
-
-            edge_geometry = self._fit_task2_band_edges(
-                contour, (x, y, box_width, box_height), width, height
-            )
-            if edge_geometry is None:
-                angle_deg, y_at_center = self._fitted_line(
-                    contour, width, height
-                )
-                right_edge_x = float(x + box_width - 1)
-            else:
-                angle_deg = edge_geometry["angle_deg"]
-                y_at_center = edge_geometry["y_at_center"]
-                right_edge_x = self._task3_right_boundary_x(
-                    component, x
-                )
-            if (
-                y_at_center is None
-                or not height * 0.24 <= y_at_center <= task3_max_line_y
-                or abs(angle_deg) > 32.0
-            ):
-                continue
-            contrast = self._local_contrast(
-                gray, x, y, box_width, box_height
-            )
-            if contrast < 2.0:
-                continue
-            if right_edge_x < x + max(8.0, box_width * 0.65):
-                continue
-            score = (
-                3.0 * min(1.0, box_width / max(1.0, width))
-                + 2.0 * min(1.0, length / max(1.0, 7.0 * thickness))
-                + 2.0 * horizontal_coverage
-                + 1.5 * float(np.clip((contrast - 2.0) / 45.0, 0.0, 1.0))
-                + 0.8 * float(np.clip(y_at_center / height, 0.0, 1.0))
-            )
-            if self._task3_edge_history:
-                previous_right = float(self._task3_edge_history[-1][3])
-                edge_delta = abs(right_edge_x - previous_right)
-                score += 1.8 * max(
-                    0.0,
-                    1.0 - min(1.0, edge_delta / max(30.0, width * 0.22)),
-                )
-            candidates.append(
-                (score, contour, rect, (x, y, box_width, box_height),
-                 area, edge_geometry, right_edge_x)
-            )
-
-        if not candidates:
-            scanline = self._task3_scanline_fallback(frame)
-            if scanline is None:
-                scanline = self._task3_scanline_fallback(
-                    frame, threshold_floor=118, saturation_limit=175
-                )
-            if scanline is None and self._task3_last_measurement is not None:
-                scanline = self._task3_local_recovery(
-                    frame, self._task3_last_measurement
-                )
-            if scanline is not None:
-                return self._task3_accept_measurement(frame, scanline)
-            return self._task3_recover_last()
-
-        _, contour, rect, bounds, area, edge_geometry, right_edge_x = max(
-            candidates, key=lambda candidate: candidate[0]
-        )
-        moments = cv2.moments(contour)
-        if moments["m00"] <= 0.0:
-            return None
-        center_x = float(moments["m10"] / moments["m00"])
-        center_y = float(moments["m01"] / moments["m00"])
-        length = float(max(rect[1]))
-        thickness = float(min(rect[1]))
-        if edge_geometry is None:
-            angle_deg, y_at_center = self._fitted_line(
-                contour, width, height
-            )
-        else:
-            angle_deg = float(edge_geometry["angle_deg"])
-            y_at_center = float(edge_geometry["y_at_center"])
-        if y_at_center is None:
-            return None
-
-        measurement = {
-            "center_x": center_x,
-            "center_y": center_y,
-            "angle_deg": angle_deg,
-            "y_at_center": y_at_center,
-            "length": length,
-            "thickness": thickness,
-            "area": area,
-            "bounds": bounds,
-            "frame_width": width,
-            "frame_height": height,
-            "held": False,
-            "center_line": (
-                edge_geometry["center_line"]
-                if edge_geometry is not None
-                else ((float(bounds[0]), y_at_center),
-                      (float(bounds[0] + bounds[2] - 1), y_at_center))
-            ),
-            "edge_support": (
-                edge_geometry["edge_support"]
-                if edge_geometry is not None else 0
-            ),
-            "right_edge_x": right_edge_x,
-        }
-        return self._task3_accept_measurement(frame, measurement)
+            measurement = supplier()
+            if usable(measurement) and self._task3_measurement_is_continuous(measurement):
+                return self._task3_accept_measurement(frame, measurement)
+        return self._task3_recover_last()
 
     def _task3_stabilize(self, measurement):
         """Apply task-three-only temporal stability to a fresh measurement.
@@ -2225,6 +2186,13 @@ class WhiteLineAlignmentDetector:
             return float(measurement.get("right_edge_x", x))
 
         hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
+        xs = np.arange(x0, x1, dtype=float)
+        slope = np.tan(np.radians(float(measurement.get("angle_deg", 0.0))))
+        centers = float(measurement["y_at_center"]) + slope * (xs - width * 0.5)
+        radius = max(2.0, float(measurement.get("thickness", 8.0)) * 0.60)
+        along_strip = np.abs(np.arange(y0, y1)[:, None] - centers[None, :]) <= radius
+        hsv = hsv.copy()
+        hsv[~along_strip] = 0
         absolute_white_edge = WhiteLineAlignmentDetector._task3_absolute_white_edge(
             hsv,
             0,

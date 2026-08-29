@@ -240,8 +240,8 @@ class ChassisStationSafetyTests(unittest.TestCase):
         self.assertEqual(
             sent_timings(lambda item: item.get("id1") == 545), [(300, 300)]
         )
-        self.assertEqual(target_vision.COLUMN_CATCH_LETTER_PLACE, (530, 350, 650))
-        self.assertEqual(target_vision.TASK3_SUPPLEMENT_PLACE, (530, 350, 620))
+        self.assertEqual(target_vision.COLUMN_CATCH_LETTER_PLACE, (580, 300, 610))
+        self.assertEqual(target_vision.TASK3_SUPPLEMENT_PLACE, (580, 300, 610))
         self.assertEqual(
             sent_timings(lambda item: item.get("id4") == 405),
             [(500, 500), (1, 200)],

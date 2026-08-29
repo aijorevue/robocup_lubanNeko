@@ -13,12 +13,12 @@ from .task2_fixed_letters import load_fixed_letters
 HIGH = (650, 600, 415)
 INTERMEDIATE_HIGH = (650, 400, 415)
 PREPLACE_ID2 = 400
-LETTER_PLACE = (530, 350, 650)
+LETTER_PLACE = (580, 380, 610)
 RING_PLACE = (545, 350, 171)
-HTD85_AUX_HIGH = (300, 510, 265)  # physical ID14, ID15, ID17; ID14 retracted
-PLATFORM_GRIPPER_CLOSED = 265
-PLATFORM_GRIPPER_OPEN = 405
-PLATFORM_RING_GRIPPER_OPEN = 395
+HTD85_AUX_HIGH = (300, 510, 245)  # physical ID14, ID15, ID17; ID14 retracted
+PLATFORM_GRIPPER_CLOSED = 245
+PLATFORM_GRIPPER_OPEN = 385
+PLATFORM_RING_GRIPPER_OPEN = 375
 PLATFORM_ARM_TIME_MS = 500
 PLATFORM_AUX_TIME_MS = 200
 PLATFORM_GRIPPER_TIME_MS = 200
@@ -45,7 +45,7 @@ FORMAL_ID2_CORRECTION_TICKS = 20
 FORMAL_ID1_FINAL_CORRECTION_TICKS = 20
 FORMAL_ID2_FINAL_CORRECTION_TICKS = 70
 FORMAL_LETTER_ID2_REDUCTION_TICKS = 40
-FORMAL_LETTER_7_13_ID2_ADJUSTMENT_TICKS = -10
+FORMAL_LETTER_7_13_ID2_ADJUSTMENT_TICKS = -3
 FORMAL_RING_ID2_REDUCTION_TICKS = 40
 FORMAL_RING_7_13_FINAL_ID2_ANCHORS = (
     (7.0, 558),
@@ -59,12 +59,12 @@ FORMAL_RING_7_13_FINAL_ID2_ANCHORS = (
 FORMAL_TASK2_13_15_SMOOTH_MIN_CM = 13.0
 FORMAL_TASK2_13_15_SMOOTH_MAX_CM = 15.0
 FORMAL_TASK2_13_15_LETTER_ANCHORS = (
-    (13.0, 570, 560),
+    (13.0, 570, 567),
     (15.0, 517, 503),
 )
 FORMAL_TASK2_13_15_RING_ANCHORS = (
     (13.0, 570, 528),
-    (15.0, 517, 513),
+    (15.0, 517, 518),  # After -30/+12: 500, matching the mid-band limit.
 )
 # Task-two rings use one final caller-only ID2 reduction across both the
 # 7..13 cm curve and the 13..15 cm bridge. Apply it after all segment solves
@@ -72,13 +72,24 @@ FORMAL_TASK2_13_15_RING_ANCHORS = (
 FORMAL_TASK2_RING_7_15_FINAL_ID2_REDUCTION_TICKS = 30
 FORMAL_RING_MID_MIN_DISTANCE_CM = 15.0
 FORMAL_RING_MID_MAX_DISTANCE_CM = 19.0
-FORMAL_RING_MID_ID2_INCREASE_TICKS = 25
+FORMAL_RING_MID_ID2_INCREASE_TICKS = 30
+FORMAL_RING_SELECTED_BANDS_FINAL_ID2_INCREASE_TICKS = 12
 FORMAL_RING_LONG_RANGE_MIN_DISTANCE_CM = 20.5
 FORMAL_RING_LONG_RANGE_MAX_DISTANCE_CM = 25.0
 FORMAL_RING_LONG_RANGE_ID1_REDUCTION_TICKS = 30
 FORMAL_RING_LONG_RANGE_ID2_INCREASE_TICKS = 20
 FORMAL_LONG_RANGE_FINAL_ID2_INCREASE_TICKS = 10
 PLATFORM_GRASP_ID1_OFFSET_TICKS = 40
+# Final poses at the unchanged 19 cm and 20.5 cm segment endpoints.
+# Interpolate only inside the gap; do not smooth within any special band.
+FORMAL_TASK2_19_20_5_LETTER_ANCHORS = (
+    (19.0, 493, 488),
+    (20.5, 509, 490),
+)
+FORMAL_TASK2_19_20_5_RING_ANCHORS = (
+    (19.0, 493, 487),
+    (20.5, 499, 500),
+)
 CENTER_DEADBAND_PX = 45
 RING_CENTER_DEADBAND_PX = 30
 CENTER_ID6_STEP_TICKS = 5
@@ -95,7 +106,7 @@ PLATFORM_CENTER_REACQUIRE_TIMEOUT_S = 1.0
 # Once a stable, centered target is visible, do not wait indefinitely for its
 # depth measurement. A continuous invalid-depth window skips this station.
 PLATFORM_DEPTH_INVALID_TIMEOUT_S = 4.0
-TARGET_WINDOW_SIZE_PX = 420
+TARGET_WINDOW_SIZE_PX = 520
 TARGET_WINDOW_MIN_AREA_FRACTION = 0.80
 PLATFORM_FULLSCREEN_SLOTS = frozenset({4, 5})
 SECONDARY_PAIR_REQUIRED_FRAMES = 1
@@ -124,6 +135,19 @@ def _formal_task2_13_15_final_pose(depth_cm, target_kind):
     left_depth, left_id1, left_id2 = anchors[0]
     right_depth, right_id1, right_id2 = anchors[1]
     ratio = (float(depth_cm) - left_depth) / (right_depth - left_depth)
+    return (
+        int(round(left_id1 + ratio * (right_id1 - left_id1))),
+        int(round(left_id2 + ratio * (right_id2 - left_id2))),
+    )
+
+
+def _formal_task2_19_20_5_final_pose(depth_cm, target_kind):
+    """Bridge only the gap between the unchanged mid and far final poses."""
+    anchors = (FORMAL_TASK2_19_20_5_RING_ANCHORS
+               if target_kind == "ring" else FORMAL_TASK2_19_20_5_LETTER_ANCHORS)
+    left_depth, left_id1, left_id2 = anchors[0]
+    right_depth, right_id1, right_id2 = anchors[1]
+    ratio = (depth_cm - left_depth) / (right_depth - left_depth)
     return (
         int(round(left_id1 + ratio * (right_id1 - left_id1))),
         int(round(left_id2 + ratio * (right_id2 - left_id2))),
@@ -623,6 +647,20 @@ class PlatformTask:
                 if key[0] == "ring"
                 else (457, 478)
             )
+        # Apply the same final correction across 7..19 cm, including the
+        # 13..15 cm bridge, so the correction itself adds no internal step.
+        if (key[0] == "ring"
+                and FORMAL_ID2_CORRECTION_MIN_DISTANCE_CM <= depth
+                <= FORMAL_RING_MID_MAX_DISTANCE_CM):
+            id2 = max(CENTER_ID2_RANGE[0], min(
+                CENTER_ID2_RANGE[1],
+                id2 + FORMAL_RING_SELECTED_BANDS_FINAL_ID2_INCREASE_TICKS,
+            ))
+        # This is a final pose bridge: no additional band correction follows.
+        # Keep both endpoints and all three special bands exactly unchanged.
+        if (FORMAL_RING_MID_MAX_DISTANCE_CM < depth
+                < FORMAL_RING_LONG_RANGE_MIN_DISTANCE_CM):
+            id1, id2 = _formal_task2_19_20_5_final_pose(depth, key[0])
         self.high_ready = False
         placement = LETTER_PLACE if key[0] == "letter" else RING_PLACE
         print(f"PLATFORM_PICK TARGET kind={key[0]} label={key[1]} depth_cm={depth:.2f} "

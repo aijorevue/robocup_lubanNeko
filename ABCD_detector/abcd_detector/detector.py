@@ -28,6 +28,9 @@ RECTIFIED_ROTATION_ANGLES_DEG = (0, 90, 180, 270)
 TASK2_B_CENTER_BAR_MIN_RATIO = 0.44
 TASK2_D_CENTER_BAR_PENALTY = 0.14
 TASK2_FALLBACK_WHITE_SATURATION_MAX = 75
+TASK2_D_WHITE_SATURATION_MAX = 35
+TASK2_GLARE_MIN_CONFIDENCE = 0.65
+TASK2_GLARE_INNER_INSET = 18
 TASK3_B_CENTER_BAR_MIN_RATIO = 0.30
 TASK3_D_CENTER_BAR_MAX_RATIO = 0.24
 TASK3_BD_STRUCTURE_PENALTY = 0.10
@@ -36,6 +39,7 @@ TASK3_BD_STRUCTURE_PENALTY = 0.10
 TASK3_C_RIGHT_OPEN_MAX_RATIO = 0.24
 TASK3_D_FOR_C_OPEN_PENALTY = 0.20
 TASK3_MAX_CENTER_Y_RATIO = 0.75
+TASK3_MIN_CONFIDENCE_PERCENT = 55.0
 # The task-three green discs otherwise merge into the white block mask.
 TASK3_MAX_WHITE_SATURATION = 45
 DEFAULT_DISTANCE_OFFSET_CM = -1.6072186919749336
@@ -259,7 +263,11 @@ class ABCDDetector:
         return detections
 
     def detect_task2(self, frame):
-        """Detect task-two letters with a B/D structural tie-break."""
+        """Detect task-two letters at arbitrary in-plane rotation.
+
+        Task two keeps its own white-card masks and station policy, but reuses
+        the rotation-invariant block classifier used by task three.
+        """
         if frame is None or not isinstance(frame, np.ndarray) or frame.ndim != 3:
             return []
         height, width = frame.shape[:2]
@@ -267,18 +275,114 @@ class ABCDDetector:
             return []
 
         results = self._detect_yolo(frame)
-        white_blocks = self._detect_white_blocks(frame, task2_bd_check=True)
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        # Recover precise card faces first so later masks do not classify the
+        # same letter again. Other cards still use the legacy fallback passes.
+        recovered = [
+            item for item in self._detect_white_blocks(
+                frame, rotation_invariant=True, task2_bd_check=True,
+                task2_nested_white=True, task2_reject_green=True,
+                task2_require_visible=True, hsv=hsv,
+            )
+            if float(item.get("confidence", 0.0)) >= 100 * TASK2_GLARE_MIN_CONFIDENCE
+        ]
+        options = dict(
+            rotation_invariant=True, task2_bd_check=True,
+            task2_require_visible=True, task2_known_cards=recovered, hsv=hsv,
+        )
+        white_blocks = self._detect_white_blocks(frame, **options)
         if not white_blocks:
             white_blocks = self._detect_white_blocks(
-                frame,
-                task2_bd_check=True,
-                white_saturation_max=TASK2_FALLBACK_WHITE_SATURATION_MAX,
+                frame, white_saturation_max=TASK2_FALLBACK_WHITE_SATURATION_MAX,
+                **options,
             )
+        # Preserve the strict-white recovery for cards inside a white frame.
+        strict_white_blocks = [
+            item for item in self._detect_white_blocks(
+                frame, white_saturation_max=TASK2_D_WHITE_SATURATION_MAX,
+                task2_nested_white=True, **options,
+            )
+            if item.get("letter") == "D"
+            or float(item.get("confidence", 0.0)) >= 65.0
+        ]
+        strict_white_blocks.extend(recovered)
+        white_blocks.extend(strict_white_blocks)
         results.extend(white_blocks)
-        results.extend(self._detect_dark_letters(frame))
+        results.extend(self._detect_dark_letters(frame, task2_known_cards=recovered))
         detections = self._dedupe_detections(results)
-        self._add_depth_measurements(detections, frame.shape)
+        self._add_white_block_depth(
+            detections, white_blocks, strict_white_blocks, frame.shape
+        )
         return detections
+
+    def _add_white_block_depth(
+        self, detections, white_blocks, preferred_white_blocks, frame_shape,
+        *, task="task2",
+    ):
+        """Measure the physical white card, never the black glyph area.
+
+        Recognition confidence may select a dark-glyph result. Keep its label,
+        confidence and localization, but associate a visible white card for
+        depth. Task two prefers its strict-white pass to exclude washed-out
+        green. Task three supplies its own rotation-path white cards, keeping
+        its segmentation and recognition policy independent.
+        """
+        fields = (
+            "projected_area", "area_ratio", "area_percent", "diameter_ratio",
+            "distance_cm", "depth_cm", "depth_mm",
+        )
+        for detection in detections:
+            x, y, width, height = detection.get("bbox", (0, 0, 0, 0))
+            detection_area = max(1.0, float(width) * float(height))
+            center = (float(x) + float(width) / 2, float(y) + float(height) / 2)
+            card = None
+            for candidates in (preferred_white_blocks, white_blocks):
+                matches = []
+                for candidate in candidates:
+                    if (candidate.get("color") != "white"
+                            or not candidate.get("fully_visible", False)):
+                        continue
+                    area = float(candidate.get("projected_area", 0.0))
+                    if not np.isfinite(area) or area <= 0:
+                        continue
+                    cx, cy, cw, ch = candidate["bbox"]
+                    card_area = max(1.0, float(cw) * float(ch))
+                    ratio = card_area / detection_area
+                    intersection = (
+                        max(0.0, min(x + width, cx + cw) - max(x, cx))
+                        * max(0.0, min(y + height, cy + ch) - max(y, cy))
+                    )
+                    offset = np.hypot(
+                        center[0] - (cx + cw / 2.0),
+                        center[1] - (cy + ch / 2.0),
+                    ) / max(1.0, float(max(cw, ch)))
+                    if (0.45 <= ratio <= 4.0
+                            and intersection / min(detection_area, card_area) >= 0.80
+                            and offset <= 0.25):
+                        matches.append((float(offset), -float(candidate.get("confidence", 0.0)), candidate))
+                if matches:
+                    card = min(matches, key=lambda match: match[:2])[2]
+                    break
+            if card is None:
+                # No white card means no physical-size reference. In particular,
+                # do not let the generic bbox fallback turn glyph area into cm.
+                detection.update({name: 0.0 for name in fields})
+                detection.update(
+                    distance_cm=None, depth_cm=None, depth_mm=None,
+                    depth_source=f"{task}_white_block_missing", depth_valid=False,
+                    depth_bbox=None,
+                )
+                continue
+            measurement = {
+                "bbox": tuple(card["bbox"]),
+                "projected_area": float(card["projected_area"]),
+            }
+            self._add_depth_measurements([measurement], frame_shape)
+            detection.update({name: measurement[name] for name in fields})
+            detection.update(
+                depth_source=f"{task}_white_block", depth_valid=True,
+                depth_bbox=tuple(card["bbox"]),
+            )
 
     def detect_task3_rotated(
         self, frame, *, frame_shape=None, frame_origin=(0, 0)
@@ -297,10 +401,13 @@ class ABCDDetector:
         detections = [
             detection
             for detection in detections
-            if (float(detection["center"][1]) + origin_y) / full_height
+            if float(detection.get("confidence") or 0.0) >= TASK3_MIN_CONFIDENCE_PERCENT
+            and (float(detection["center"][1]) + origin_y) / full_height
             <= TASK3_MAX_CENTER_Y_RATIO
         ]
-        self._add_depth_measurements(detections, measurement_shape)
+        self._add_white_block_depth(
+            detections, detections, detections, measurement_shape, task="task3"
+        )
         return detections
 
     def _add_depth_measurements(self, detections, frame_shape):
@@ -383,6 +490,28 @@ class ABCDDetector:
                 )
         return detections
 
+    @staticmethod
+    def _task2_white_island_contours(mask):
+        """Include white cards inside a white frame, excluding dark holes."""
+        contours, hierarchy = cv2.findContours(
+            mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
+        )
+        if hierarchy is None:
+            return []
+        depths = {-1: -1}
+        white_contours = []
+        for index, contour in enumerate(contours):
+            chain, parent = [], index
+            while parent not in depths:
+                chain.append(parent)
+                parent = int(hierarchy[0, parent, 3])
+            for child in reversed(chain):
+                depths[child] = depths[parent] + 1
+                parent = child
+            if depths[index] % 2 == 0:
+                white_contours.append(contour)
+        return white_contours
+
     def _detect_white_blocks(
         self,
         frame,
@@ -390,10 +519,16 @@ class ABCDDetector:
         rotation_invariant=False,
         task2_bd_check=False,
         white_saturation_max=None,
+        task2_nested_white=False,
+        task2_reject_green=False,
+        task2_require_visible=False,
+        task2_known_cards=(),
+        hsv=None,
     ):
         height, width = frame.shape[:2]
 
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        if hsv is None:
+            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         saturation_max = (
             self.max_white_saturation
             if white_saturation_max is None
@@ -404,21 +539,35 @@ class ABCDDetector:
             np.array((0, 0, int(self.min_white_value)), dtype=np.uint8),
             np.array((180, saturation_max, 255), dtype=np.uint8),
         )
+        if task2_reject_green:
+            # Glossy green is bright and weakly saturated, like a white card.
+            # Keep neutral/bluish paper while excluding its green hue.
+            green = cv2.inRange(
+                hsv, np.array((35, 10, 0), np.uint8),
+                np.array((95, 255, 255), np.uint8),
+            )
+            white_mask[green != 0] = 0
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
         candidate_mask = cv2.morphologyEx(white_mask, cv2.MORPH_CLOSE, kernel)
         candidate_mask = cv2.morphologyEx(
             candidate_mask, cv2.MORPH_OPEN, np.ones((3, 3), dtype=np.uint8)
         )
-        contours, _ = cv2.findContours(
-            candidate_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-        )
+        if task2_nested_white:
+            contours = self._task2_white_island_contours(candidate_mask)
+        else:
+            contours, _ = cv2.findContours(
+                candidate_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
         # Serif glyphs touching a narrow white border can split the patch.
         joined_mask = cv2.morphologyEx(
             white_mask, cv2.MORPH_CLOSE, np.ones((15, 15), dtype=np.uint8)
         )
-        joined_contours, _ = cv2.findContours(
-            joined_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-        )
+        if task2_nested_white:
+            joined_contours = self._task2_white_island_contours(joined_mask)
+        else:
+            joined_contours, _ = cv2.findContours(
+                joined_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
         contours = list(contours) + list(joined_contours)
         frame_area = float(height * width)
         edge_margin = max(5, int(min(width, height) * 0.012))
@@ -452,6 +601,10 @@ class ABCDDetector:
                 and x + box_width < width - edge_margin
                 and y + box_height < height - edge_margin
             )
+            if task2_require_visible and not fully_visible:
+                continue
+            if self._overlaps_known_task2_card((x, y, box_width, box_height), task2_known_cards):
+                continue
             if rotation_invariant:
                 candidate_rect = (x, y, x + box_width, y + box_height)
                 duplicate = False
@@ -478,6 +631,18 @@ class ABCDDetector:
                 letter, confidence, occupancy, rotation_angle, margin = (
                     self._classify_rotation_invariant(rectified)
                 )
+                if task2_reject_green and (
+                    letter is None or confidence < TASK2_GLARE_MIN_CONFIDENCE
+                ):
+                    # A visible cube side can leave a dark edge after rectification.
+                    # Retry inside the card face, with the same acceptance gates.
+                    inner_result = self._classify_rotation_invariant(
+                        rectified, inset=TASK2_GLARE_INNER_INSET
+                    )
+                    if inner_result[0] is not None and inner_result[1] > confidence:
+                        letter, confidence, occupancy, rotation_angle, margin = (
+                            inner_result
+                        )
             else:
                 letter, confidence, occupancy = self._classify(
                     rectified, task2_bd_check=task2_bd_check
@@ -513,7 +678,20 @@ class ABCDDetector:
             results.append(detection)
         return results
 
-    def _detect_dark_letters(self, frame):
+    @staticmethod
+    def _overlaps_known_task2_card(bbox, cards):
+        """Skip only a candidate contained by an already accepted card face."""
+        x, y, width, height = bbox
+        area = max(1, width * height)
+        for card in cards:
+            cx, cy, cw, ch = card["bbox"]
+            intersection = (max(0, min(x + width, cx + cw) - max(x, cx))
+                            * max(0, min(y + height, cy + ch) - max(y, cy)))
+            if intersection / area >= 0.80 and area <= 1.5 * cw * ch:
+                return True
+        return False
+
+    def _detect_dark_letters(self, frame, *, task2_known_cards=()):
         height, width = frame.shape[:2]
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         threshold = min(145, max(70, int(np.percentile(gray, 28)) + 20))
@@ -533,6 +711,8 @@ class ABCDDetector:
         max_w = int(width * 0.45)
         for contour in sorted(contours, key=cv2.contourArea, reverse=True):
             x, y, box_width, box_height = cv2.boundingRect(contour)
+            if self._overlaps_known_task2_card((x, y, box_width, box_height), task2_known_cards):
+                continue
             if box_height < min_h or box_height > max_h:
                 continue
             if box_width < min_w or box_width > max_w:
