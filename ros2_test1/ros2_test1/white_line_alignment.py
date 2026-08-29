@@ -774,6 +774,18 @@ class WhiteLineAlignmentDetector:
             )
 
         if not candidates:
+            # The generic task-one mask can merge the bright tape with the
+            # chassis/cloth after the grayscale threshold and close pass.
+            # Reuse the independent continuous-band solver as a recovery
+            # path, but only after the task-one geometry candidates fail.
+            # This keeps the normal task-one scoring and all task-two/task-
+            # three entry points unchanged while recovering a real strip
+            # whose outer contour has been vertically inflated.
+            recovery = self.detect_task2(frame)
+            if recovery is not None:
+                self._missed_frames = 0
+                self._last_measurement = dict(recovery)
+                return recovery
             fallback = self._fallback_measurement(frame)
             if fallback is not None:
                 self._missed_frames = 0
@@ -1789,17 +1801,42 @@ class WhiteLineAlignmentDetector:
 
         Task three begins farther from the strip than task two. Perspective,
         exposure, and partial frame entry can therefore make the strict
-        task-two band limits reject a real strip. Keep the task-two detector
-        as the first choice, then use a task-three-only relaxed candidate gate
-        that still requires a long, thin, continuous bright band and a
-        measurable right boundary.
+        task-two band limits reject a real strip. Prefer the task-two band
+        geometry when it produces a fresh task-three-compatible strip: in the
+        shared close view it separates the actual tape from the upper box more
+        reliably than the relaxed task-three scanline score. Keep the
+        task-three-only relaxed candidate gate as a fallback for farther views
+        where task-two's width gates are too strict.
         """
-        # Prefer the task-three scanline geometry before contour candidates.
-        # In the close/mixed view the real strip can be joined to the upper
-        # box in the binary mask, while a lower arm/vehicle highlight remains
-        # a separate, thick contour.  Letting that contour win first produces
-        # a stable but wrong Y/RX result and prevents the existing scanline
-        # recovery from running.
+        if frame is None or frame.size == 0:
+            return None
+
+        height, width = frame.shape[:2]
+        task3_max_line_y = height * 0.64
+
+        # The task-two band fitter has the stronger separation between the
+        # actual tape and the upper box in the close task-three view. Reuse
+        # only a fresh result, then keep task-three's absolute-white support
+        # and right-edge refinement contract local to this path.
+        strict = self.detect_task2(frame)
+        if (
+            strict is not None
+            and not strict.get("held", False)
+            and height * 0.24 <= float(strict.get("y_at_center", -1.0))
+            <= task3_max_line_y
+            and self._task3_has_absolute_white_support(frame, strict)
+        ):
+            strict = dict(strict)
+            strict["right_edge_x"] = self._task3_refine_right_boundary(
+                frame, strict
+            )
+            return self._task3_accept_measurement(frame, strict)
+
+        # Prefer the task-three scanline geometry only after the stronger
+        # continuous-band candidate above has failed. In the close/mixed view
+        # the real strip can be joined to the upper box in the binary mask,
+        # while a lower arm/vehicle highlight remains a separate, thick
+        # contour. The scanline path remains task-three-only recovery.
         scanline = self._task3_scanline_fallback(frame)
         if scanline is None:
             # A lower-contrast retry is still constrained by the same narrow
@@ -1814,14 +1851,12 @@ class WhiteLineAlignmentDetector:
         if scanline is not None:
             return self._task3_accept_measurement(frame, scanline)
 
-        height, width = frame.shape[:2]
-        task3_max_line_y = height * 0.64
-
+        # Re-run the strict task-two candidate only for the legacy fallback
+        # behavior when the scanline path also fails. Held geometry is never
+        # promoted to a fresh task-three detection.
         strict = self.detect_task2(frame)
         if strict is not None and float(strict.get("y_at_center", 0.0)) > \
                 task3_max_line_y:
-            # The lower vehicle/arm structure can satisfy task-two's wider
-            # vertical gate. It is outside the task-three line search band.
             strict = None
         if (
             strict is not None
