@@ -1,0 +1,868 @@
+"""Detect white quadrilateral blocks carrying the RoboCup A/B/C/D letters.
+
+The detector deliberately owns no camera and has no machine-specific paths. It
+can therefore run inside the existing RK camera process or as a ROS 2 topic
+node without competing for the camera device.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+import os
+
+import cv2
+import numpy as np
+
+try:
+    from ultralytics import YOLO
+except ImportError:  # YOLO is optional; the template pipeline still works.
+    YOLO = None
+
+
+LETTERS = ("A", "B", "C", "D")
+ROTATION_COARSE_STEP_DEG = 10
+ROTATION_FINE_RADIUS_DEG = 8
+ROTATION_FINE_STEP_DEG = 1
+ROTATION_MIN_MARGIN = 0.015
+RECTIFIED_ROTATION_ANGLES_DEG = (0, 90, 180, 270)
+TASK2_B_CENTER_BAR_MIN_RATIO = 0.44
+TASK2_D_CENTER_BAR_PENALTY = 0.14
+TASK3_B_CENTER_BAR_MIN_RATIO = 0.30
+TASK3_D_CENTER_BAR_MAX_RATIO = 0.24
+TASK3_BD_STRUCTURE_PENALTY = 0.10
+# Task-three C has a real opening on the right side of the normalized glyph;
+# D closes that area.  Keep this separate from the task-two B/D tie-break.
+TASK3_C_RIGHT_OPEN_MAX_RATIO = 0.24
+TASK3_D_FOR_C_OPEN_PENALTY = 0.20
+TASK3_MAX_CENTER_Y_RATIO = 0.75
+DEFAULT_DISTANCE_OFFSET_CM = -1.6072186919749336
+DEFAULT_DISTANCE_SCALE_CM = (
+    31.628878020276648 * 2.0 * 30.0 / (42.67 * np.sqrt(np.pi)) * 1.20
+)
+
+
+class ABCDDetector:
+    """Find fully visible white letter blocks in a BGR image."""
+
+    def __init__(self, config_path=None):
+        self.min_white_value = 105
+        self.max_white_saturation = 86
+        self.min_candidate_area = 500.0
+        self.max_candidate_area_ratio = 0.72
+        self.min_side_px = 28.0
+        self.max_aspect_ratio = 2.35
+        self.min_rectangularity = 0.54
+        self.min_glyph_occupancy = 0.025
+        self.max_glyph_occupancy = 0.46
+        self.min_confidence = 0.42
+        self.distance_offset_cm = DEFAULT_DISTANCE_OFFSET_CM
+        self.distance_scale_cm = DEFAULT_DISTANCE_SCALE_CM
+        self.yolo_weights_path = os.environ.get("ABCD_YOLO_WEIGHTS", "")
+        self.yolo_confidence = 0.45
+        self._yolo_model = None
+        self._load_config(config_path)
+        self.templates = self._build_templates()
+        self.template_bank = self._build_template_bank()
+        self._build_rotation_template_features()
+        self._rotation_matrices = {}
+
+    def _load_config(self, config_path):
+        """Load optional package config without requiring a workspace path."""
+
+        if config_path is None:
+            config_path = Path(__file__).resolve().parents[1] / "config" / "letter_detector.yaml"
+        path = Path(config_path)
+        if not path.is_file():
+            return
+        try:
+            import yaml
+
+            document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except (ImportError, OSError, UnicodeError, ValueError):
+            return
+        parameters = (
+            document.get("abcd_detector", {})
+            .get("ros__parameters", {})
+        )
+        for name in (
+            "min_white_value",
+            "max_white_saturation",
+            "min_candidate_area",
+            "max_candidate_area_ratio",
+            "min_side_px",
+            "max_aspect_ratio",
+            "min_rectangularity",
+            "min_glyph_occupancy",
+            "max_glyph_occupancy",
+            "min_confidence",
+            "distance_offset_cm",
+            "distance_scale_cm",
+            "yolo_confidence",
+        ):
+            if name in parameters:
+                try:
+                    setattr(self, name, float(parameters[name]))
+                except (TypeError, ValueError):
+                    pass
+        if "yolo_weights_path" in parameters:
+            try:
+                self.yolo_weights_path = str(parameters["yolo_weights_path"])
+            except (TypeError, ValueError):
+                pass
+
+    @staticmethod
+    def _build_templates():
+        templates = {}
+        for letter in LETTERS:
+            template_path = (
+                Path(__file__).resolve().parent / "assets" / "letters" / f"{letter}.png"
+            )
+            if template_path.is_file():
+                template = cv2.imread(str(template_path), cv2.IMREAD_GRAYSCALE)
+                if template is not None and template.size:
+                    templates[letter] = ABCDDetector._normalize_glyph(template)
+                    continue
+
+            canvas = np.zeros((120, 120), dtype=np.uint8)
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            scale = 2.75
+            thickness = 8
+            (width, height), baseline = cv2.getTextSize(
+                letter, font, scale, thickness
+            )
+            origin = (
+                max(0, (120 - width) // 2),
+                max(height, (120 + height) // 2 - baseline // 2),
+            )
+            cv2.putText(
+                canvas,
+                letter,
+                origin,
+                font,
+                scale,
+                255,
+                thickness,
+                cv2.LINE_AA,
+            )
+            templates[letter] = ABCDDetector._normalize_glyph(canvas)
+        return templates
+
+    def _build_template_bank(self):
+        bank = {}
+        for letter, template in self.templates.items():
+            variants = [template]
+            if letter == "D":
+                kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2, 2))
+                variants.append(cv2.GaussianBlur(template, (3, 3), 0))
+                variants.append(cv2.dilate(template, kernel))
+                variants.append(cv2.erode(template, kernel))
+            bank[letter] = variants
+        return bank
+
+    def _build_rotation_template_features(self):
+        labels = []
+        templates = []
+        for letter in LETTERS:
+            for template in self.template_bank.get(letter, (self.templates[letter],)):
+                labels.append(letter)
+                templates.append(np.asarray(template, dtype=np.uint8))
+        flat = np.stack(templates).reshape(len(templates), -1).astype(np.float32)
+        centered = flat - flat.mean(axis=1, keepdims=True)
+        norms = np.linalg.norm(centered, axis=1, keepdims=True)
+        self._rotation_template_labels = tuple(labels)
+        self._rotation_template_centered = centered / np.maximum(norms, 1e-6)
+        self._rotation_template_binary = (flat > 127).astype(np.float32)
+        self._rotation_template_counts = self._rotation_template_binary.sum(
+            axis=1, keepdims=False
+        )
+
+    def _score_rotation_batch(self, normalized_glyphs):
+        """Score normalized rotations against every template in two matrix ops."""
+        glyphs = np.asarray(normalized_glyphs, dtype=np.uint8)
+        flat = glyphs.reshape(glyphs.shape[0], -1).astype(np.float32)
+        centered = flat - flat.mean(axis=1, keepdims=True)
+        norms = np.linalg.norm(centered, axis=1, keepdims=True)
+        correlations = np.maximum(
+            0.0,
+            (centered / np.maximum(norms, 1e-6))
+            @ self._rotation_template_centered.T,
+        )
+        binary = (flat > 127).astype(np.float32)
+        intersections = binary @ self._rotation_template_binary.T
+        unions = (
+            binary.sum(axis=1, keepdims=True)
+            + self._rotation_template_counts.reshape(1, -1)
+            - intersections
+        )
+        ious = intersections / np.maximum(unions, 1.0)
+        scores = {}
+        for letter in LETTERS:
+            indices = [
+                index
+                for index, label in enumerate(self._rotation_template_labels)
+                if label == letter
+            ]
+            weight_corr, weight_iou = (0.72, 0.28) if letter == "D" else (0.65, 0.35)
+            variant_scores = (
+                weight_corr * correlations[:, indices]
+                + weight_iou * ious[:, indices]
+            )
+            scores[letter] = variant_scores.max(axis=1)
+        return scores
+
+    @staticmethod
+    def _normalize_glyph(mask):
+        binary = np.asarray(mask, dtype=np.uint8)
+        _, binary = cv2.threshold(binary, 127, 255, cv2.THRESH_BINARY)
+        if np.count_nonzero(binary) > binary.size // 2:
+            binary = cv2.bitwise_not(binary)
+        points = cv2.findNonZero(binary)
+        if points is None:
+            return np.zeros((64, 64), dtype=np.uint8)
+        x, y, width, height = cv2.boundingRect(points)
+        cropped = binary[y : y + height, x : x + width]
+        scale = min(56.0 / max(1, width), 56.0 / max(1, height))
+        resized = cv2.resize(
+            cropped,
+            (
+                max(1, int(round(width * scale))),
+                max(1, int(round(height * scale))),
+            ),
+            interpolation=cv2.INTER_AREA,
+        )
+        normalized = np.zeros((64, 64), dtype=np.uint8)
+        offset_x = (64 - resized.shape[1]) // 2
+        offset_y = (64 - resized.shape[0]) // 2
+        normalized[
+            offset_y : offset_y + resized.shape[0],
+            offset_x : offset_x + resized.shape[1],
+        ] = resized
+        return normalized
+
+    def detect(self, frame):
+        """Return controller-compatible detections for A/B/C/D targets."""
+
+        if frame is None or not isinstance(frame, np.ndarray) or frame.ndim != 3:
+            return []
+        height, width = frame.shape[:2]
+        if height < 32 or width < 32:
+            return []
+
+        results = self._detect_yolo(frame)
+        results.extend(self._detect_white_blocks(frame))
+        results.extend(self._detect_dark_letters(frame))
+        detections = self._dedupe_detections(results)
+        self._add_depth_measurements(detections, frame.shape)
+        return detections
+
+    def detect_task2(self, frame):
+        """Detect task-two letters with a B/D structural tie-break."""
+        if frame is None or not isinstance(frame, np.ndarray) or frame.ndim != 3:
+            return []
+        height, width = frame.shape[:2]
+        if height < 32 or width < 32:
+            return []
+
+        results = self._detect_yolo(frame)
+        results.extend(self._detect_white_blocks(frame, task2_bd_check=True))
+        results.extend(self._detect_dark_letters(frame))
+        detections = self._dedupe_detections(results)
+        self._add_depth_measurements(detections, frame.shape)
+        return detections
+
+    def detect_task3_rotated(
+        self, frame, *, frame_shape=None, frame_origin=(0, 0)
+    ):
+        """Classify white task-three blocks at arbitrary in-plane rotation."""
+        if frame is None or not isinstance(frame, np.ndarray) or frame.ndim != 3:
+            return []
+        detections = self._detect_white_blocks(frame, rotation_invariant=True)
+        measurement_shape = frame_shape or frame.shape
+        origin_y = int(frame_origin[1]) if len(frame_origin) >= 2 else 0
+        full_height = max(1, int(measurement_shape[0]))
+        detections = [
+            detection
+            for detection in detections
+            if (float(detection["center"][1]) + origin_y) / full_height
+            <= TASK3_MAX_CENTER_Y_RATIO
+        ]
+        self._add_depth_measurements(detections, measurement_shape)
+        return detections
+
+    def _add_depth_measurements(self, detections, frame_shape):
+        height, width = frame_shape[:2]
+        frame_area = max(1, int(width) * int(height))
+        short_side = max(1, min(int(width), int(height)))
+        for detection in detections:
+            _, _, box_width, box_height = detection.get("bbox", (0, 0, 0, 0))
+            projected_area = max(0.0, float(detection.get("projected_area", 0.0)))
+            if projected_area <= 0.0:
+                projected_area = float(max(0, int(box_width) * int(box_height)))
+            area_ratio = projected_area / float(frame_area)
+            area_percent = area_ratio * 100.0
+            distance_cm = self._estimate_distance_cm(area_percent)
+            detection["area_ratio"] = area_ratio
+            detection["area_percent"] = area_percent
+            detection["diameter_ratio"] = max(int(box_width), int(box_height)) / float(short_side)
+            detection["distance_cm"] = distance_cm
+            detection["depth_cm"] = distance_cm
+            detection["depth_mm"] = None if distance_cm is None else distance_cm * 10.0
+
+    def _estimate_distance_cm(self, area_percent):
+        if area_percent <= 0.0:
+            return None
+        return self.distance_offset_cm + self.distance_scale_cm / np.sqrt(area_percent)
+
+    def _detect_yolo(self, frame):
+        if YOLO is None or not self.yolo_weights_path:
+            return []
+        weights_path = Path(self.yolo_weights_path)
+        if not weights_path.is_file():
+            return []
+        if self._yolo_model is None:
+            try:
+                self._yolo_model = YOLO(str(weights_path))
+            except Exception:
+                return []
+
+        detections = []
+        try:
+            prediction = self._yolo_model.predict(
+                frame,
+                conf=float(self.yolo_confidence),
+                verbose=False,
+            )
+        except Exception:
+            return []
+
+        for result in prediction:
+            names = getattr(result, "names", {}) or {}
+            boxes = getattr(result, "boxes", None)
+            if boxes is None:
+                continue
+            for box in boxes:
+                cls_index = int(box.cls[0]) if hasattr(box.cls, "__iter__") else int(box.cls)
+                label = str(names.get(cls_index, cls_index)).upper()
+                if label not in LETTERS:
+                    continue
+                xyxy = box.xyxy[0].cpu().numpy()
+                x0, y0, x1, y1 = [int(round(value)) for value in xyxy]
+                confidence = float(box.conf[0]) if hasattr(box.conf, "__iter__") else float(box.conf)
+                detections.append(
+                    {
+                        "kind": "letter",
+                        "letter": label,
+                        "color": "yolo",
+                        "source": "abcd_detector_yolo",
+                        "confidence": round(confidence * 100.0, 1),
+                        "glyph_occupancy": 0.0,
+                        "center": (int(round((x0 + x1) / 2.0)), int(round((y0 + y1) / 2.0))),
+                        "box": np.array(
+                            [[x0, y0], [x1, y0], [x1, y1], [x0, y1]],
+                            dtype=np.int32,
+                        ),
+                        "bbox": (x0, y0, x1 - x0, y1 - y0),
+                        "projected_area": float(max(0, x1 - x0) * max(0, y1 - y0)),
+                        "fully_visible": True,
+                        "angle": 0.0,
+                    }
+                )
+        return detections
+
+    def _detect_white_blocks(
+        self, frame, *, rotation_invariant=False, task2_bd_check=False
+    ):
+        height, width = frame.shape[:2]
+
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        white_mask = cv2.inRange(
+            hsv,
+            np.array((0, 0, int(self.min_white_value)), dtype=np.uint8),
+            np.array((180, int(self.max_white_saturation), 255), dtype=np.uint8),
+        )
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
+        candidate_mask = cv2.morphologyEx(white_mask, cv2.MORPH_CLOSE, kernel)
+        candidate_mask = cv2.morphologyEx(
+            candidate_mask, cv2.MORPH_OPEN, np.ones((3, 3), dtype=np.uint8)
+        )
+        contours, _ = cv2.findContours(
+            candidate_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        # Serif glyphs touching a narrow white border can split the patch.
+        joined_mask = cv2.morphologyEx(
+            white_mask, cv2.MORPH_CLOSE, np.ones((15, 15), dtype=np.uint8)
+        )
+        joined_contours, _ = cv2.findContours(
+            joined_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        contours = list(contours) + list(joined_contours)
+        frame_area = float(height * width)
+        edge_margin = max(5, int(min(width, height) * 0.012))
+        results = []
+        classified_rects = []
+        for contour in sorted(contours, key=cv2.contourArea, reverse=True):
+            area = float(cv2.contourArea(contour))
+            if area < self.min_candidate_area or area > frame_area * self.max_candidate_area_ratio:
+                continue
+            rect = cv2.minAreaRect(contour)
+            (cx, cy), (rect_w, rect_h), angle = rect
+            short_side = min(rect_w, rect_h)
+            long_side = max(rect_w, rect_h)
+            if short_side < self.min_side_px or short_side <= 0.0:
+                continue
+            if long_side / short_side > self.max_aspect_ratio:
+                continue
+            rectangularity = area / max(1.0, rect_w * rect_h)
+            if rectangularity < self.min_rectangularity:
+                continue
+            raw_box = cv2.boxPoints(rect)
+            box = (
+                self._ordered_quad(raw_box)
+                if rotation_invariant
+                else self._ordered_box(raw_box)
+            )
+            x, y, box_width, box_height = cv2.boundingRect(box.astype(np.int32))
+            fully_visible = (
+                x > edge_margin
+                and y > edge_margin
+                and x + box_width < width - edge_margin
+                and y + box_height < height - edge_margin
+            )
+            if rotation_invariant:
+                candidate_rect = (x, y, x + box_width, y + box_height)
+                duplicate = False
+                for old_x0, old_y0, old_x1, old_y1 in classified_rects:
+                    intersection = (
+                        max(0, min(candidate_rect[2], old_x1) - max(candidate_rect[0], old_x0))
+                        * max(0, min(candidate_rect[3], old_y1) - max(candidate_rect[1], old_y0))
+                    )
+                    union = (
+                        max(1, box_width * box_height)
+                        + max(1, (old_x1 - old_x0) * (old_y1 - old_y0))
+                        - intersection
+                    )
+                    if intersection / float(max(1, union)) >= 0.55:
+                        duplicate = True
+                        break
+                if duplicate:
+                    continue
+                classified_rects.append(candidate_rect)
+            rectified = self._rectify(frame, box, 128)
+            rotation_angle = None
+            margin = None
+            if rotation_invariant:
+                letter, confidence, occupancy, rotation_angle, margin = (
+                    self._classify_rotation_invariant(rectified)
+                )
+            else:
+                letter, confidence, occupancy = self._classify(
+                    rectified, task2_bd_check=task2_bd_check
+                )
+                edge_letter, edge_confidence, edge_occupancy = self._classify(
+                    rectified, inset=2, task2_bd_check=task2_bd_check
+                )
+                if edge_letter is not None and edge_confidence > confidence:
+                    letter, confidence, occupancy = (
+                        edge_letter, edge_confidence, edge_occupancy
+                    )
+            if letter is None:
+                continue
+            if confidence < max(self.min_confidence, 0.45):
+                continue
+            detection = {
+                    "kind": "letter",
+                    "letter": letter,
+                    "color": "white",
+                    "source": "abcd_detector",
+                    "confidence": round(float(confidence) * 100.0, 1),
+                    "glyph_occupancy": round(float(occupancy), 4),
+                    "center": (int(round(cx)), int(round(cy))),
+                    "box": box.astype(np.int32),
+                    "bbox": (int(x), int(y), int(box_width), int(box_height)),
+                    "projected_area": max(area, float(rect_w * rect_h)),
+                    "fully_visible": fully_visible,
+                    "angle": round(float(angle), 1),
+                }
+            if rotation_invariant:
+                detection["rotation_angle_deg"] = round(float(rotation_angle), 1)
+                detection["classification_margin"] = round(float(margin), 4)
+            results.append(detection)
+        return results
+
+    def _detect_dark_letters(self, frame):
+        height, width = frame.shape[:2]
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        threshold = min(145, max(70, int(np.percentile(gray, 28)) + 20))
+        dark_mask = cv2.inRange(gray, 0, threshold)
+        dark_mask = cv2.morphologyEx(
+            dark_mask,
+            cv2.MORPH_CLOSE,
+            cv2.getStructuringElement(cv2.MORPH_RECT, (4, 4)),
+        )
+        contours, _ = cv2.findContours(
+            dark_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        results = []
+        min_h = max(30, int(height * 0.045))
+        max_h = int(height * 0.55)
+        min_w = max(16, int(width * 0.018))
+        max_w = int(width * 0.45)
+        for contour in sorted(contours, key=cv2.contourArea, reverse=True):
+            x, y, box_width, box_height = cv2.boundingRect(contour)
+            if box_height < min_h or box_height > max_h:
+                continue
+            if box_width < min_w or box_width > max_w:
+                continue
+            aspect = box_width / float(box_height)
+            if not 0.25 <= aspect <= 1.35:
+                continue
+            area = float(cv2.contourArea(contour))
+            fill = area / max(1.0, float(box_width * box_height))
+            if not 0.08 <= fill <= 0.82:
+                continue
+
+            pad = max(8, int(max(box_width, box_height) * 0.18))
+            x0 = max(0, x - pad)
+            y0 = max(0, y - pad)
+            x1 = min(width, x + box_width + pad)
+            y1 = min(height, y + box_height + pad)
+            roi = frame[y0:y1, x0:x1]
+            roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+            if float(roi_gray.mean()) < 100.0:
+                continue
+            letter, confidence, occupancy = self._classify_dark_letter(roi)
+            if letter is None:
+                continue
+            results.append(
+                {
+                    "kind": "letter",
+                    "letter": letter,
+                    "color": "black",
+                    "source": "abcd_detector_dark_glyph",
+                    "confidence": round(float(confidence) * 100.0, 1),
+                    "glyph_occupancy": round(float(occupancy), 4),
+                    "center": (int(round(x + box_width / 2.0)), int(round(y + box_height / 2.0))),
+                    "box": np.array(
+                        [[x0, y0], [x1, y0], [x1, y1], [x0, y1]],
+                        dtype=np.int32,
+                    ),
+                    "bbox": (int(x0), int(y0), int(x1 - x0), int(y1 - y0)),
+                    "projected_area": max(area, float(box_width * box_height)),
+                    "fully_visible": True,
+                    "angle": 0.0,
+                }
+            )
+        return results
+
+    def _classify_dark_letter(self, roi):
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        gray = cv2.GaussianBlur(gray, (3, 3), 0)
+        _, glyph = cv2.threshold(
+            gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
+        )
+        glyph = cv2.morphologyEx(
+            glyph,
+            cv2.MORPH_OPEN,
+            cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2, 2)),
+        )
+        glyph = self._normalize_glyph(glyph)
+        glyph_binary = glyph > 127
+        occupancy = float(np.count_nonzero(glyph_binary)) / glyph_binary.size
+        if not 0.025 <= occupancy <= 0.58:
+            return None, 0.0, occupancy
+
+        scores = []
+        for letter in LETTERS:
+            scores.append((self._best_template_score(glyph, glyph_binary, letter), letter))
+        scores.sort(reverse=True)
+        best_score, best_letter = scores[0]
+        runner_up = scores[1][0] if len(scores) > 1 else 0.0
+        confidence = max(0.0, min(1.0, best_score + 0.18 * (best_score - runner_up)))
+        if best_score < (0.45 if best_letter == "D" else 0.50):
+            return None, confidence, occupancy
+        return best_letter, confidence, occupancy
+
+    @staticmethod
+    def _dedupe_detections(detections):
+        def rect(det):
+            x, y, width, height = det["bbox"]
+            return (x, y, x + width, y + height)
+
+        def iou(a, b):
+            ax0, ay0, ax1, ay1 = a
+            bx0, by0, bx1, by1 = b
+            ix0 = max(ax0, bx0)
+            iy0 = max(ay0, by0)
+            ix1 = min(ax1, bx1)
+            iy1 = min(ay1, by1)
+            inter = max(0, ix1 - ix0) * max(0, iy1 - iy0)
+            if inter <= 0:
+                return 0.0
+            area_a = max(1, ax1 - ax0) * max(1, ay1 - ay0)
+            area_b = max(1, bx1 - bx0) * max(1, by1 - by0)
+            return inter / float(area_a + area_b - inter)
+
+        sorted_detections = sorted(
+            detections, key=lambda item: float(item.get("confidence", 0.0)), reverse=True
+        )
+        kept = []
+        for detection in sorted_detections:
+            detection_rect = rect(detection)
+            if any(iou(detection_rect, rect(existing)) > 0.25 for existing in kept):
+                continue
+            kept.append(detection)
+        kept.sort(key=lambda item: (item["center"][0], item["center"][1]))
+        return kept
+
+    @staticmethod
+    def _ordered_box(points):
+        points = np.asarray(points, dtype=np.float32).reshape(4, 2)
+        ordered = np.zeros((4, 2), dtype=np.float32)
+        sums = points.sum(axis=1)
+        diffs = np.diff(points, axis=1).reshape(-1)
+        ordered[0] = points[np.argmin(sums)]
+        ordered[2] = points[np.argmax(sums)]
+        ordered[1] = points[np.argmin(diffs)]
+        ordered[3] = points[np.argmax(diffs)]
+        return ordered
+
+    @staticmethod
+    def _ordered_quad(points):
+        points = np.asarray(points, dtype=np.float32).reshape(4, 2)
+        center = points.mean(axis=0)
+        angles = np.arctan2(points[:, 1] - center[1], points[:, 0] - center[0])
+        ordered = points[np.argsort(angles)]
+        start = int(np.argmin(ordered.sum(axis=1)))
+        return np.roll(ordered, -start, axis=0)
+
+    @staticmethod
+    def _rectify(frame, box, side):
+        destination = np.array(
+            [[0, 0], [side - 1, 0], [side - 1, side - 1], [0, side - 1]],
+            dtype=np.float32,
+        )
+        matrix = cv2.getPerspectiveTransform(box.astype(np.float32), destination)
+        return cv2.warpPerspective(frame, matrix, (side, side))
+
+    @staticmethod
+    def _task2_center_bar_ratio(glyph_binary):
+        points = cv2.findNonZero(np.asarray(glyph_binary, dtype=np.uint8))
+        if points is None:
+            return 0.0
+        x, y, width, height = cv2.boundingRect(points)
+        if width < 8 or height < 8:
+            return 0.0
+        x0 = x + int(round(width * 0.28))
+        x1 = x + int(round(width * 0.82))
+        y0 = y + int(round(height * 0.42))
+        y1 = y + int(round(height * 0.58))
+        if x1 <= x0 or y1 <= y0:
+            return 0.0
+        return float(np.mean(glyph_binary[y0:y1, x0:x1]))
+
+    @staticmethod
+    def _task3_right_middle_stroke_ratio(glyph_binary):
+        """Measure the right-middle stroke after task-three normalization."""
+        binary = np.asarray(glyph_binary, dtype=bool)
+        height, width = binary.shape[:2]
+        if height < 16 or width < 16:
+            return 0.0
+        y0, y1 = int(round(height * 0.28)), int(round(height * 0.72))
+        x0, x1 = int(round(width * 0.72)), int(round(width * 0.995))
+        if x1 <= x0 or y1 <= y0:
+            return 0.0
+        return float(np.mean(binary[y0:y1, x0:x1]))
+
+    def _classify(self, rectified, inset=14, *, task2_bd_check=False):
+        gray = cv2.cvtColor(rectified, cv2.COLOR_BGR2GRAY)
+        inner = gray[inset:-inset, inset:-inset]
+        inner = cv2.GaussianBlur(inner, (3, 3), 0)
+        _, glyph = cv2.threshold(
+            inner, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
+        )
+        glyph = cv2.morphologyEx(
+            glyph,
+            cv2.MORPH_OPEN,
+            cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)),
+        )
+        glyph = self._normalize_glyph(glyph)
+        glyph_binary = glyph > 127
+        occupancy = float(np.count_nonzero(glyph_binary)) / glyph_binary.size
+        if not self.min_glyph_occupancy <= occupancy <= self.max_glyph_occupancy:
+            return None, 0.0, occupancy
+
+        scores_by_letter = {}
+        for letter in LETTERS:
+            scores_by_letter[letter] = self._best_template_score(
+                glyph, glyph_binary, letter
+            )
+        if (
+            task2_bd_check
+            and self._task2_center_bar_ratio(glyph_binary)
+            >= TASK2_B_CENTER_BAR_MIN_RATIO
+        ):
+            scores_by_letter["D"] = max(
+                0.0, scores_by_letter["D"] - TASK2_D_CENTER_BAR_PENALTY
+            )
+        scores = [(score, letter) for letter, score in scores_by_letter.items()]
+        scores.sort(reverse=True)
+        best_score, best_letter = scores[0]
+        runner_up = scores[1][0] if len(scores) > 1 else 0.0
+        confidence = max(0.0, min(1.0, best_score + 0.18 * (best_score - runner_up)))
+        if best_score < self.min_confidence:
+            return None, confidence, occupancy
+        return best_letter, confidence, occupancy
+
+    def _classify_rotation_invariant(self, rectified, inset=14):
+        gray = cv2.cvtColor(rectified, cv2.COLOR_BGR2GRAY)
+        inner = gray[inset:-inset, inset:-inset]
+        inner = cv2.GaussianBlur(inner, (3, 3), 0)
+        _, glyph = cv2.threshold(
+            inner, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
+        )
+        glyph = cv2.morphologyEx(
+            glyph,
+            cv2.MORPH_OPEN,
+            cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)),
+        )
+        if np.count_nonzero(glyph) > glyph.size // 2:
+            glyph = cv2.bitwise_not(glyph)
+        occupancy = float(np.count_nonzero(glyph)) / float(max(1, glyph.size))
+        if not self.min_glyph_occupancy <= occupancy <= self.max_glyph_occupancy:
+            return None, 0.0, occupancy, 0.0, 0.0
+
+        side = int(np.ceil(np.hypot(*glyph.shape)))
+        canvas = np.zeros((side, side), dtype=np.uint8)
+        offset_x = (side - glyph.shape[1]) // 2
+        offset_y = (side - glyph.shape[0]) // 2
+        canvas[offset_y:offset_y + glyph.shape[0], offset_x:offset_x + glyph.shape[1]] = glyph
+        center = ((side - 1) / 2.0, (side - 1) / 2.0)
+        coarse_glyphs = []
+        for angle in RECTIFIED_ROTATION_ANGLES_DEG:
+            # These rotations map integer pixels exactly: avoid affine
+            # interpolation for the four quarter-turn coarse candidates.
+            if angle == 0:
+                rotated = canvas
+            elif angle == 90:
+                rotated = cv2.rotate(canvas, cv2.ROTATE_90_COUNTERCLOCKWISE)
+            elif angle == 180:
+                rotated = cv2.rotate(canvas, cv2.ROTATE_180)
+            else:
+                rotated = cv2.rotate(canvas, cv2.ROTATE_90_CLOCKWISE)
+            coarse_glyphs.append(self._normalize_glyph(rotated))
+
+        coarse_batch = self._score_rotation_batch(coarse_glyphs)
+        coarse_scores = {}
+        for letter in LETTERS:
+            best_index = int(np.argmax(coarse_batch[letter]))
+            coarse_scores[letter] = (
+                float(coarse_batch[letter][best_index]),
+                float(RECTIFIED_ROTATION_ANGLES_DEG[best_index]),
+            )
+
+        initial_order = sorted(
+            ((score, letter) for letter, (score, _) in coarse_scores.items()),
+            reverse=True,
+        )
+        if {letter for _, letter in initial_order[:2]} == {"B", "D"}:
+            b_index = int(np.argmax(coarse_batch["B"]))
+            center_bar_ratio = self._task2_center_bar_ratio(
+                coarse_glyphs[b_index] > 127
+            )
+            if center_bar_ratio >= TASK3_B_CENTER_BAR_MIN_RATIO:
+                score, angle = coarse_scores["D"]
+                coarse_scores["D"] = (
+                    max(0.0, score - TASK3_BD_STRUCTURE_PENALTY),
+                    angle,
+                )
+            elif center_bar_ratio <= TASK3_D_CENTER_BAR_MAX_RATIO:
+                score, angle = coarse_scores["B"]
+                coarse_scores["B"] = (
+                    max(0.0, score - TASK3_BD_STRUCTURE_PENALTY),
+                    angle,
+                )
+
+        # C/D are also close under oblique lighting.  Use the C candidate's
+        # own best rectified orientation: an open right-middle region is
+        # strong evidence for C and must lower D before the fine pass chooses
+        # a rotation.  This branch is task-three-only.
+        if {letter for _, letter in initial_order[:2]} == {"C", "D"}:
+            c_index = int(np.argmax(coarse_batch["C"]))
+            c_open_ratio = self._task3_right_middle_stroke_ratio(
+                coarse_glyphs[c_index] > 127
+            )
+            if c_open_ratio <= TASK3_C_RIGHT_OPEN_MAX_RATIO:
+                score, angle = coarse_scores["D"]
+                coarse_scores["D"] = (
+                    max(0.0, score - TASK3_D_FOR_C_OPEN_PENALTY),
+                    angle,
+                )
+
+        coarse_order = sorted(
+            ((score, letter, angle) for letter, (score, angle) in coarse_scores.items()),
+            reverse=True,
+        )
+        best_score, best_letter, best_angle = coarse_order[0]
+        runner_up = coarse_order[1][0] if len(coarse_order) > 1 else 0.0
+        fine_angles = []
+        fine_glyphs = []
+        for offset in range(
+            -ROTATION_FINE_RADIUS_DEG,
+            ROTATION_FINE_RADIUS_DEG + 1,
+            ROTATION_FINE_STEP_DEG,
+        ):
+            angle = (best_angle + offset) % 360.0
+            fine_angles.append(angle)
+            if offset == 0:
+                fine_glyphs.append(coarse_glyphs[
+                    RECTIFIED_ROTATION_ANGLES_DEG.index(int(best_angle))
+                ])
+                continue
+            matrix_key = (side, angle)
+            matrix = self._rotation_matrices.get(matrix_key)
+            if matrix is None:
+                matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
+                self._rotation_matrices[matrix_key] = matrix
+            rotated = cv2.warpAffine(
+                canvas, matrix, (side, side), flags=cv2.INTER_LINEAR,
+                borderMode=cv2.BORDER_CONSTANT, borderValue=0,
+            )
+            fine_glyphs.append(self._normalize_glyph(rotated))
+
+        fine_scores = self._score_rotation_batch(fine_glyphs)[best_letter]
+        fine_index = int(np.argmax(fine_scores))
+        if float(fine_scores[fine_index]) > best_score:
+            best_score = float(fine_scores[fine_index])
+            best_angle = float(fine_angles[fine_index])
+        confidence = max(0.0, min(1.0, best_score + 0.18 * (best_score - runner_up)))
+        margin = best_score - runner_up
+        # Task-three blocks are often seen at an oblique angle or with a
+        # partially merged white border. Geometry and the later multi-frame
+        # vote already reject ambiguous candidates, so keep a small margin
+        # floor here instead of discarding valid rotated glyphs too early.
+        if (
+            best_score < max(0.36, self.min_confidence - 0.06)
+            or margin < ROTATION_MIN_MARGIN
+        ):
+            return None, confidence, occupancy, best_angle, margin
+        return best_letter, confidence, occupancy, best_angle, margin
+
+    def _best_template_score(self, glyph, glyph_binary, letter):
+        templates = self.template_bank.get(letter, [self.templates[letter]])
+        best_score = 0.0
+        for template in templates:
+            template_binary = template > 127
+            intersection = np.count_nonzero(glyph_binary & template_binary)
+            union = np.count_nonzero(glyph_binary | template_binary)
+            iou = intersection / max(1, union)
+            correlation = cv2.matchTemplate(
+                glyph,
+                template,
+                cv2.TM_CCOEFF_NORMED,
+            )[0, 0]
+            correlation = max(0.0, float(correlation))
+            weight_corr, weight_iou = (0.72, 0.28) if letter == "D" else (0.65, 0.35)
+            score = weight_corr * correlation + weight_iou * iou
+            if score > best_score:
+                best_score = score
+        return best_score
