@@ -195,10 +195,10 @@ COLUMN_H7_RESUME_TIMEOUT_S = 3.0
 # Formal task-three letter-grasp windows in the original main-camera
 # coordinates. The red and blue fields use different horizontal margins.
 # Keep these gates task-three-only; task one and task two use their own windows.
-COLUMN_TASK3_CAPTURE_WINDOW_RED_X_MIN = 50.0
+COLUMN_TASK3_CAPTURE_WINDOW_RED_X_MIN = 100.0
 COLUMN_TASK3_CAPTURE_WINDOW_RED_X_MAX = 650.0
 COLUMN_TASK3_CAPTURE_WINDOW_BLUE_X_MIN = 150.0
-COLUMN_TASK3_CAPTURE_WINDOW_BLUE_X_MAX = 750.0
+COLUMN_TASK3_CAPTURE_WINDOW_BLUE_X_MAX = 700.0
 COLUMN_TASK3_CAPTURE_WINDOW_Y_MIN = 100.0
 COLUMN_TASK3_CAPTURE_WINDOW_Y_MAX = 700.0
 

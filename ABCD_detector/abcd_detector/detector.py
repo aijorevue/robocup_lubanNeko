@@ -27,6 +27,7 @@ ROTATION_MIN_MARGIN = 0.015
 RECTIFIED_ROTATION_ANGLES_DEG = (0, 90, 180, 270)
 TASK2_B_CENTER_BAR_MIN_RATIO = 0.44
 TASK2_D_CENTER_BAR_PENALTY = 0.14
+TASK2_FALLBACK_WHITE_SATURATION_MAX = 75
 TASK3_B_CENTER_BAR_MIN_RATIO = 0.30
 TASK3_D_CENTER_BAR_MAX_RATIO = 0.24
 TASK3_BD_STRUCTURE_PENALTY = 0.10
@@ -35,6 +36,8 @@ TASK3_BD_STRUCTURE_PENALTY = 0.10
 TASK3_C_RIGHT_OPEN_MAX_RATIO = 0.24
 TASK3_D_FOR_C_OPEN_PENALTY = 0.20
 TASK3_MAX_CENTER_Y_RATIO = 0.75
+# The task-three green discs otherwise merge into the white block mask.
+TASK3_MAX_WHITE_SATURATION = 45
 DEFAULT_DISTANCE_OFFSET_CM = -1.6072186919749336
 DEFAULT_DISTANCE_SCALE_CM = (
     31.628878020276648 * 2.0 * 30.0 / (42.67 * np.sqrt(np.pi)) * 1.20
@@ -264,7 +267,14 @@ class ABCDDetector:
             return []
 
         results = self._detect_yolo(frame)
-        results.extend(self._detect_white_blocks(frame, task2_bd_check=True))
+        white_blocks = self._detect_white_blocks(frame, task2_bd_check=True)
+        if not white_blocks:
+            white_blocks = self._detect_white_blocks(
+                frame,
+                task2_bd_check=True,
+                white_saturation_max=TASK2_FALLBACK_WHITE_SATURATION_MAX,
+            )
+        results.extend(white_blocks)
         results.extend(self._detect_dark_letters(frame))
         detections = self._dedupe_detections(results)
         self._add_depth_measurements(detections, frame.shape)
@@ -276,7 +286,11 @@ class ABCDDetector:
         """Classify white task-three blocks at arbitrary in-plane rotation."""
         if frame is None or not isinstance(frame, np.ndarray) or frame.ndim != 3:
             return []
-        detections = self._detect_white_blocks(frame, rotation_invariant=True)
+        detections = self._detect_white_blocks(
+            frame,
+            rotation_invariant=True,
+            white_saturation_max=TASK3_MAX_WHITE_SATURATION,
+        )
         measurement_shape = frame_shape or frame.shape
         origin_y = int(frame_origin[1]) if len(frame_origin) >= 2 else 0
         full_height = max(1, int(measurement_shape[0]))
@@ -370,15 +384,25 @@ class ABCDDetector:
         return detections
 
     def _detect_white_blocks(
-        self, frame, *, rotation_invariant=False, task2_bd_check=False
+        self,
+        frame,
+        *,
+        rotation_invariant=False,
+        task2_bd_check=False,
+        white_saturation_max=None,
     ):
         height, width = frame.shape[:2]
 
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        saturation_max = (
+            self.max_white_saturation
+            if white_saturation_max is None
+            else int(white_saturation_max)
+        )
         white_mask = cv2.inRange(
             hsv,
             np.array((0, 0, int(self.min_white_value)), dtype=np.uint8),
-            np.array((180, int(self.max_white_saturation), 255), dtype=np.uint8),
+            np.array((180, saturation_max, 255), dtype=np.uint8),
         )
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
         candidate_mask = cv2.morphologyEx(white_mask, cv2.MORPH_CLOSE, kernel)
