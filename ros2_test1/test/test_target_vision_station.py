@@ -922,7 +922,7 @@ class ChassisStationSafetyTests(unittest.TestCase):
         self.assertEqual(bridge.sent, [{"splitter_id4": 300}])
         self.assertEqual(link.resume_requests, 0)
 
-    def test_column_blind_grasp_does_not_increment_quota_and_rearms_after_leave(self):
+    def test_column_blind_grasp_counts_once_marks_handled_and_rearms_after_leave(self):
         controller, _bridge, _ = make_controller()
         controller.active_chassis_station = "COLUMN_CATCH"
         controller.chassis_station_stage = "column_resume_request"
@@ -948,8 +948,9 @@ class ChassisStationSafetyTests(unittest.TestCase):
         )
 
         self.assertIn("grasp complete", status)
-        self.assertEqual(controller.letter_success_counts["C"], 0)
-        self.assertEqual(controller.column_handled_blocks, [])
+        self.assertEqual(controller.letter_success_counts["C"], 1)
+        self.assertEqual(len(controller.column_handled_blocks), 1)
+        self.assertEqual(controller.column_handled_blocks[0]["label"], "C")
         self.assertFalse(controller.column_target_armed)
         self.assertEqual(controller.chassis_station_stage, "column_detect")
         self.assertFalse(controller.column_capture_blind)
@@ -959,6 +960,7 @@ class ChassisStationSafetyTests(unittest.TestCase):
                 "COLUMN_CATCH", [], (600, 800, 3), detection_fresh=True,
                 chassis_link=ResumedColumnLink(),
             )
+        self.assertEqual(controller.letter_success_counts["C"], 1)
         self.assertTrue(controller.column_target_armed)
         self.assertTrue(controller._column_letter_quota_available("C"))
 

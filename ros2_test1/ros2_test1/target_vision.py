@@ -5789,18 +5789,15 @@ class TargetGraspController:
                     (self.locked_target or {}).get("letter", "")
                 ).upper()
                 blind_capture = self.column_capture_blind
-                completed_capture = bool(
-                    self.column_capture_authorized and not blind_capture
-                )
-                if not blind_capture:
+                completed_capture = bool(self.column_capture_authorized)
+                if completed_capture:
                     self._column_record_handled_block(
                         completed_label, self.column_locked_block
                     )
                 else:
                     print(
-                        "COLUMN_CATCH BLIND_GRASP_COMPLETE "
-                        f"letter={completed_label} quota_increment=0; "
-                        "fresh 4/6 may authorize another pickup",
+                        "COLUMN_CATCH UNAUTHORIZED_GRASP_COMPLETE "
+                        f"letter={completed_label} quota_increment=0",
                         flush=True,
                     )
                 if (
@@ -5811,6 +5808,12 @@ class TargetGraspController:
                     self.letter_success_counts[completed_label] = (
                         self.letter_success_counts.get(completed_label, 0) + 1
                     )
+                    if blind_capture:
+                        print(
+                            "COLUMN_CATCH BLIND_GRASP_COMPLETE "
+                            f"letter={completed_label} quota_increment=1",
+                            flush=True,
+                        )
                     print(
                         "COLUMN_CATCH LETTER_SUCCESS "
                         f"letter={completed_label} "
