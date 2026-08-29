@@ -127,6 +127,35 @@ class ABCDDetectorTests(unittest.TestCase):
         self.assertEqual(b_letter, "B")
         self.assertEqual(d_letter, "D")
 
+    def test_task3_open_c_is_not_pulled_to_d(self):
+        detector = ABCDDetector()
+        c_rectified = cv2.resize(
+            cv2.imread(str(ASSET_DIR / "C.png")),
+            (128, 128),
+            interpolation=cv2.INTER_AREA,
+        )
+        letter, confidence, _occupancy, _angle, _margin = (
+            detector._classify_rotation_invariant(c_rectified, inset=2)
+        )
+        self.assertEqual(letter, "C")
+        self.assertGreater(confidence, 0.42)
+
+    def test_task3_c_open_rule_does_not_change_task2_classifier(self):
+        detector = ABCDDetector()
+        c_rectified = cv2.resize(
+            cv2.imread(str(ASSET_DIR / "C.png")),
+            (128, 128),
+            interpolation=cv2.INTER_AREA,
+        )
+        task2_letter, _, _ = detector._classify(
+            c_rectified, inset=2, task2_bd_check=True
+        )
+        task3_letter, _, _, _, _ = detector._classify_rotation_invariant(
+            c_rectified, inset=2
+        )
+        self.assertEqual(task2_letter, "C")
+        self.assertEqual(task3_letter, "C")
+
     def test_task3_rejects_candidate_below_global_view_limit(self):
         detector = ABCDDetector()
         frame = rotated_green_block("B", 17)

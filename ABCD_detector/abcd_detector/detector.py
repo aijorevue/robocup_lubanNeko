@@ -30,6 +30,10 @@ TASK2_D_CENTER_BAR_PENALTY = 0.14
 TASK3_B_CENTER_BAR_MIN_RATIO = 0.30
 TASK3_D_CENTER_BAR_MAX_RATIO = 0.24
 TASK3_BD_STRUCTURE_PENALTY = 0.10
+# Task-three C has a real opening on the right side of the normalized glyph;
+# D closes that area.  Keep this separate from the task-two B/D tie-break.
+TASK3_C_RIGHT_OPEN_MAX_RATIO = 0.24
+TASK3_D_FOR_C_OPEN_PENALTY = 0.20
 TASK3_MAX_CENTER_Y_RATIO = 0.75
 DEFAULT_DISTANCE_OFFSET_CM = -1.6072186919749336
 DEFAULT_DISTANCE_SCALE_CM = (
@@ -656,6 +660,19 @@ class ABCDDetector:
             return 0.0
         return float(np.mean(glyph_binary[y0:y1, x0:x1]))
 
+    @staticmethod
+    def _task3_right_middle_stroke_ratio(glyph_binary):
+        """Measure the right-middle stroke after task-three normalization."""
+        binary = np.asarray(glyph_binary, dtype=bool)
+        height, width = binary.shape[:2]
+        if height < 16 or width < 16:
+            return 0.0
+        y0, y1 = int(round(height * 0.28)), int(round(height * 0.72))
+        x0, x1 = int(round(width * 0.72)), int(round(width * 0.995))
+        if x1 <= x0 or y1 <= y0:
+            return 0.0
+        return float(np.mean(binary[y0:y1, x0:x1]))
+
     def _classify(self, rectified, inset=14, *, task2_bd_check=False):
         gray = cv2.cvtColor(rectified, cv2.COLOR_BGR2GRAY)
         inner = gray[inset:-inset, inset:-inset]
@@ -762,6 +779,22 @@ class ABCDDetector:
                 score, angle = coarse_scores["B"]
                 coarse_scores["B"] = (
                     max(0.0, score - TASK3_BD_STRUCTURE_PENALTY),
+                    angle,
+                )
+
+        # C/D are also close under oblique lighting.  Use the C candidate's
+        # own best rectified orientation: an open right-middle region is
+        # strong evidence for C and must lower D before the fine pass chooses
+        # a rotation.  This branch is task-three-only.
+        if {letter for _, letter in initial_order[:2]} == {"C", "D"}:
+            c_index = int(np.argmax(coarse_batch["C"]))
+            c_open_ratio = self._task3_right_middle_stroke_ratio(
+                coarse_glyphs[c_index] > 127
+            )
+            if c_open_ratio <= TASK3_C_RIGHT_OPEN_MAX_RATIO:
+                score, angle = coarse_scores["D"]
+                coarse_scores["D"] = (
+                    max(0.0, score - TASK3_D_FOR_C_OPEN_PENALTY),
                     angle,
                 )
 
