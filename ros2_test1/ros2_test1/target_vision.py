@@ -301,6 +301,13 @@ COLUMN_CATCH_SPLITTER_TICK = COLUMN_CATCH_AUX14_TICK
 COLUMN_CATCH_CATCHER_HOME_TICK = COLUMN_CATCH_AUX15_TICK
 COLUMN_CATCH_HOLD_HIGH = (650, 600, 413)
 COLUMN_CATCH_FINAL_ID2_OFFSET_TICKS = -35
+# Latest task-three calibration trims the final solved ID2 by eight additional
+# ticks. Keep this separate from the existing curve so task two is unaffected.
+COLUMN_CATCH_FINAL_ID2_ADDITIONAL_OFFSET_TICKS = -8
+COLUMN_CATCH_FINAL_ID2_TOTAL_OFFSET_TICKS = (
+    COLUMN_CATCH_FINAL_ID2_OFFSET_TICKS
+    + COLUMN_CATCH_FINAL_ID2_ADDITIONAL_OFFSET_TICKS
+)
 COLUMN_CATCH_ID2_SMOOTH_START_CM = 9.0
 COLUMN_CATCH_ID2_SMOOTH_END_CM = 13.0
 COLUMN_CATCH_ID2_SMOOTH_START_TICK = 500
@@ -317,7 +324,7 @@ COLUMN_CATCH_ID6_CENTER_STEP_TICKS = PLATFORM_CENTER_ID6_STEP_TICKS
 
 def column_catch_final_id2_tick(solved_id2, distance_cm):
     """Apply the task-three-only final ID2 curve."""
-    default_tick = int(solved_id2) + COLUMN_CATCH_FINAL_ID2_OFFSET_TICKS
+    default_tick = int(solved_id2) + COLUMN_CATCH_FINAL_ID2_TOTAL_OFFSET_TICKS
     try:
         distance_cm = float(distance_cm)
     except (TypeError, ValueError):
@@ -341,7 +348,10 @@ def column_catch_final_id2_tick(solved_id2, distance_cm):
             - COLUMN_CATCH_ID2_SMOOTH_START_TICK
         )
         * ratio
-    )) + COLUMN_CATCH_ID2_SMOOTH_FINAL_OFFSET_TICKS
+    )) + (
+        COLUMN_CATCH_ID2_SMOOTH_FINAL_OFFSET_TICKS
+        + COLUMN_CATCH_FINAL_ID2_ADDITIONAL_OFFSET_TICKS
+    )
 TASK3_RING_PLACE_HIGH = (650, 550, 413)
 TASK3_RING_PLACE_RETURN_HIGH = (620, 440, 413)
 TASK3_RING_PLACE_POSE = (470, 350, 171)
@@ -367,7 +377,7 @@ COLUMN_CATCH_LETTER_PLACE_TIME_MS = 500
 # Formal BLUE task-three only: one fixed recovery grab before releasing the
 # post-orbit H7 hold when the selected letter pair still has a quota gap.
 TASK3_SUPPLEMENT_OPEN_HOLD_MS = 900
-TASK3_SUPPLEMENT_EXPANDED_HIGH = (650, 605, 410)
+TASK3_SUPPLEMENT_EXPANDED_HIGH = (650, 590, 410)
 TASK3_SUPPLEMENT_DESCEND_ID1_TICK = 580
 TASK3_SUPPLEMENT_DESCEND_TIME_MS = 700
 TASK3_SUPPLEMENT_GRIPPER_TIME_MS = 200
@@ -5671,8 +5681,8 @@ class TargetGraspController:
                 "COLUMN_CATCH descend endpoint "
                 f"DISTANCE_CM={target_distance_cm!r} "
                 f"ID2_SOLVED={solved_id2} "
-                f"ID2_OFFSET={COLUMN_CATCH_FINAL_ID2_OFFSET_TICKS:+d} "
-                f"ID2_CURVE={'SMOOTH_9_13' if final_id2 != solved_id2 + COLUMN_CATCH_FINAL_ID2_OFFSET_TICKS else 'DEFAULT'} "
+                f"ID2_OFFSET={COLUMN_CATCH_FINAL_ID2_TOTAL_OFFSET_TICKS:+d} "
+                f"ID2_CURVE={'SMOOTH_9_13' if final_id2 != solved_id2 + COLUMN_CATCH_FINAL_ID2_TOTAL_OFFSET_TICKS else 'DEFAULT'} "
                 f"ID2_TARGET={target_id2} ID2_SENT={self.id2} | {status}"
             )
 

@@ -751,14 +751,17 @@ class WhiteLineAlignmentDetector:
         right_window_x = int(width * 0.20)
         preferred_mask = mask.copy()
         preferred_mask[:, :right_window_x] = 0
-        contours, _ = cv2.findContours(
+        preferred_contours, _ = cv2.findContours(
             preferred_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
-        using_preferred_window = bool(contours)
-        if not contours:
-            contours, _ = cv2.findContours(
-                mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-            )
+        full_contours, _ = cv2.findContours(
+            mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        # Evaluate both views. A small bright fragment in the preferred
+        # window must not prevent the complete physical strip from being
+        # considered, while the cropped view still separates a strip that
+        # touches the upper wooden box on the far left.
+        contours = list(preferred_contours) + list(full_contours)
 
         candidates = []
         for contour in contours:
@@ -766,7 +769,7 @@ class WhiteLineAlignmentDetector:
             area = float(cv2.contourArea(contour))
             rect = cv2.minAreaRect(contour)
             length = float(max(rect[1]))
-            thickness = float(min(rect[1]))
+            raw_thickness = float(min(rect[1]))
             edge_geometry = self._fit_task2_band_edges(
                 contour, (x, y, box_width, box_height), width, height
             )
@@ -774,18 +777,36 @@ class WhiteLineAlignmentDetector:
                 continue
             angle_deg = edge_geometry["angle_deg"]
             y_at_center = edge_geometry["y_at_center"]
+            fitted_thickness = float(edge_geometry["thickness"])
+            fitted_span = float(
+                edge_geometry["right_edge_x"] - edge_geometry["left_edge_x"] + 1.0
+            )
+            edge_support = int(edge_geometry["edge_support"])
 
             # The actual task-two strip is below the box and above the arm.
             # These bounds reject both the box edge and lower arm structures.
-            if not height * 0.30 <= y_at_center <= height * 0.68:
+            # At the start of the formal approach the tape can still be high
+            # in the image. The upper box remains below this gate only in the
+            # threshold mask; its broad/non-slender geometry is rejected by
+            # the remaining checks.
+            if not height * 0.22 <= y_at_center <= height * 0.68:
                 continue
-            if box_width < width * 0.45 or box_width > width * 0.92:
+            if fitted_span < width * 0.45 or fitted_span > width * 0.92:
                 continue
-            if box_height > height * 0.075:
+            # Sparse highlights above or below the tape can attach to its
+            # contour and greatly inflate minAreaRect/boundingRect. The edge
+            # fitter has already isolated the longest continuously supported
+            # band, so use its robust thickness and span for the strip gates.
+            # Keep only a generous raw-height sanity check for pathological
+            # components; the upper box is still rejected by Y and fitted
+            # thickness rather than by a fragile outer rectangle.
+            if box_height > height * 0.22:
                 continue
-            if not height * 0.005 <= thickness <= height * 0.070:
+            if not height * 0.005 <= fitted_thickness <= height * 0.10:
                 continue
-            if length / max(1.0, thickness) < 4.5:
+            if fitted_span / max(1.0, fitted_thickness) < 8.0:
+                continue
+            if edge_support < max(30, int(fitted_span * 0.45)):
                 continue
             if area < width * height * 0.0010:
                 continue
@@ -808,16 +829,17 @@ class WhiteLineAlignmentDetector:
             # separates the ground line from the larger slanted box edge.
             vertical_score = float(
                 np.clip(
-                    (y_at_center - height * 0.30) /
-                    max(1.0, height * 0.38),
+                    (y_at_center - height * 0.22) /
+                    max(1.0, height * 0.46),
                     0.0,
                     1.0,
                 )
             )
-            span_score = float(np.clip(box_width / max(1.0, width), 0.0, 1.0))
+            span_score = float(np.clip(fitted_span / max(1.0, width), 0.0, 1.0))
             thin_score = float(
                 np.clip(
-                    1.0 - abs(thickness / max(1.0, height) - 0.035) / 0.035,
+                    1.0
+                    - abs(fitted_thickness / max(1.0, height) - 0.035) / 0.035,
                     0.0,
                     1.0,
                 )
@@ -841,6 +863,7 @@ class WhiteLineAlignmentDetector:
                     (x, y, box_width, box_height),
                     area,
                     edge_geometry,
+                    raw_thickness,
                 )
             )
 
@@ -857,7 +880,7 @@ class WhiteLineAlignmentDetector:
             self._task2_edge_history = []
             return None
 
-        _, contour, rect, bounds, area, edge_geometry = max(
+        _, contour, rect, bounds, area, edge_geometry, _ = max(
             candidates, key=lambda candidate: candidate[0]
         )
         moments = cv2.moments(contour)
