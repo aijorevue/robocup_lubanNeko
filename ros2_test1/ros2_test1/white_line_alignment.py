@@ -200,6 +200,169 @@ class WhiteLineAlignmentDetector:
         }
 
     @staticmethod
+    def _task2_absolute_white_recovery(
+        white_mask, roi_mask, frame_width, frame_height, roi_bounds
+    ):
+        """Recover a thin tape band when glare joins it to a broad contour."""
+        mask = cv2.bitwise_and(white_mask, roi_mask)
+        mask = cv2.morphologyEx(
+            mask,
+            cv2.MORPH_CLOSE,
+            cv2.getStructuringElement(cv2.MORPH_RECT, (17, 3)),
+        )
+        roi_x0, roi_x1, roi_y0, roi_y1 = roi_bounds
+        x_min = max(0, roi_x0)
+        x_max = min(frame_width, roi_x1)
+        y_min = max(roi_y0, int(frame_height * 0.22))
+        y_max = min(roi_y1 - 1, int(frame_height * 0.68))
+        if x_max <= x_min or y_max < y_min:
+            return None
+        rows = []
+        for y in range(y_min, y_max + 1):
+            row = mask[y, x_min:x_max] > 0
+            changes = np.flatnonzero(
+                np.diff(np.pad(row.astype(np.int8), (1, 1)))
+            )
+            if len(changes) < 2:
+                continue
+            starts, ends = changes[::2], changes[1::2]
+            best = int(np.argmax(ends - starts))
+            left = int(starts[best] + x_min)
+            right = int(ends[best] + x_min)
+            if (
+                right - left >= frame_width * 0.40
+                and left <= frame_width * 0.20
+                and right >= frame_width * 0.55
+            ):
+                rows.append((y, left, right))
+        groups = []
+        for row in rows:
+            if not groups or row[0] > groups[-1][-1][0] + 1:
+                groups.append([])
+            groups[-1].append(row)
+
+        best_result = None
+        best_score = 0.0
+        for group in groups:
+            if not (
+                max(5, int(frame_height * 0.008))
+                <= len(group)
+                <= frame_height * 0.10
+            ):
+                continue
+            band_top, band_bottom = group[0][0], group[-1][0]
+            left = int(np.median([row[1] for row in group]))
+            right = int(np.median([row[2] for row in group]))
+            scan_top = max(y_min, band_top - int(frame_height * 0.10))
+            scan_bottom = min(y_max + 1, band_bottom + int(frame_height * 0.10) + 1)
+            columns = []
+            for x in range(left, right):
+                column = mask[scan_top:scan_bottom, x] > 0
+                changes = np.flatnonzero(
+                    np.diff(np.pad(column.astype(np.int8), (1, 1)))
+                )
+                options = []
+                for start, end in zip(changes[::2], changes[1::2]):
+                    top, bottom = int(start + scan_top), int(end + scan_top)
+                    overlap = min(bottom, band_bottom + 1) - max(top, band_top)
+                    if 3 <= bottom - top <= frame_height * 0.10 and overlap >= 3:
+                        options.append((overlap, top, bottom))
+                if options:
+                    _, top, bottom = max(options)
+                    columns.append((x, top, bottom))
+            if not columns:
+                continue
+            runs = []
+            for column in columns:
+                if not runs or column[0] > runs[-1][-1][0] + max(
+                    6, int(frame_width * 0.06)
+                ):
+                    runs.append([])
+                runs[-1].append(column)
+            run = max(runs, key=len)
+            xs = np.asarray([item[0] for item in run], dtype=np.float64)
+            tops = np.asarray([item[1] for item in run], dtype=np.float64)
+            bottoms = np.asarray([item[2] for item in run], dtype=np.float64)
+            span = float(xs[-1] - xs[0] + 1)
+            if (
+                span < frame_width * 0.35
+                or span > frame_width * 0.92
+                or len(xs) < span * 0.70
+            ):
+                continue
+
+            def robust_fit(values):
+                keep = np.ones(values.shape, dtype=bool)
+                for _ in range(3):
+                    slope, intercept = np.polyfit(xs[keep], values[keep], 1)
+                    residual = np.abs(values - (slope * xs + intercept))
+                    median = float(np.median(residual[keep]))
+                    mad = float(np.median(np.abs(residual[keep] - median)))
+                    limit = max(2.0, median + 3.0 * max(1.0, mad))
+                    next_keep = residual <= limit
+                    if np.array_equal(next_keep, keep):
+                        break
+                    keep = next_keep
+                if np.count_nonzero(keep) < max(24, int(len(xs) * 0.55)):
+                    return None
+                slope, intercept = np.polyfit(xs[keep], values[keep], 1)
+                return float(slope), float(intercept), keep
+
+            top_fit = robust_fit(tops)
+            bottom_fit = robust_fit(bottoms)
+            if top_fit is None or bottom_fit is None:
+                continue
+            top_slope, top_intercept, top_keep = top_fit
+            bottom_slope, bottom_intercept, bottom_keep = bottom_fit
+            center_slope = (top_slope + bottom_slope) * 0.5
+            center_intercept = (top_intercept + bottom_intercept) * 0.5
+            y_at_center = center_slope * (frame_width * 0.5) + center_intercept
+            thickness = float(np.median(bottoms - tops))
+            angle_deg = float(np.degrees(np.arctan(center_slope)))
+            support = int(
+                min(np.count_nonzero(top_keep), np.count_nonzero(bottom_keep))
+            )
+            if (
+                not y_min <= y_at_center <= y_max
+                or not frame_height * 0.005 <= thickness <= frame_height * 0.10
+                or span / max(1.0, thickness) < 8.0
+                or abs(angle_deg) > 25.0
+                or support < max(30, int(span * 0.45))
+            ):
+                continue
+            x_left, x_right = float(xs[0]), float(xs[-1])
+            result = {
+                "angle_deg": angle_deg,
+                "y_at_center": float(y_at_center),
+                "thickness": thickness,
+                "center_line": (
+                    (x_left, center_slope * x_left + center_intercept),
+                    (x_right, center_slope * x_right + center_intercept),
+                ),
+                "edge_polygon": (
+                    (x_left, top_slope * x_left + top_intercept),
+                    (x_right, top_slope * x_right + top_intercept),
+                    (x_right, bottom_slope * x_right + bottom_intercept),
+                    (x_left, bottom_slope * x_left + bottom_intercept),
+                ),
+                "edge_support": support,
+                "left_edge_x": x_left,
+                "right_edge_x": x_right,
+                "area": float(np.sum(bottoms - tops)),
+                "bounds": (
+                    int(x_left),
+                    int(np.min(tops)),
+                    int(span),
+                    int(np.max(bottoms) - np.min(tops)),
+                ),
+            }
+            score = span * len(group)
+            if score > best_score:
+                best_score = score
+                best_result = result
+        return best_result
+
+    @staticmethod
     def _local_contrast(gray, x, y, box_width, box_height):
         """Compare the bright band with narrow strips immediately around it."""
         height, width = gray.shape[:2]
@@ -868,6 +1031,50 @@ class WhiteLineAlignmentDetector:
             )
 
         if not candidates:
+            recovery = self._task2_absolute_white_recovery(
+                white_mask, roi_mask, width, height, (x0, x1, y0, y1)
+            )
+            if recovery is not None:
+                self._task2_edge_history.append(
+                    (
+                        recovery["y_at_center"],
+                        recovery["angle_deg"],
+                        recovery["thickness"],
+                        recovery,
+                    )
+                )
+                self._task2_edge_history = self._task2_edge_history[-3:]
+                measurement = {
+                    "center_x": (
+                        recovery["left_edge_x"] + recovery["right_edge_x"]
+                    ) * 0.5,
+                    "center_y": recovery["y_at_center"],
+                    "angle_deg": float(np.median(
+                        [item[1] for item in self._task2_edge_history]
+                    )),
+                    "y_at_center": float(np.median(
+                        [item[0] for item in self._task2_edge_history]
+                    )),
+                    "length": (
+                        recovery["right_edge_x"] - recovery["left_edge_x"] + 1.0
+                    ),
+                    "thickness": float(np.median(
+                        [item[2] for item in self._task2_edge_history]
+                    )),
+                    "area": recovery["area"],
+                    "bounds": recovery["bounds"],
+                    "frame_width": width,
+                    "frame_height": height,
+                    "held": False,
+                    "center_line": recovery["center_line"],
+                    "edge_polygon": recovery["edge_polygon"],
+                    "edge_support": recovery["edge_support"],
+                    "left_edge_x": recovery["left_edge_x"],
+                    "right_edge_x": recovery["right_edge_x"],
+                }
+                self._missed_frames = 0
+                self._last_measurement = measurement
+                return measurement
             self._missed_frames += 1
             if (
                 self._last_measurement is not None
