@@ -40,6 +40,15 @@ fi
     ;;
 esac
 
+# Fail before claiming the startup lock if the installed ROS entry is damaged.
+VISION_ENTRY=/home/cat/ros2_ws/install/ros2_test1/lib/ros2_test1/target_vision
+if [ ! -s "$VISION_ENTRY" ] || [ ! -x "$VISION_ENTRY" ]; then
+  msg="FATAL: installed target_vision entry is empty, missing, or not executable: $VISION_ENTRY"
+  echo "$msg" >&2
+  echo "$msg" >>"$LOG"
+  exit 1
+fi
+
 LOCK=/tmp/robocup_target_vision.lock
 exec 9>"$LOCK"
 if ! flock -n 9; then

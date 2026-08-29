@@ -31,6 +31,8 @@ TASK2_FALLBACK_WHITE_SATURATION_MAX = 75
 TASK2_D_WHITE_SATURATION_MAX = 35
 TASK2_GLARE_MIN_CONFIDENCE = 0.65
 TASK2_GLARE_INNER_INSET = 18
+TASK2_REFLECTION_OPEN_KERNEL = 21
+TASK2_A_REFLECTION_MIN_CONFIDENCE = 0.65
 TASK3_B_CENTER_BAR_MIN_RATIO = 0.30
 TASK3_D_CENTER_BAR_MAX_RATIO = 0.24
 TASK3_BD_STRUCTURE_PENALTY = 0.10
@@ -311,6 +313,25 @@ class ABCDDetector:
         ]
         strict_white_blocks.extend(recovered)
         white_blocks.extend(strict_white_blocks)
+        if not any(item.get("letter") == "A" for item in white_blocks):
+            known_cards = tuple(recovered) + tuple(white_blocks)
+            reflected_a = [
+                item for item in self._detect_white_blocks(
+                    frame,
+                    rotation_invariant=True,
+                    task2_bd_check=True,
+                    white_saturation_max=TASK2_D_WHITE_SATURATION_MAX,
+                    task2_require_visible=True,
+                    task2_known_cards=known_cards,
+                    task2_open_kernel_size=TASK2_REFLECTION_OPEN_KERNEL,
+                    hsv=hsv,
+                )
+                if item.get("letter") == "A"
+                and float(item.get("confidence", 0.0))
+                >= 100 * TASK2_A_REFLECTION_MIN_CONFIDENCE
+            ]
+            white_blocks.extend(reflected_a)
+            strict_white_blocks.extend(reflected_a)
         results.extend(white_blocks)
         results.extend(self._detect_dark_letters(frame, task2_known_cards=recovered))
         detections = self._dedupe_detections(results)
@@ -542,6 +563,7 @@ class ABCDDetector:
         task2_reject_green=False,
         task2_require_visible=False,
         task2_known_cards=(),
+        task2_open_kernel_size=0,
         task3_a_recovery=False,
         task3_accepted_cards=(),
         task3_max_center_y=None,
@@ -570,6 +592,15 @@ class ABCDDetector:
                 np.array((95, 255, 255), np.uint8),
             )
             white_mask[green != 0] = 0
+        if task2_open_kernel_size:
+            open_size = max(3, int(task2_open_kernel_size))
+            white_mask = cv2.morphologyEx(
+                white_mask,
+                cv2.MORPH_OPEN,
+                cv2.getStructuringElement(
+                    cv2.MORPH_ELLIPSE, (open_size, open_size)
+                ),
+            )
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
         candidate_mask = cv2.morphologyEx(white_mask, cv2.MORPH_CLOSE, kernel)
         candidate_mask = cv2.morphologyEx(
