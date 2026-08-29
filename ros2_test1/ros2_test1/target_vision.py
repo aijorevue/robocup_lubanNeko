@@ -7971,6 +7971,21 @@ class TargetDetector:
             self.letter_detector = ABCDDetector()
         return self.letter_detector.detect_task2(frame)
 
+    @staticmethod
+    def _platform_letter_overlaps_ring(letter, ring):
+        letter_bbox = letter.get("bbox", ())
+        ring_bbox = ring.get("bbox", ())
+        if len(letter_bbox) < 4 or len(ring_bbox) < 4:
+            return False
+        lx, ly, lw, lh = (float(value) for value in letter_bbox[:4])
+        rx, ry, rw, rh = (float(value) for value in ring_bbox[:4])
+        overlap_w = min(lx + lw, rx + rw) - max(lx, rx)
+        overlap_h = min(ly + lh, ry + rh) - max(ly, ry)
+        if overlap_w <= 0.0 or overlap_h <= 0.0:
+            return False
+        smaller_area = min(lw * lh, rw * rh)
+        return smaller_area > 0.0 and overlap_w * overlap_h >= 0.35 * smaller_area
+
     def _detect_task3_rotated_letters(self, frame, roi=None):
         if self.letter_detector is None:
             self.letter_detector = ABCDDetector()
@@ -8337,11 +8352,24 @@ class TargetDetector:
                 for letter in target_letters
                 if str(letter).upper() in LETTERS
             }
+            platform_rings = detect_platform_rings(frame)
+            opponent_ring_color = "blue" if field_name == "red" else "red"
+            opponent_rings = [
+                ring for ring in platform_rings
+                if ring.get("color") == opponent_ring_color
+            ]
             letters = [
                 det for det in self._detect_task2_letters(frame)
                 if det.get("letter") in selected_letters
+                and not (
+                    det.get("letter") in {"C", "D"}
+                    and any(
+                        self._platform_letter_overlaps_ring(det, ring)
+                        for ring in opponent_rings
+                    )
+                )
             ]
-            return [*letters, *detect_platform_rings(frame)]
+            return [*letters, *platform_rings]
         elif mode == DETECTION_MODE_COLUMN_LETTERS:
             letters = self._detect_letters(frame)
             blocks = self._detect_column_blocks(frame)

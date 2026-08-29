@@ -339,6 +339,85 @@ class ChassisStationSafetyTests(unittest.TestCase):
         balls = [d for d in detections if d.get("kind") == "ball"]
         self.assertFalse(any(d.get("color") == "blue" for d in balls))
 
+    def test_platform_detector_rejects_opponent_ring_mislabeled_as_cd(self):
+        frame = np.zeros((600, 800, 3), dtype=np.uint8)
+        cases = (
+            ("red", "blue", "C"),
+            ("red", "blue", "D"),
+            ("blue", "red", "C"),
+            ("blue", "red", "D"),
+        )
+        for field_name, opponent_color, letter in cases:
+            with self.subTest(field=field_name, letter=letter):
+                detector = target_vision.TargetDetector()
+                false_letter = {
+                    "kind": "letter",
+                    "letter": letter,
+                    "bbox": (300, 200, 80, 80),
+                    "center": (340, 240),
+                }
+                real_letter = {
+                    "kind": "letter",
+                    "letter": letter,
+                    "bbox": (500, 200, 80, 80),
+                    "center": (540, 240),
+                }
+                opponent_ring = {
+                    "kind": "ring",
+                    "color": opponent_color,
+                    "bbox": (290, 190, 100, 100),
+                    "center": (340, 240),
+                }
+                with mock.patch.object(
+                    detector,
+                    "_detect_task2_letters",
+                    return_value=[false_letter, real_letter],
+                ), mock.patch.object(
+                    target_vision,
+                    "detect_platform_rings",
+                    return_value=[opponent_ring],
+                ):
+                    detections = detector.detect(
+                        frame,
+                        mode=target_vision.DETECTION_MODE_PLATFORM_TARGETS,
+                        field_name=field_name,
+                        target_letters=(letter,),
+                    )
+
+                self.assertNotIn(false_letter, detections)
+                self.assertIn(real_letter, detections)
+                self.assertIn(opponent_ring, detections)
+
+    def test_platform_detector_keeps_cd_overlapping_own_field_ring(self):
+        detector = target_vision.TargetDetector()
+        frame = np.zeros((600, 800, 3), dtype=np.uint8)
+        letter = {
+            "kind": "letter",
+            "letter": "C",
+            "bbox": (300, 200, 80, 80),
+            "center": (340, 240),
+        }
+        own_ring = {
+            "kind": "ring",
+            "color": "red",
+            "bbox": (290, 190, 100, 100),
+            "center": (340, 240),
+        }
+        with mock.patch.object(
+            detector, "_detect_task2_letters", return_value=[letter]
+        ), mock.patch.object(
+            target_vision, "detect_platform_rings", return_value=[own_ring]
+        ):
+            detections = detector.detect(
+                frame,
+                mode=target_vision.DETECTION_MODE_PLATFORM_TARGETS,
+                field_name="red",
+                target_letters=("C",),
+            )
+
+        self.assertIn(letter, detections)
+        self.assertIn(own_ring, detections)
+
     def test_mixed_bridge_routes_85kg_targets_to_htd85_binary(self):
         bridge = target_vision.HiwonderSingleBusServoBridge(
             "/dev/missing", 115200, enabled=False, write_enabled=False
